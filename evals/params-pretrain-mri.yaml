@@ -1,0 +1,81 @@
+app: vjepa
+data:
+  batch_size: 24
+  dataset_type: MRIDataset
+  datasets: /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths.csv
+  num_patches: 1
+  num_workers: 12
+  patch_size: (32, 32, 32)
+  patch_step: (32, 32, 32)
+  pin_mem: true
+  target_shape: (196, 256, 256)
+data_aug:
+  auto_augment: false
+  random_resize_aspect_ratio:
+  - 0.75
+  - 1.35
+  random_resize_scale:
+  - 0.3
+  - 1.0
+  reprob: 0.0
+logging:
+  folder: /home/gozde/medChangeDet/jepa/evals/
+  write_tag: jepa
+loss:
+  loss_exp: 1.0
+  reg_coeff: 0.0
+mask:
+- aspect_ratio:
+  - 0.75
+  - 1.5
+  max_keep: null
+  max_temporal_keep: 1.0
+  num_blocks: 8
+  spatial_scale:
+  - 0.15
+  - 0.15
+  temporal_scale:
+  - 1.0
+  - 1.0
+- aspect_ratio:
+  - 0.75
+  - 1.5
+  max_keep: null
+  max_temporal_keep: 1.0
+  num_blocks: 2
+  spatial_scale:
+  - 0.7
+  - 0.7
+  temporal_scale:
+  - 1.0
+  - 1.0
+meta:
+  dtype: bfloat16
+  eval_freq: 100
+  load_checkpoint: false
+  read_checkpoint: null
+  seed: 234
+  use_sdpa: true
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+  uniform_power: true
+  use_mask_tokens: true
+  zero_init_mask_tokens: true
+nodes: 16
+optimization:
+  clip_grad: 10.0
+  ema:
+  - 0.998
+  - 1.0
+  epochs: 300
+  final_lr: 1.0e-06
+  final_weight_decay: 0.4
+  ipe: 300
+  ipe_scale: 1.25
+  lr: 0.000625
+  start_lr: 0.0002
+  warmup: 40
+  weight_decay: 0.04
+tasks_per_node: 8
