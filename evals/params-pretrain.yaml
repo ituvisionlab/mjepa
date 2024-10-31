@@ -1,11 +1,11 @@
 app: vjepa
 data:
-  batch_size: 1
+  batch_size: 16
   clip_duration: null
   crop_size: 224
   dataset_type: MRIDataset
   datasets:
-  - /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices.csv
+  - /gpfs/home/unalg01/jepa/src/datasets/updated_nii_file_paths.csv
   decode_one_clip: true
   filter_short_videos: false
   num_clips: 1
@@ -26,7 +26,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /home/gozde/medChangeDet/jepa/evals/
+  folder: /gpfs/home/unalg01/jepa/evals/
   write_tag: jepa
 loss:
   loss_exp: 1.0
@@ -76,13 +76,13 @@ optimization:
   ema:
   - 0.998
   - 1.0
-  epochs: 300
+  epochs: 1500
   final_lr: 1.0e-06
   final_weight_decay: 0.4
   ipe: 300
   ipe_scale: 1.25
   lr: 0.000625
   start_lr: 0.0002
-  warmup: 40
+  warmup: 5
   weight_decay: 0.04
-tasks_per_node: 1
+tasks_per_node: 8

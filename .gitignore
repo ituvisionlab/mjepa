@@ -3,3 +3,6 @@
 *.tar
 *.pth
 *.csv
+build/
+job_*
+.submission*

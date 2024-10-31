@@ -1,6 +1,6 @@
 app: vjepa
 nodes: 1
-tasks_per_node: 2  #1
+tasks_per_node: 8
 data:
   # dataset_type: VideoDataset
   dataset_type: MRIDataset
@@ -11,7 +11,7 @@ data:
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 64
+  batch_size: 16
   num_clips: 1
   num_frames: 16
   tubelet_size: 2
@@ -19,7 +19,7 @@ data:
   crop_size: 224
   patch_size: 16
   pin_mem: true
-  num_workers: 1 #0 #12
+  num_workers: 0 #12
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -81,10 +81,10 @@ optimization:
   ipe: 300
   ipe_scale: 1.25
   clip_grad: 10.0
-  weight_decay: 0.01
-  final_weight_decay: 0.1
+  weight_decay: 0.04
+  final_weight_decay: 0.4
   epochs: 1500
-  warmup: 2
+  warmup: 5
   start_lr: 0.0002
   lr: 0.000625
   final_lr: 1.0e-06
