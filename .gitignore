@@ -6,3 +6,6 @@
 logs/
 slice.png
 slice_preprocesed.png
+build/
+job_*
+.submission*

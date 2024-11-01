@@ -12,26 +12,11 @@ import yaml
 
 import submitit
 
-import logging
-import sys
-import traceback
-
 from app.scaffold import main as app_main
 from src.utils.logging import get_logger
 
-#logger = get_logger(force=True)
+logger = get_logger(force=True)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s][%(levelname)s][%(name)s] %(message)s',
-    handlers=[
-        logging.FileHandler("job_submission.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
-# end configure logging
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -64,26 +49,20 @@ class Trainer:
         self.app = args_pretrain['app']
         self.args_pretrain = args_pretrain
         self.load_model = load_model
-        logger.info(f"In Trainer init: {args_pretrain}")
+        print(f"In Trainer init: {args_pretrain}")
 
     def __call__(self):
-        try:
-            app = self.app
-            params = self.args_pretrain
-            load_model = self.load_model
+        app = self.app
+        params = self.args_pretrain
+        load_model = self.load_model
 
-            logger.info('loaded pretrain params...')
-            pp = pprint.PrettyPrinter(indent=4)
-            logger.info("Params:")
-            logger.info(pp.pformat(params))
-        
-            # Launch app with loaded config
-            resume_preempt = False if load_model is None else load_model
-            app_main(app, args=params, resume_preempt=resume_preempt)
-            logger.info("Training completed successfully.")
-        except Exception as e:
-            logger.exception("An error occurred during training.")
-            raise e  # Re-raise the exception to ensure the job fails appropriately
+        logger.info('loaded pretrain params...')
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(params)
+
+        # Launch app with loaded config
+        resume_preempt = False if load_model is None else load_model
+        app_main(app, args=params, resume_preempt=resume_preempt)
 
     def checkpoint(self):
         fb_trainer = Trainer(self.args_pretrain, True)
@@ -104,48 +83,36 @@ def launch_app_with_parsed_args(
         slurm_max_num_timeout=20)
     executor.update_parameters(
         slurm_partition=partition,
-        # slurm_mem_per_gpu='128G', 
-        slurm_mem='128G',
+        slurm_mem_per_gpu='128G',
         timeout_min=timeout,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
         cpus_per_task=1,
         gpus_per_node=tasks_per_node)
 
-    if exclude_nodes is not None:
-    # if args_exclude is not None:
-        executor.update_parameters(slurm_exclude=exclude_nodes)
+    if args.exclude is not None:
+        executor.update_parameters(slurm_exclude=args.exclude)
 
-    logger.info(f"Executor parameters: {executor.parameters}")
-    logger.info(f"tasks_per_node: {tasks_per_node}")
-    logger.info(f"partition: {partition}")
+    print(f"tasks_per_node: {tasks_per_node}")
+    print(f"partition: {partition}")
 
     jobs, trainers = [], []
     with executor.batch():
         for ap in args_for_pretrain:
             fb_trainer = Trainer(ap)
-            try:
-                job = executor.submit(fb_trainer,)
-                trainers.append(fb_trainer)
-                jobs.append(job)
-                # Cannot access job.job_id here
-                logger.info("Job submitted (job ID not yet available).") 
-            except Exception as e:
-                logger.exception("Failed to submit job.")
-                sys.exit(1)
-
-    logger.info("All jobs submitted.")
+            job = executor.submit(fb_trainer,)
+            trainers.append(fb_trainer)
+            jobs.append(job)
 
     for job in jobs:
-        logger.info(f"Submitted job with ID: {job.job_id}")
-        # print(job.job_id)
+        print(job.job_id)
+
 
 def launch():
 
     # ---------------------------------------------------------------------- #
     # 1. Put config file names in a list
     # ---------------------------------------------------------------------- #
-    args = parser.parse_args()
     config_fnames = [args.fname]
 
     # -- If batch-launch is True, then the args.fname yaml file is not a
@@ -187,9 +154,4 @@ def launch():
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    try: 
-        launch()
-    except Exception as e:
-        logger.exception("An error occurred in the launch process.")
-        sys.exit(1)
-
+    launch()
