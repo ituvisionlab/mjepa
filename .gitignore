@@ -4,3 +4,5 @@
 *.pth
 *.csv
 logs/
+slice.png
+slice_preprocesed.png
