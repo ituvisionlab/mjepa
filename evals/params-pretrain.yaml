@@ -5,12 +5,12 @@ data:
   crop_size: 224
   dataset_type: MRIDataset
   datasets:
-  - /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices.csv
+  - /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices_new.csv
   decode_one_clip: true
   filter_short_videos: false
   num_clips: 1
   num_frames: 16
-  num_workers: 0
+  num_workers: 24
   patch_size: 16
   pin_mem: true
   sampling_rate: 1
@@ -76,13 +76,13 @@ optimization:
   ema:
   - 0.998
   - 1.0
-  epochs: 300
+  epochs: 1200
   final_lr: 1.0e-06
   final_weight_decay: 0.4
-  ipe: 300
+  ipe: 500
   ipe_scale: 1.25
-  lr: 0.000625
-  start_lr: 0.0002
+  lr: 0.003
+  start_lr: 0.003
   warmup: 40
-  weight_decay: 0.04
+  weight_decay: 0.004
 tasks_per_node: 1

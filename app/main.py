@@ -10,6 +10,7 @@ import argparse
 import multiprocessing as mp
 
 import pprint
+import torch.version
 import yaml
 
 import sys 
@@ -17,6 +18,8 @@ sys.path.append('/home/gozde/medChangeDet/jepa')
 
 from app.scaffold import main as app_main
 from src.utils.distributed import init_distributed
+from app.vjepa.utils import get_new_log_dir
+import torch.utils.tensorboard
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -60,8 +63,15 @@ def process_main(rank, fname, world_size, devices):
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
     logger.info(f'Running... (rank: {rank}/{world_size})')
 
+    writer = None
+    if rank == 0:
+        log_path = "./logs"
+        log_dir = get_new_log_dir(log_path, prefix=f'{params["app"]}_pretrain_', postfix='')
+        params['logging']['log_path'] = log_dir
+        writer = torch.utils.tensorboard.SummaryWriter(params['logging']['log_path'])
+        
     # Launch the app with loaded config
-    app_main(params['app'], args=params)
+    app_main(params['app'], args=params, log_writer=writer)
 
 
 if __name__ == '__main__':
@@ -72,12 +82,17 @@ if __name__ == '__main__':
     num_gpus = len(args.devices)
     
      # Run only one process for debugging
-    process_main(0, args.fname, num_gpus, gpu_devices)
+    # process_main(0, args.fname, num_gpus, gpu_devices)
 
 
-    #mp.set_start_method('spawn')
-    #for rank in range(num_gpus):
-    #    mp.Process(
-    #        target=process_main,
-    #        args=(rank, args.fname, num_gpus, args.devices)
-    #    ).start()
+    mp.set_start_method('spawn')
+    
+    processes = []
+    for rank in range(num_gpus):
+        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices))
+        p.start()
+        processes.append(p)
+
+    for p in processes:
+        p.join()
+    

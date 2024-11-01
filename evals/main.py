@@ -78,9 +78,13 @@ if __name__ == '__main__':
     # # process_main(0, args.fname, num_gpus, gpu_devices)
 
     mp.set_start_method('spawn')
+    
+    processes = []
     for rank in range(num_gpus):
-        mp.Process(
-            target=process_main,
-            args=(rank, args.fname, num_gpus, args.devices)
-        ).start()
+        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices))
+        p.start()
+        processes.append(p)
+    
+    for p in processes:
+        p.join()
         

@@ -9,7 +9,8 @@ import logging
 import sys
 import warnings
 import yaml
-
+import os
+import time
 
 import torch
 
@@ -208,3 +209,9 @@ def init_opt(
     )
     scaler = torch.cuda.amp.GradScaler() if mixed_precision else None
     return optimizer, scaler, scheduler, wd_scheduler
+
+def get_new_log_dir(root='./logs', postfix='', prefix=''):
+    log_dir = os.path.join(root, prefix + time.strftime('%Y_%m_%d__%H_%M_%S', time.localtime()) + postfix)
+    os.makedirs(log_dir)
+    return log_dir
+

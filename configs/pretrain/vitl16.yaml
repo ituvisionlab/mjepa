@@ -1,17 +1,17 @@
 app: vjepa
-nodes: 8 #1
-tasks_per_node: 8 #1
+nodes: 1 #1
+tasks_per_node: 1 #1
 data:
   # dataset_type: VideoDataset
   dataset_type: MRIDataset
   datasets: 
-  - /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices.csv
+  - /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices_new.csv
   # - /home/gozde/medChangeDet/jepa/src/datasets/video_test.csv
   #  - /your_path_to_kinetics710_csv_file_index.csv
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 4
+  batch_size: 1
   num_clips: 1
   num_frames: 16
   tubelet_size: 2
@@ -19,7 +19,7 @@ data:
   crop_size: 224
   patch_size: 16
   pin_mem: true
-  num_workers: 4 #0 #12
+  num_workers: 24 #0 #12
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -78,15 +78,15 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: true
 optimization:
-  ipe: 300
+  ipe: 500 #300
   ipe_scale: 1.25
   clip_grad: 10.0
-  weight_decay: 0.04
+  weight_decay: 0.004
   final_weight_decay: 0.4
-  epochs: 300
+  epochs: 1200
   warmup: 40
-  start_lr: 0.0002
-  lr: 0.000625
+  start_lr: 0.003 #0.0002
+  lr: 0.003 #0.000625
   final_lr: 1.0e-06
   ema:
   - 0.998

@@ -24,7 +24,8 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel
+from torch.nn.parallel import DistributedDataParallel, DataParallel
+import torch.utils.tensorboard
 
 from src.datasets.data_manager import init_data
 from src.masks.random_tube import MaskCollator as TubeMaskCollator
@@ -63,7 +64,7 @@ torch.backends.cudnn.benchmark = True
 logger = get_logger(__name__)
 
 
-def main(args, resume_preempt=False):
+def main(args, resume_preempt=False, log_writer=None):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
     # ----------------------------------------------------------------------- #
@@ -175,7 +176,7 @@ def main(args, resume_preempt=False):
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
-        device = torch.device('cuda:0')
+        device = torch.device(f'cuda:0')
         torch.cuda.set_device(device)
 
     # -- log/checkpointing paths
@@ -522,6 +523,17 @@ def main(args, resume_preempt=False):
                     grad_stats_pred.global_norm,
                     gpu_etime_ms,
                     iter_elapsed_time_ms)
+                
+                if rank == 0 and log_writer is not None:
+                    log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
+                    log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
+                    log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
+                    log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
+                    log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
+                    log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
+                    log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
+                    log_writer.flush()
+                    
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
                         '[%d, %5d] loss: %.3f | p%.3f r%.3f | '
