@@ -7,5 +7,6 @@ logs/
 slice.png
 slice_preprocesed.png
 build/
+dist/
 job_*
 .submission*
