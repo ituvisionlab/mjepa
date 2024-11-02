@@ -29,9 +29,13 @@ parser.add_argument(
 parser.add_argument(
     '--devices', type=str, nargs='+', default=['cuda:0'],
     help='which devices to use on local machine')
+parser.add_argument(
+    '--log_dir', type=str, default="./logs",
+    help='directory path for tensorboard logging'
+)
 
 
-def process_main(rank, fname, world_size, devices):
+def process_main(rank, fname, world_size, devices, log_dir):
     import os
     os.environ['CUDA_VISIBLE_DEVICES'] = str(devices[rank].split(':')[-1])
 
@@ -54,7 +58,7 @@ def process_main(rank, fname, world_size, devices):
     # Log config
     if rank == 0:
         pprint.PrettyPrinter(indent=4).pprint(params)
-        dump = os.path.join(params['logging']['folder'], 'params-pretrain.yaml')
+        dump = os.path.join(log_dir, 'params-pretrain.yaml')
         #dump = os.path.join(params['logging']['folder'], 'params-pretrain-mri.yaml')
         with open(dump, 'w') as f:
             yaml.dump(params, f)
@@ -63,15 +67,22 @@ def process_main(rank, fname, world_size, devices):
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
     logger.info(f'Running... (rank: {rank}/{world_size})')
 
-    writer = None
-    if rank == 0:
-        log_path = "./logs"
-        log_dir = get_new_log_dir(log_path, prefix=f'{params["app"]}_pretrain_', postfix='')
-        params['logging']['log_path'] = log_dir
-        writer = torch.utils.tensorboard.SummaryWriter(params['logging']['log_path'])
+
+    # Tensorboard config
+    
+    # writer = None
+    # if rank == 0:
+    #     log_path = "./logs"
+    #     log_dir = get_new_log_dir(log_path, prefix=f'{params["app"]}_pretrain_', postfix='')
+    #     params['logging']['log_path'] = log_dir
+    #     writer = torch.utils.tensorboard.SummaryWriter(params['logging']['log_path'])
+    
+    
+    
         
     # Launch the app with loaded config
-    app_main(params['app'], args=params, log_writer=writer)
+    # app_main(params['app'], args=params, log_writer=writer)
+    app_main(params['app'], args=params, log_dir=log_dir)
 
 
 if __name__ == '__main__':
@@ -84,12 +95,15 @@ if __name__ == '__main__':
      # Run only one process for debugging
     # process_main(0, args.fname, num_gpus, gpu_devices)
 
-
+    # Tensorboard config
+    
+    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_pretrain_', postfix='')
+    
     mp.set_start_method('spawn')
     
     processes = []
     for rank in range(num_gpus):
-        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices))
+        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices, log_dir))
         p.start()
         processes.append(p)
 

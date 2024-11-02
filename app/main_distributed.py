@@ -18,6 +18,7 @@ import traceback
 
 from app.scaffold import main as app_main
 from src.utils.logging import get_logger
+from app.vjepa.utils import get_new_log_dir
 
 #logger = get_logger(force=True)
 
@@ -60,10 +61,11 @@ parser.add_argument(
 
 class Trainer:
 
-    def __init__(self, args_pretrain, load_model=None):
+    def __init__(self, args_pretrain, log_dir=None, load_model=None):
         self.app = args_pretrain['app']
         self.args_pretrain = args_pretrain
         self.load_model = load_model
+        self.log_dir = log_dir
         logger.info(f"In Trainer init: {args_pretrain}")
 
     def __call__(self):
@@ -79,7 +81,7 @@ class Trainer:
         
             # Launch app with loaded config
             resume_preempt = False if load_model is None else load_model
-            app_main(app, args=params, resume_preempt=resume_preempt)
+            app_main(app, args=params, resume_preempt=resume_preempt, log_dir=self.log_dir)
             logger.info("Training completed successfully.")
         except Exception as e:
             logger.exception("An error occurred during training.")
@@ -119,11 +121,14 @@ def launch_app_with_parsed_args(
     logger.info(f"Executor parameters: {executor.parameters}")
     logger.info(f"tasks_per_node: {tasks_per_node}")
     logger.info(f"partition: {partition}")
+    
+    # Create log folder for the experiment
+    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_pretrain_distributed_', postfix='')
 
     jobs, trainers = [], []
     with executor.batch():
         for ap in args_for_pretrain:
-            fb_trainer = Trainer(ap)
+            fb_trainer = Trainer(ap, log_dir)
             try:
                 job = executor.submit(fb_trainer,)
                 trainers.append(fb_trainer)

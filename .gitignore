@@ -5,7 +5,7 @@
 *.csv
 logs/
 slice.png
-slice_preprocesed.png
+slice_preprocessed.png
 build/
 dist/
 job_*
