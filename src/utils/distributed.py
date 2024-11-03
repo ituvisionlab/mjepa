@@ -36,7 +36,7 @@ def init_distributed(port=37123, rank_and_world_size=(None, None)):
     try:
         os.environ['MASTER_PORT'] = str(port)
         torch.distributed.init_process_group(
-            backend='nccl' # gloo
+            backend='nccl', # gloo
             world_size=world_size,
             rank=rank
         )
