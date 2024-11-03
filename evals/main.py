@@ -61,6 +61,13 @@ def process_main(rank, fname, world_size, devices, log_dir):
         logger.info('loaded params...')
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(params)
+    
+    # Log config
+    if rank == 0:
+        dump = os.path.join(log_dir, 'params-pretrain.yaml')
+        #dump = os.path.join(params['logging']['folder'], 'params-pretrain-mri.yaml')
+        with open(dump, 'w') as f:
+            yaml.dump(params, f)
 
     # Init distributed (access to comm between GPUS on same machine)
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
