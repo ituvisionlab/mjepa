@@ -5,8 +5,8 @@ eval_name: video_classification_frozen
 resume_checkpoint: false
 data:
   root_path: /home/gozde/medChangeDet/jepa/
-  dataset_train: /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices_new.csv
-  dataset_val: /home/gozde/medChangeDet/jepa/src/datasets/filtered_combined_nii_file_paths_256slices_new.csv
+  dataset_train: src/datasets/updated_nii_file_paths.csv
+  dataset_val: src/datasets/updated_nii_file_paths.csv
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 16
