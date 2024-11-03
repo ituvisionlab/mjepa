@@ -199,7 +199,7 @@ class MRIDataset(torch.utils.data.Dataset):
             volume = self.resize(volume, crop_sizes={1: 224, 2: 224})
             
             # save one png file for debugging
-            plt.imsave('slice.png', volume[100], cmap='gray')
+            # plt.imsave('slice.png', volume[100], cmap='gray')
 
             # Preprocess the volume: intensity normalization
             volume = self.preprocess_volume(volume)

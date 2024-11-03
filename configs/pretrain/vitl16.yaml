@@ -1,6 +1,6 @@
 app: vjepa
 nodes: 1
-tasks_per_node: 2  #1
+tasks_per_node: 4  #1
 data:
   # dataset_type: VideoDataset
   dataset_type: MRIDataset

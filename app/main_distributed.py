@@ -96,7 +96,7 @@ def launch_app_with_parsed_args(
     partition,
     timeout=4300,
     nodes=1,
-    tasks_per_node=2,
+    tasks_per_node=4,
     exclude_nodes=None
 ):
     executor = submitit.AutoExecutor(
@@ -105,7 +105,7 @@ def launch_app_with_parsed_args(
     executor.update_parameters(
         slurm_partition=partition,
         # slurm_mem_per_gpu='128G', 
-        slurm_mem='128G',
+        slurm_mem='192G',
         timeout_min=timeout,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
