@@ -19,7 +19,7 @@ def init_data(
     data='ImageNet',
     collator=None,
     pin_mem=True,
-    num_workers=8,
+    num_workers=1,
     world_size=1,
     rank=0,
     root_path=None,

@@ -31,6 +31,8 @@ import torch.nn.parallel
 
 from torch.nn.parallel import DistributedDataParallel
 
+import torch.utils.tensorboard
+
 import sys 
 sys.path.append('/home/gozde/medChangeDet/jepa')
 
@@ -70,7 +72,7 @@ torch.backends.cudnn.benchmark = True
 pp = pprint.PrettyPrinter(indent=4)
 
 
-def main(args_eval, resume_preempt=False):
+def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
@@ -117,10 +119,13 @@ def main(args_eval, resume_preempt=False):
     final_lr = args_opt.get('final_lr')
     warmup = args_opt.get('warmup')
     use_bfloat16 = args_opt.get('use_bfloat16')
+    train_eval_freq = args_opt.get('train_log_iter_freq')
+    val_eval_freq = args_opt.get('val_log_iter_freq')
 
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
     eval_tag = args_eval.get('tag', None) # tag: k400-16x8x3
+    cls_checkpoint_path = args_eval.get('checkpoint_path')
 
     # ----------------------------------------------------------------------- #
 
@@ -139,27 +144,36 @@ def main(args_eval, resume_preempt=False):
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
 
     # -- log/checkpointing paths
-    folder = os.path.join(pretrain_folder, 'video_classification_frozen/')
-    if eval_tag is not None:
-        folder = os.path.join(folder, eval_tag)
-    if not os.path.exists(folder):
-        os.makedirs(folder, exist_ok=True)
-    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
-    latest_path = os.path.join(folder, 'k400-probe.pth.tar') # this is classifier pretrained
-    dirname, filenameT = os.path.split(latest_path) # Extract the directory and filename
-    # Replace the filename with the new one containing '_latest'
-    new_filename  = filenameT.replace('.pth.tar', '_latest.pth.tar')
-    # Join the directory with the modified filename
-    latest_path_to_save = os.path.join(dirname, new_filename)
-    # latest_path = os.path.join(folder, f'{tag}-latest.pth.tar') #jepa-latest.pth.tar name is encoder
-    # latest_path = os.path.join(pretrain_folder, f'{tag}-latest.pth.tar') #this is encoder, loaded to pretrained_path elsewhere
-  
+    
+    # folder = log_dir
+    # folder = os.path.join(pretrain_folder, 'video_classification_frozen/')
+    
+    # if eval_tag is not None:
+    #     folder = os.path.join(folder, eval_tag)
+    # if not os.path.exists(folder):
+    #     os.makedirs(folder, exist_ok=True)
+    
+    model_folder = os.path.join(log_dir, "model_ckpt")
+    csv_folder = os.path.join(log_dir, "csv_logs")
+    tb_folder = os.path.join(log_dir, "tensorboard")
+    
+    os.makedirs(model_folder, exist_ok=True)
+    os.makedirs(csv_folder, exist_ok=True)
+    os.makedirs(tb_folder, exist_ok=True)
+    
+    csv_log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
+    latest_path_to_save = os.path.join(model_folder, f'{tag}-latest.pth.tar')
+    
+    # Tensorboard logging
+    tb_rank_folder = os.path.join(tb_folder, f"{tag}_rank_{rank}")
+    os.makedirs(tb_rank_folder, exist_ok=True)
+    log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+    
     # -- make csv_logger
-    if rank == 0:
-        csv_logger = CSVLogger(log_file,
-                               ('%d', 'epoch'),
-                               ('%.5f', 'loss'),
-                               ('%.5f', 'acc'))
+    csv_logger = CSVLogger(csv_log_file,
+                            ('%d', 'epoch'),
+                            ('%.5f', 'loss'),
+                            ('%.5f', 'acc'))
 
     # Initialize model
 
@@ -248,7 +262,7 @@ def main(args_eval, resume_preempt=False):
     if resume_checkpoint:
         classifier, optimizer, scaler, start_epoch = load_checkpoint(
             device=device,
-            r_path=latest_path,
+            r_path=cls_checkpoint_path,
             classifier=classifier,
             opt=optimizer,
             scaler=scaler)
@@ -272,7 +286,8 @@ def main(args_eval, resume_preempt=False):
     start_epoch = 0 # even if resuming from checkpoint, we should set this to 0, o/w start and num_epochs are the same
     # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
-        logger.info('Epoch %d' % (epoch + 1))
+        if rank == 0:
+            logger.info('Epoch %d' % (epoch + 1))
         train_acc = run_one_epoch(
             device=device,
             training=True,
@@ -286,7 +301,11 @@ def main(args_eval, resume_preempt=False):
             scheduler=scheduler,
             wd_scheduler=wd_scheduler,
             data_loader=train_loader,
-            use_bfloat16=use_bfloat16)
+            use_bfloat16=use_bfloat16,
+            log_writer=log_writer,
+            epoch=epoch,
+            eval_freq=train_eval_freq,
+            rank=rank)
 
         val_acc = run_one_epoch(
             device=device,
@@ -301,11 +320,18 @@ def main(args_eval, resume_preempt=False):
             scheduler=scheduler,
             wd_scheduler=wd_scheduler,
             data_loader=val_loader,
-            use_bfloat16=use_bfloat16)
+            use_bfloat16=use_bfloat16,
+            log_writer=log_writer,
+            epoch=epoch,
+            eval_freq=val_eval_freq,
+            rank=rank)
 
-        logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
         if rank == 0:
-            csv_logger.log(epoch + 1, train_acc, val_acc)
+            logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
+        
+        # if rank == 0:
+        csv_logger.log(epoch + 1, train_acc, val_acc)
+        
         save_checkpoint(epoch + 1)
 
 
@@ -323,11 +349,18 @@ def run_one_epoch(
     num_spatial_views,
     num_temporal_views,
     attend_across_segments,
+    log_writer,
+    epoch,
+    eval_freq,
+    rank
 ):
 
     classifier.train(mode=training)
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
+    ipe = len(data_loader)
+    if eval_freq > ipe:
+        eval_freq = 1
     for itr, data in enumerate(data_loader):
 
         if training:
@@ -386,7 +419,17 @@ def run_one_epoch(
                 optimizer.step()
             optimizer.zero_grad()
 
-        if itr % 20 == 0:
+        if training and itr % eval_freq == 0:
+            log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
+            log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
+            log_writer.add_scalar('train/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
+        
+        if not training and itr % eval_freq == 0:
+            log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
+            log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
+            log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
+            
+        if itr % 20 == 0 and rank == 0:
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
@@ -470,7 +513,7 @@ def make_dataloader(
     num_views_per_segment=1,
     allow_segment_overlap=True,
     training=False,
-    num_workers=12,
+    num_workers=4,
     subset_file=None
 ):
     # Make Video Transforms

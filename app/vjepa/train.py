@@ -24,7 +24,8 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
-from torch.nn.parallel import DistributedDataParallel
+from torch.nn.parallel import DistributedDataParallel, DataParallel
+import torch.utils.tensorboard
 
 from src.datasets.data_manager import init_data
 from src.masks.random_tube import MaskCollator as TubeMaskCollator
@@ -63,7 +64,8 @@ torch.backends.cudnn.benchmark = True
 logger = get_logger(__name__)
 
 
-def main(args, resume_preempt=False):
+# def main(args, resume_preempt=False, log_writer=None):
+def main(args, resume_preempt=False, log_dir="./logs/evals"):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
     # ----------------------------------------------------------------------- #
@@ -153,8 +155,17 @@ def main(args, resume_preempt=False):
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
-    folder = cfgs_logging.get('folder')
+    # folder = cfgs_logging.get('folder')
     tag = cfgs_logging.get('write_tag')
+    
+    model_folder = os.path.join(log_dir, "model_ckpt")
+    csv_folder = os.path.join(log_dir, "csv_logs")
+    jepa_ckpt_folder = "./src/models/pretrained_weights"
+    tb_folder = os.path.join(log_dir, "tensorboard")
+    
+    os.makedirs(model_folder, exist_ok=True)
+    os.makedirs(csv_folder, exist_ok=True)
+    os.makedirs(tb_folder, exist_ok=True)
 
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
@@ -175,19 +186,25 @@ def main(args, resume_preempt=False):
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
-        device = torch.device('cuda:0')
+        device = torch.device(f'cuda:0')
         torch.cuda.set_device(device)
 
     # -- log/checkpointing paths
-    log_file = os.path.join(folder, f'{tag}_r{rank}.csv')
+    log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
     latest_file = f'{tag}-latest.pth.tar'
-    latest_path = os.path.join(folder, latest_file)
+    latest_path = os.path.join(model_folder, latest_file)
     load_path = None
     if load_model:
-        load_path = os.path.join(folder, r_file) if r_file is not None else latest_path
+        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else latest_path
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
+            
+    # Tensorboard logging
+    tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
+    os.makedirs(tb_rank_folder, exist_ok=True)
+    log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+    
 
     # -- make csv_logger
     csv_logger = CSVLogger(
@@ -267,7 +284,7 @@ def main(args, resume_preempt=False):
          world_size=world_size,
          pin_mem=pin_mem,
          rank=rank,
-         log_dir=folder if log_resource_util_data else None)
+         log_dir=csv_folder if log_resource_util_data else None)
     try:
         _dlen = len(unsupervised_loader)
     except Exception:  # Different interface for webdataset
@@ -522,6 +539,17 @@ def main(args, resume_preempt=False):
                     grad_stats_pred.global_norm,
                     gpu_etime_ms,
                     iter_elapsed_time_ms)
+                
+                # Tensorboard logging
+                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
+                log_writer.flush()
+                    
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
                         '[%d, %5d] loss: %.3f | p%.3f r%.3f | '
@@ -584,5 +612,5 @@ def main(args, resume_preempt=False):
             save_checkpoint(epoch + 1, latest_path)
             if save_every_freq > 0 and epoch % save_every_freq == 0:
                 save_every_file = f'{tag}-e{epoch}.pth.tar'
-                save_every_path = os.path.join(folder, save_every_file)
+                save_every_path = os.path.join(model_folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)

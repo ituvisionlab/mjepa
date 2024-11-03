@@ -16,6 +16,7 @@ import yaml
 import submitit
 
 from evals.scaffold import main as eval_main
+from app.vjepa.utils import get_new_log_dir
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO) # ,filename='main_log_file.log'
 logger = logging.getLogger()
@@ -46,9 +47,10 @@ parser.add_argument(
 
 class Trainer:
 
-    def __init__(self, args_eval=None, resume_preempt=None):
+    def __init__(self, args_eval=None, resume_preempt=None, log_dir=None):
         self.eval_name = args_eval['eval_name']
         self.args_eval = args_eval
+        self.log_dir = log_dir
         self.resume_preempt = resume_preempt
 
     def __call__(self):
@@ -63,7 +65,8 @@ class Trainer:
         eval_main(
             eval_name,
             args_eval=args_eval,
-            resume_preempt=resume_preempt)
+            resume_preempt=resume_preempt,
+            log_dir=self.log_dir)
 
     def checkpoint(self):
         fb_trainer = Trainer(self.args_eval, True)

@@ -202,7 +202,9 @@ class MRIDataset(torch.utils.data.Dataset):
             # plt.imsave('slice.png', volume[100], cmap='gray')
 
             # Preprocess the volume: intensity normalization
-            volume = self.preprocess_volume(volume)
+            volume, volume_mean, volume_std = self.preprocess_volume(volume)
+            
+            plt.imsave('slice_preprocessed.png', volume[100, :, :, 0]*volume_std + volume_mean, cmap='gray')
 
             return volume
     
@@ -243,8 +245,11 @@ class MRIDataset(torch.utils.data.Dataset):
 
     def preprocess_volume(self, volume):
 
+        
+        volume_mean = np.mean(volume)
+        volume_std = np.std(volume)
         # Normalize intensities
-        volume = (volume - np.mean(volume)) / np.std(volume)
+        volume = (volume - volume_mean) / volume_std
         # Convert to float32
         volume = volume.astype(np.float32)
 
@@ -257,7 +262,7 @@ class MRIDataset(torch.utils.data.Dataset):
         # Should output (T, H, W, 3)
         #print(f"Volume shape after preprocessing: {volume.shape}")  
         
-        return volume
+        return volume, volume_mean, volume_std
 
 
     def split_volume(self, volume):

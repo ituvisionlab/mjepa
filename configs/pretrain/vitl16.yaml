@@ -5,13 +5,13 @@ data:
   # dataset_type: VideoDataset
   dataset_type: MRIDataset
   datasets: 
-  - /gpfs/home/unalg01/jepa/src/datasets/updated_nii_file_paths.csv
+  - src/datasets/updated_nii_file_paths.csv # Relative path instead of abs path
   # - /home/gozde/medChangeDet/jepa/src/datasets/video_test.csv
   #  - /your_path_to_kinetics710_csv_file_index.csv
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 64
+  batch_size: 1 #64
   num_clips: 1
   num_frames: 16
   tubelet_size: 2
@@ -78,7 +78,7 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: true
 optimization:
-  ipe: 300
+  ipe: 500 #300
   ipe_scale: 1.25
   clip_grad: 10.0
   weight_decay: 0.01

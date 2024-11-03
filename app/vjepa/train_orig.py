@@ -14,6 +14,7 @@ try:
     # --          THAT YOUR JOBS ARE LAUNCHED WITH ONLY 1 DEVICE VISIBLE
     # --          TO EACH PROCESS
     os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
+    print(os.environ['SLURM_LOCALID'])
 except Exception:
     pass
 
