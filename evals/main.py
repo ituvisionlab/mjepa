@@ -16,6 +16,7 @@ import yaml
 import sys 
 sys.path.append('/home/gozde/medChangeDet/jepa')
 
+from app.vjepa.utils import get_new_log_dir
 from src.utils.distributed import init_distributed
 
 from evals.scaffold import main as eval_main
@@ -28,9 +29,12 @@ parser.add_argument(
 parser.add_argument(
     '--devices', type=str, nargs='+', default=['cuda:0'],
     help='which devices to use on local machine')
+parser.add_argument(
+    '--log_dir', type=str, default="./logs",
+    help='directory path for tensorboard logging'
+)
 
-
-def process_main(rank, fname, world_size, devices):
+def process_main(rank, fname, world_size, devices, log_dir):
     import os
     os.environ['CUDA_VISIBLE_DEVICES'] = str(devices[rank].split(':')[-1])
 
@@ -40,6 +44,7 @@ def process_main(rank, fname, world_size, devices):
     import logging
     #logging.basicConfig()
     logging.basicConfig(filename='my_log_file.log')
+    
     logger = logging.getLogger()
     if rank == 0:
         logger.setLevel(logging.INFO)
@@ -63,8 +68,9 @@ def process_main(rank, fname, world_size, devices):
 
     print("In main.py/process_main, listing params.keys:")
     print(params.keys())
+    
     # Launch the eval with loaded config
-    eval_main(params['eval_name'], args_eval=params)
+    eval_main(params['eval_name'], args_eval=params, log_dir=log_dir)
 
 
 if __name__ == '__main__':
@@ -76,12 +82,14 @@ if __name__ == '__main__':
     
     # Run only one process for debugging
     # # process_main(0, args.fname, num_gpus, gpu_devices)
+    
+    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_eval_', postfix='')
 
     mp.set_start_method('spawn')
     
     processes = []
     for rank in range(num_gpus):
-        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices))
+        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices, log_dir))
         p.start()
         processes.append(p)
     

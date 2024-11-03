@@ -16,9 +16,11 @@ logger = logging.getLogger()
 def main(
     eval_name,
     args_eval,
-    resume_preempt=False
+    resume_preempt=False,
+    log_dir=None
 ):
     logger.info(f'Running evaluation: {eval_name}')
     return importlib.import_module(f'evals.{eval_name}.eval').main(
         args_eval=args_eval,
-        resume_preempt=resume_preempt)
+        resume_preempt=resume_preempt,
+        log_dir=log_dir)
