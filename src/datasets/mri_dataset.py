@@ -126,7 +126,7 @@ class MRIDataset(torch.utils.data.Dataset):
         self.filter_long_videos = filter_long_videos
         self.duration = duration
 
-    # Load data from CSV
+        # Load data from CSV
         samples, labels = [], []
         self.num_samples_per_dataset = []
         for data_path in self.data_paths:

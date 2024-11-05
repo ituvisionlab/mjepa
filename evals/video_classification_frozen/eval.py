@@ -428,7 +428,10 @@ def run_one_epoch(
             log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
             log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
             log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
+        
+        log_writer.flush()
+        torch.cuda.empty_cache()
+        
         if itr % 20 == 0 and rank == 0:
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
                         % (itr, top1_meter.avg, loss,
