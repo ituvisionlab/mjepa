@@ -12,7 +12,7 @@ data:
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
   batch_size: 1 #64
-  num_clips: 1
+  num_clips: 2
   num_frames: 16
   tubelet_size: 2
   sampling_rate: 1

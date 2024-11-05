@@ -166,3 +166,4 @@ build/
 dist/
 job_*
 .submission*
+.vscode/

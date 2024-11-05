@@ -11,12 +11,14 @@
             "justMyCode": false,
             "logToFile": true,
             "args": [
-                "--fname=configs/evals/vitl16_mri_eval.yaml",
-                "--devices", "cuda:0", "cuda:1", "cuda:2", "cuda:3"
+                "--fname=configs/pretrain/vitl16.yaml",
+                // "--devices", "cuda:0", "cuda:1", "cuda:2", "cuda:3"
+                "--devices", "cuda:0"
             ],
             "env": {
                 "OMP_NUM_THREADS": "4", 
-                "CUDA_VISIBLE_DEVICES": "0,1,2,3" 
+                // "CUDA_VISIBLE_DEVICES": "0,1,2,3"
+                "CUDA_VISIBLE_DEVICES": "0"
             }
         }
     ]

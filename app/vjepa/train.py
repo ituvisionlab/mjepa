@@ -526,6 +526,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
             reg_loss_meter.update(loss_reg)
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
+            
+            # Release memory
+            
+            del clips
+            torch.cuda.empty_cache()
 
             # -- Logging
             def log_stats():
@@ -548,6 +553,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
                 log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
                 log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
                 log_writer.flush()
                     
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
@@ -614,3 +620,5 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 save_every_file = f'{tag}-e{epoch}.pth.tar'
                 save_every_path = os.path.join(model_folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
+            
+            torch.cuda.empty_cache()
