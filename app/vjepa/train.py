@@ -117,6 +117,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     sampling_rate = cfgs_data.get('sampling_rate')
     duration = cfgs_data.get('clip_duration', None)
     crop_size = cfgs_data.get('crop_size', 224)
+    in_chans = cfgs_data.get('in_channel_size', 3)
     patch_size = cfgs_data.get('patch_size')
     pin_mem = cfgs_data.get('pin_mem', False)
     num_workers = cfgs_data.get('num_workers', 1)
@@ -195,7 +196,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     latest_path = os.path.join(model_folder, latest_file)
     load_path = None
     if load_model:
-        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else latest_path
+        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None #latest_path
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
@@ -234,6 +235,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
+        in_chans = in_chans,
         use_sdpa=use_sdpa,
     )
     target_encoder = copy.deepcopy(encoder)
@@ -277,6 +279,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
          decode_one_clip=decode_one_clip,
          duration=duration,
          num_clips=num_clips,
+         in_chans=in_chans,
          transform=transform,
          datasets_weights=datasets_weights,
          collator=mask_collator,
@@ -319,8 +322,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
                           for i in range(int(ipe*num_epochs*ipe_scale)+1))
 
+    start_epoch=0
     # -- load training checkpoint
-    if load_model or os.path.exists(latest_path):
+    if load_model and os.path.exists(load_path):
         (
             encoder,
             predictor,
@@ -378,7 +382,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 loader = iter(unsupervised_loader)
                 udata = next(loader)
 
-    start_epoch = 0
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         logger.info('Epoch %d' % (epoch + 1))
@@ -548,6 +551,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
                 log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
                 log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
                 log_writer.flush()
                     
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
@@ -604,6 +608,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                                grad_stats_pred.global_norm))
             log_stats()
             assert not np.isnan(loss), 'loss is nan'
+            del clips
+            torch.cuda.empty_cache()
 
         # -- Save Checkpoint
         logger.info('avg. loss %.3f' % loss_meter.avg)
@@ -614,3 +620,5 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 save_every_file = f'{tag}-e{epoch}.pth.tar'
                 save_every_path = os.path.join(model_folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
+        
+        torch.cuda.empty_cache()

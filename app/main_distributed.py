@@ -57,7 +57,9 @@ parser.add_argument(
 parser.add_argument(
     '--time', type=int, default=4300,
     help='time in minutes to run job')
-
+parser.add_argument(
+    '--log_dir', type=str, default="./logs",
+    help='folder to save experiment logs')
 
 class Trainer:
 

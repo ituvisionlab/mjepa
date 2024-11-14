@@ -6,18 +6,20 @@ data:
   dataset_type: MRIDataset
   datasets: 
   - src/datasets/updated_nii_file_paths.csv # Relative path instead of abs path
+  # - /gpfs/home/unalg01/jepa/src/datasets/mood_file_paths.csv
   # - /home/gozde/medChangeDet/jepa/src/datasets/video_test.csv
   #  - /your_path_to_kinetics710_csv_file_index.csv
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 1 #64
-  num_clips: 1
+  batch_size: 32 # 64
+  num_clips: 2
   num_frames: 16
   tubelet_size: 2
   sampling_rate: 1
   crop_size: 224
   patch_size: 16
+  in_channel_size: 1
   pin_mem: true
   num_workers: 1 #0 #12
   filter_short_videos: false
@@ -64,8 +66,8 @@ mask:
     max_temporal_keep: 1.0
     max_keep: null
 meta:
-  load_checkpoint: true  # false
-  read_checkpoint: vitl16.pth.tar # null
+  load_checkpoint: false  # false
+  read_checkpoint: null #vitl16.pth.tar # null
   seed: 234
   eval_freq: 100
   use_sdpa: true
@@ -78,14 +80,14 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: true
 optimization:
-  ipe: 500 #300
+  ipe: 300
   ipe_scale: 1.25
   clip_grad: 10.0
   weight_decay: 0.01
   final_weight_decay: 0.1
-  epochs: 1500
-  warmup: 2
-  start_lr: 0.0002
+  epochs: 500
+  warmup: 10
+  start_lr: 0.000625
   lr: 0.000625
   final_lr: 1.0e-06
   ema:

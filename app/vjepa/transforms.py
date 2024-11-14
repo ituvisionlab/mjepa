@@ -105,7 +105,7 @@ class MRITransform(object):
         if self.random_horizontal_flip:
             buffer, _ = video_transforms.horizontal_flip(0.5, buffer)
 
-        buffer = _tensor_normalize_inplace(buffer, self.mean, self.std)
+        # buffer = _tensor_normalize_inplace(buffer, self.mean, self.std)
         if self.reprob > 0:
             buffer = buffer.permute(1, 0, 2, 3)
             buffer = self.erase_transform(buffer)
