@@ -37,6 +37,7 @@ def make_mridataset(
     frames_per_clip=16, #8
     frame_step=1,
     num_clips=1,
+    in_chans = 3,
     random_clip_sampling=True,
     allow_clip_overlap=False,
     filter_short_videos=False,
@@ -65,7 +66,8 @@ def make_mridataset(
         filter_long_videos=filter_long_videos,
         duration=duration,
         shared_transform=shared_transform,
-        transform=transform)
+        transform=transform,
+        in_chans = in_chans)
 
     logger.info('MRIDataset dataset created')
     if datasets_weights is not None:
@@ -105,6 +107,7 @@ class MRIDataset(torch.utils.data.Dataset):
         frames_per_clip=16,
         frame_step=1,
         num_clips=1,
+        in_chans = 3,
         transform=None,
         shared_transform=None,
         random_clip_sampling=True,
@@ -125,6 +128,7 @@ class MRIDataset(torch.utils.data.Dataset):
         self.filter_short_videos = filter_short_videos
         self.filter_long_videos = filter_long_videos
         self.duration = duration
+        self.in_chans = in_chans
 
         # Load data from CSV
         samples, labels = [], []
@@ -156,7 +160,7 @@ class MRIDataset(torch.utils.data.Dataset):
         label = self.labels[index]
 
         # Load MRI volume
-        volume = self.load_nifti_file(sample)
+        volume = self.load_nifti_file(sample, self.in_chans)
         if volume is None:
             # Handle failed loading by skipping the sample
             warnings.warn(f'Failed to load volume at index {index}')
@@ -180,7 +184,7 @@ class MRIDataset(torch.utils.data.Dataset):
         
         return buffer, label, clip_indices
 
-    def load_nifti_file(self, file_path):
+    def load_nifti_file(self, file_path, in_chans=3):
         if not os.path.exists(file_path):
             warnings.warn(f'File not found: {file_path}')
             return None
@@ -202,9 +206,9 @@ class MRIDataset(torch.utils.data.Dataset):
             plt.imsave('slice.png', volume[100], cmap='gray')
 
             # Preprocess the volume: intensity normalization
-            volume, volume_mean, volume_std = self.preprocess_volume(volume)
+            volume, volume_mean, volume_std = self.preprocess_volume(volume,in_chans)
             
-            plt.imsave('slice_preprocessed.png', volume[100, :, :, 0]*volume_std + volume_mean, cmap='gray')
+            # plt.imsave('slice_preprocessed.png', volume[100, :, :, 0]*volume_std + volume_mean, cmap='gray')
 
             return volume
     
@@ -243,7 +247,7 @@ class MRIDataset(torch.utils.data.Dataset):
         volume = volume[tuple(slices)]
         return volume
 
-    def preprocess_volume(self, volume):
+    def preprocess_volume(self, volume, in_chans=3):
 
         
         volume_mean = np.mean(volume)
@@ -257,7 +261,8 @@ class MRIDataset(torch.utils.data.Dataset):
         volume = np.expand_dims(volume, -1)  #-1: increase last dim by 1
 
         # Replicate the volume along the last dimension to create 3 channels: [T, H, W, 3]
-        volume = np.repeat(volume, 3, axis=-1)
+        if (in_chans > 1):
+            volume = np.repeat(volume, in_chans, axis=-1)
     
         # Should output (T, H, W, 3)
         #print(f"Volume shape after preprocessing: {volume.shape}")  
