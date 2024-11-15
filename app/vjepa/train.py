@@ -118,6 +118,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     duration = cfgs_data.get('clip_duration', None)
     crop_size = cfgs_data.get('crop_size', 224)
     in_chans = cfgs_data.get('in_channel_size', 3)
+    random_clip_sampling = cfgs_data.get('random_clip_sampling', False)
     patch_size = cfgs_data.get('patch_size')
     pin_mem = cfgs_data.get('pin_mem', False)
     num_workers = cfgs_data.get('num_workers', 1)
@@ -280,6 +281,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
          duration=duration,
          num_clips=num_clips,
          in_chans=in_chans,
+         random_clip_sampling=random_clip_sampling,
          transform=transform,
          datasets_weights=datasets_weights,
          collator=mask_collator,

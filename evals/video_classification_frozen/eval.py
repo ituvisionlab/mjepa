@@ -107,6 +107,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     eval_frame_step = args_pretrain.get('frame_step', 4)
     eval_duration = args_pretrain.get('clip_duration', None)
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
+    random_clip_sampling = args_data.get('random_clip_sampling', False)
 
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
@@ -225,6 +226,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         num_segments=eval_num_segments if attend_across_segments else 1,
         num_views_per_segment=1,
         in_chans=in_chans,
+        random_clip_sampling=random_clip_sampling,
         allow_segment_overlap=True,
         batch_size=batch_size,
         world_size=world_size,
@@ -238,6 +240,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         frame_step=eval_frame_step,
         num_segments=eval_num_segments,
         in_chans=in_chans,
+        random_clip_sampling=random_clip_sampling,
         eval_duration=eval_duration,
         num_views_per_segment=eval_num_views_per_segment,
         allow_segment_overlap=True,
@@ -381,6 +384,9 @@ def run_one_epoch(
             labels = data[1].to(device)
             batch_size = len(labels)
 
+            # clips list: len = no_of_clips (num_segments)
+            # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224])
+            # clips[1][0].shape ""
             # Forward and prediction
             with torch.no_grad():
                 outputs = encoder(clips, clip_indices)
@@ -517,6 +523,7 @@ def make_dataloader(
     frame_step=4,
     num_segments=8,
     in_chans=3,
+    random_clip_sampling=False,
     eval_duration=None,
     num_views_per_segment=1,
     allow_segment_overlap=True,
@@ -549,6 +556,7 @@ def make_dataloader(
         duration=eval_duration,
         num_clips=num_segments,
         in_chans=in_chans,
+        random_clip_sampling=random_clip_sampling, 
         allow_clip_overlap=allow_segment_overlap,
         num_workers=num_workers,
         copy_data=False,
