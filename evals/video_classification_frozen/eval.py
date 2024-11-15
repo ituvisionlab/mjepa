@@ -94,6 +94,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # Optional [for Video model]:
     tubelet_size = args_pretrain.get('tubelet_size', 2)
     pretrain_frames_per_clip = args_pretrain.get('frames_per_clip', 1)
+    in_chans = args_pretrain.get('in_channel_size', 3)
 
     # -- DATA
     args_data = args_eval.get('data')
@@ -106,6 +107,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     eval_frame_step = args_pretrain.get('frame_step', 4)
     eval_duration = args_pretrain.get('clip_duration', None)
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
+    random_clip_sampling = args_data.get('random_clip_sampling', False)
 
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
@@ -185,6 +187,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         model_name=model_name,
         patch_size=patch_size,
         tubelet_size=tubelet_size,
+        in_chans=in_chans,
         frames_per_clip=pretrain_frames_per_clip,
         uniform_power=uniform_power,
         checkpoint_key=checkpoint_key,
@@ -222,6 +225,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         eval_duration=eval_duration,
         num_segments=eval_num_segments if attend_across_segments else 1,
         num_views_per_segment=1,
+        in_chans=in_chans,
+        random_clip_sampling=random_clip_sampling,
         allow_segment_overlap=True,
         batch_size=batch_size,
         world_size=world_size,
@@ -234,6 +239,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         frames_per_clip=eval_frames_per_clip,
         frame_step=eval_frame_step,
         num_segments=eval_num_segments,
+        in_chans=in_chans,
+        random_clip_sampling=random_clip_sampling,
         eval_duration=eval_duration,
         num_views_per_segment=eval_num_views_per_segment,
         allow_segment_overlap=True,
@@ -283,8 +290,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         if rank == 0:
             torch.save(save_dict, latest_path_to_save) #rather than to save on latest_path pretrained classifier
 
-    start_epoch = 0 # even if resuming from checkpoint, we should set this to 0, o/w start and num_epochs are the same
-    # TRAIN LOOP
+   # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
@@ -378,9 +384,13 @@ def run_one_epoch(
             labels = data[1].to(device)
             batch_size = len(labels)
 
+            # clips list: len = no_of_clips (num_segments)
+            # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224])
+            # clips[1][0].shape ""
             # Forward and prediction
             with torch.no_grad():
                 outputs = encoder(clips, clip_indices)
+                #outputs[0].shape returns torch.Size([4, 3136, 1024])
                 if not training:
                     if attend_across_segments:
                         outputs = [classifier(o) for o in outputs]
@@ -391,7 +401,7 @@ def run_one_epoch(
                     outputs = [classifier(o) for o in outputs]
                 else:
                     outputs = [[classifier(ost) for ost in os] for os in outputs]
-
+        # outputs tensor shape: Batchsize x num_classes
         # Compute loss
         if attend_across_segments:
             loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
@@ -512,6 +522,8 @@ def make_dataloader(
     frames_per_clip=16,
     frame_step=4,
     num_segments=8,
+    in_chans=3,
+    random_clip_sampling=False,
     eval_duration=None,
     num_views_per_segment=1,
     allow_segment_overlap=True,
@@ -527,7 +539,7 @@ def make_dataloader(
         random_resize_aspect_ratio=(0.75, 4/3),
         random_resize_scale=(0.08, 1.0),
         reprob=0.25,
-        auto_augment=True,
+        auto_augment=False,
         motion_shift=False,
         crop_size=resolution,
     )
@@ -543,6 +555,8 @@ def make_dataloader(
         frame_sample_rate=frame_step,
         duration=eval_duration,
         num_clips=num_segments,
+        in_chans=in_chans,
+        random_clip_sampling=random_clip_sampling, 
         allow_clip_overlap=allow_segment_overlap,
         num_workers=num_workers,
         copy_data=False,
@@ -557,6 +571,7 @@ def init_model(
     model_name,
     patch_size=16,
     crop_size=224,
+    in_chans=3,
     # Video specific parameters
     frames_per_clip=16,
     tubelet_size=2,
@@ -575,6 +590,7 @@ def init_model(
         use_sdpa=use_sdpa,
         use_SiLU=use_SiLU,
         tight_SiLU=tight_SiLU,
+        in_chans= in_chans,
     )
 
     encoder.to(device)

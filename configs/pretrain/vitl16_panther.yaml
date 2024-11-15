@@ -13,15 +13,14 @@ data:
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 1 #64
-  num_clips: 16
+  batch_size: 4 #64
+  num_clips: 2
   num_frames: 16
   tubelet_size: 2
   sampling_rate: 1
   crop_size: 224
   patch_size: 16
   in_channel_size: 1
-  random_clip_sampling: false
   pin_mem: true
   num_workers: 1 #0 #12
   filter_short_videos: false

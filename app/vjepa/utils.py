@@ -93,6 +93,7 @@ def init_video_model(
     crop_size=224,
     pred_depth=6,
     pred_embed_dim=384,
+    in_chans=3,
     uniform_power=False,
     use_mask_tokens=False,
     num_mask_tokens=2,
@@ -106,6 +107,7 @@ def init_video_model(
         tubelet_size=tubelet_size,
         uniform_power=uniform_power,
         use_sdpa=use_sdpa,
+        in_chans= in_chans,
     )
     encoder = MultiMaskWrapper(encoder)
     predictor = vit_pred.__dict__['vit_predictor'](
