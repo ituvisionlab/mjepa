@@ -9,6 +9,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F #GU_
 
 from src.models.utils.modules import (
     Block,
@@ -128,9 +129,19 @@ class AttentiveClassifier(nn.Module):
             qkv_bias=qkv_bias,
             complete_block=complete_block,
         )
-        self.linear = nn.Linear(embed_dim, num_classes, bias=True)
+        # self.linear = nn.Linear(embed_dim, num_classes, bias=True) #GU_
+        self.linear1 = nn.Linear(embed_dim, embed_dim//4, bias=True)
+        self.linear2 = nn.Linear(embed_dim//4, embed_dim//8, bias=True)
+        self.linear3 = nn.Linear(embed_dim//8, num_classes, bias=True)
+
 
     def forward(self, x):
         x = self.pooler(x).squeeze(1)
-        x = self.linear(x)
+        # x = self.linear(x)
+        x = self.linear1(x)
+        x = F.relu(x)
+        x = self.linear2(x)
+        x = F.relu(x)
+        x = self.linear3(x)
+
         return x

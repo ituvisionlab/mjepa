@@ -5,22 +5,20 @@ eval_name: video_classification_frozen
 resume_checkpoint: false
 checkpoint_path: null #classification model
 data:
-  root_path: /gpfs/home/unalg01/jepa
+  root_path: /home/gozde/medChangeDet/jepa/
   dataset_train: src/datasets/updated_nii_file_paths.csv
   dataset_val: src/datasets/updated_nii_file_paths.csv
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 16
-  num_segments: 8 # 8
+  num_segments: 2 # 8
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 1
-  random_clip_sampling: false
 optimization:
   attend_across_segments: true
   num_epochs: 500
   resolution: 224
-  batch_size: 4
+  batch_size: 4 #4
   weight_decay: 0.01
   lr: 0.001
   start_lr: 0.001
@@ -42,7 +40,7 @@ pretrain:
   patch_size: 16
   in_channel_size: 3
   frame_step: 1 # added
-  folder: logs/mjepa_pretrain_distributed_2024_11_05__21_55_52/model_ckpt #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  # folder: /home/gozde/medChangeDet/jepa/evals/ #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  folder: /home/gozde/medChangeDet/jepa/logs/mjepa_pretrain_2024_11_10__18_48_47/model_ckpt/
+  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa

@@ -46,7 +46,7 @@ from app.vjepa.utils import (
     init_video_model,
     init_opt,
 )
-from app.vjepa.transforms import make_transforms
+from app.vjepa.transforms_old import make_transforms
 
 
 # --
@@ -118,6 +118,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     duration = cfgs_data.get('clip_duration', None)
     crop_size = cfgs_data.get('crop_size', 224)
     in_chans = cfgs_data.get('in_channel_size', 3)
+    random_clip_sampling = cfgs_data.get('random_clip_sampling', False)
     patch_size = cfgs_data.get('patch_size')
     pin_mem = cfgs_data.get('pin_mem', False)
     num_workers = cfgs_data.get('num_workers', 1)
@@ -235,7 +236,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
-        in_chans = in_chans,
+        in_chans=in_chans,
         use_sdpa=use_sdpa,
     )
     target_encoder = copy.deepcopy(encoder)
@@ -280,6 +281,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
          duration=duration,
          num_clips=num_clips,
          in_chans=in_chans,
+         random_clip_sampling=random_clip_sampling,
          transform=transform,
          datasets_weights=datasets_weights,
          collator=mask_collator,
@@ -296,6 +298,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         ipe = _dlen
     logger.info(f'iterations per epoch/dataest length: {ipe}/{_dlen}')
 
+    logger.info(f'Dataset len: {len(unsupervised_loader.dataset)}, Num of batches: {_dlen}')
+    
     # -- init optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         encoder=encoder,
@@ -324,6 +328,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
 
     start_epoch=0
     # -- load training checkpoint
+    # if load_model or os.path.exists(load_path):
     if load_model and os.path.exists(load_path):
         (
             encoder,
@@ -402,10 +407,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
             itr_start_time = time.time()
 
             try:
-                udata, masks_enc, masks_pred = next(loader)
+                udata, masks_enc, masks_pred = next(loader) #returned from "call" of multiblock3d
             except Exception:
                 logger.info('Exhausted data loaders. Refreshing...')
-                loader = iter(unsupervised_loader)
+                loader = iter(unsupervised_loader) #resets the loader iterator again
                 udata, masks_enc, masks_pred = next(loader)
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
@@ -529,6 +534,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
             reg_loss_meter.update(loss_reg)
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
+            
+            # Release memory
+            
+            del clips
+            torch.cuda.empty_cache()
 
             # -- Logging
             def log_stats():
@@ -620,5 +630,5 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 save_every_file = f'{tag}-e{epoch}.pth.tar'
                 save_every_path = os.path.join(model_folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
-        
+
         torch.cuda.empty_cache()

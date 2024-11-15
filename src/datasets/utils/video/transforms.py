@@ -657,6 +657,33 @@ def create_random_augment(
             )
     raise NotImplementedError
 
+import torchvision.transforms as transforms
+
+def create_mri_augment( #from chatgpt
+    input_size,
+    augment=False,
+):
+    transforms_list = []
+    if augment:
+        transforms_list.extend([
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=15),
+            transforms.RandomResizedCrop(
+                size=input_size,
+                scale=(0.9, 1.0),
+                ratio=(0.9, 1.1)
+            ),
+            # Add other MRI-appropriate transforms
+        ])
+    else:
+        transforms_list.append(transforms.Resize(input_size))
+
+    transforms_list.append(transforms.ToTensor())
+    # Normalize if necessary
+    # transforms_list.append(transforms.Normalize(mean, std))
+
+    return transforms.Compose(transforms_list)
+
 
 def random_sized_crop_img(
     im,

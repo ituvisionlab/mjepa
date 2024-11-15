@@ -29,7 +29,8 @@ def reorient_to_RAS(img):
     return new_img
 
 # Load the image
-nii_file_name = '/media/yusuf/backup/ADNI-NC/ADNI_NC/016_S_4638/MT1__GradWarp__N3m/2013-02-01_10_55_25.0/I358089/ADNI_016_S_4638_MR_MT1__GradWarp__N3m_Br_20130206105826694_S181331_I358089.nii' 
+nii_file_name = 'src/datasets/BraTS2020/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/BraTS20_Training_001/BraTS20_Training_001_t1.nii' 
+# nii_file_name = '/media/yusuf/backup/ADNI-NC/ADNI_NC/016_S_4638/MT1__GradWarp__N3m/2013-02-01_10_55_25.0/I358089/ADNI_016_S_4638_MR_MT1__GradWarp__N3m_Br_20130206105826694_S181331_I358089.nii' 
 img = nib.load(nii_file_name)
 data = img.get_fdata()
 affine = img.affine

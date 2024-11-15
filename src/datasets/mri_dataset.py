@@ -67,7 +67,8 @@ def make_mridataset(
         filter_long_videos=filter_long_videos,
         duration=duration,
         shared_transform=shared_transform,
-        transform=transform)
+        transform=transform,
+        in_chans = in_chans)
 
     logger.info('MRIDataset dataset created')
     if datasets_weights is not None:
@@ -129,8 +130,9 @@ class MRIDataset(torch.utils.data.Dataset):
         self.filter_short_videos = filter_short_videos
         self.filter_long_videos = filter_long_videos
         self.duration = duration
+        self.in_chans = in_chans
 
-    # Load data from CSV
+        # Load data from CSV
         samples, labels = [], []
         self.num_samples_per_dataset = []
         for data_path in self.data_paths:
@@ -248,8 +250,6 @@ class MRIDataset(torch.utils.data.Dataset):
         return volume
 
     def preprocess_volume(self, volume,in_chans=3):
-
-        
         volume_mean = np.mean(volume)
         volume_std = np.std(volume)
         # Normalize intensities
@@ -261,7 +261,8 @@ class MRIDataset(torch.utils.data.Dataset):
         volume = np.expand_dims(volume, -1)  #-1: increase last dim by 1
 
         # Replicate the volume along the last dimension to create 3 channels: [T, H, W, 3]
-        if in_chans > 1:
+
+        if (in_chans > 1):
             volume = np.repeat(volume, in_chans, axis=-1)
     
         # Should output (T, H, W, 3)
