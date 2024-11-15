@@ -176,15 +176,14 @@ def make_transforms(
 
     if not training and num_views_per_clip > 1:
         print('Making EvalMRITransform, multi-view')
-        _frames_augmentation = EvalMRITransform( #EvalVideoTransform(
+        _frames_augmentation = EvalMRITransform(
             num_views_per_clip=num_views_per_clip,
             short_side_size=crop_size,
             normalize=normalize,
         )
 
     else:
-        # _frames_augmentation = VideoTransform(
-         _frames_augmentation = MRITransform(
+        _frames_augmentation = MRITransform(
             training=training,
             random_horizontal_flip=random_horizontal_flip,
             random_resize_aspect_ratio=random_resize_aspect_ratio,
@@ -268,6 +267,7 @@ class MRITransform(object):
         # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
 
         buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
+
 
         buffer = self.spatial_transform(
             images=buffer,

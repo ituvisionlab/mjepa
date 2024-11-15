@@ -43,7 +43,9 @@ parser.add_argument(
 parser.add_argument(
     '--time', type=int, default=4300,
     help='time in minutes to run job')
-
+parser.add_argument(
+    '--log_dir', type=str, default="./logs",
+    help='folder to save experiment logs')
 
 class Trainer:
 
@@ -69,7 +71,7 @@ class Trainer:
             log_dir=self.log_dir)
 
     def checkpoint(self):
-        fb_trainer = Trainer(self.args_eval, True)
+        fb_trainer = Trainer(self.args_eval, True, self.log_dir)
         return submitit.helpers.DelayedSubmission(fb_trainer,)
 
 
@@ -79,7 +81,7 @@ def launch_evals_with_parsed_args(
     partition='learnlab,learnfair',
     timeout=4300,
     nodes=1,
-    tasks_per_node=1,
+    tasks_per_node=4,
     delay_seconds=10,
     exclude_nodes=None
 ):
@@ -94,20 +96,23 @@ def launch_evals_with_parsed_args(
         slurm_max_num_timeout=20)
     executor.update_parameters(
         slurm_partition=partition,
-        slurm_mem_per_gpu='55G',
+        slurm_mem='192G',
         timeout_min=timeout,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
-        cpus_per_task=12,
+        cpus_per_task=1,
         gpus_per_node=tasks_per_node)
 
     if exclude_nodes is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)
 
+     # Create log folder for the experiment
+    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_eval_distributed_', postfix='')
+    
     jobs, trainers = [], []
     with executor.batch():
         for ae in args_for_evals:
-            fb_trainer = Trainer(ae)
+            fb_trainer = Trainer(ae, log_dir=log_dir)
             job = executor.submit(fb_trainer,)
             trainers.append(fb_trainer)
             jobs.append(job)

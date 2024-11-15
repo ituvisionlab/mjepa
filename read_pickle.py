@@ -1,6 +1,6 @@
 import pickle
 
-with open("b216c18a70624c308edb332ac7023860.pkl", "rb") as f:
+with open("/gpfs/home/unalg01/jepa/job_54290104/54290104_submitted.pkl", "rb") as f:
     data = pickle.load(f)
 print(data)
 print(vars(data))

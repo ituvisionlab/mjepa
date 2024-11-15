@@ -197,7 +197,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     latest_path = os.path.join(model_folder, latest_file)
     load_path = None
     if load_model:
-        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None
+        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None #latest_path
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
@@ -236,7 +236,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
-        in_chans= in_chans,
+        in_chans=in_chans,
         use_sdpa=use_sdpa,
     )
     target_encoder = copy.deepcopy(encoder)
@@ -326,7 +326,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
                           for i in range(int(ipe*num_epochs*ipe_scale)+1))
 
-    start_epoch = 0 # GU_
+    start_epoch=0
     # -- load training checkpoint
     # if load_model or os.path.exists(load_path):
     if load_model and os.path.exists(load_path):
@@ -618,6 +618,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                                grad_stats_pred.global_norm))
             log_stats()
             assert not np.isnan(loss), 'loss is nan'
+            del clips
+            torch.cuda.empty_cache()
 
         # -- Save Checkpoint
         logger.info('avg. loss %.3f' % loss_meter.avg)
@@ -628,5 +630,5 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 save_every_file = f'{tag}-e{epoch}.pth.tar'
                 save_every_path = os.path.join(model_folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
-            
-            torch.cuda.empty_cache()
+
+        torch.cuda.empty_cache()
