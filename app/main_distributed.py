@@ -90,7 +90,7 @@ class Trainer:
             raise e  # Re-raise the exception to ensure the job fails appropriately
 
     def checkpoint(self):
-        fb_trainer = Trainer(self.args_pretrain, True)
+        fb_trainer = Trainer(self.args_pretrain, load_model=True)
         return submitit.helpers.DelayedSubmission(fb_trainer,)
 
 
@@ -101,7 +101,8 @@ def launch_app_with_parsed_args(
     timeout=4300,
     nodes=1,
     tasks_per_node=4,
-    exclude_nodes=None
+    exclude_nodes=None,
+    args_fname=None
 ):
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
@@ -125,8 +126,19 @@ def launch_app_with_parsed_args(
     logger.info(f"partition: {partition}")
     
     # Create log folder for the experiment
-    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_pretrain_distributed_', postfix='')
+    log_dir = get_new_log_dir(args_for_pretrain['logging']['folder'], prefix=f'mjepa_pretrain_distributed_', postfix='')
 
+    if args_fname != None:
+        yaml_params = None
+        with open(args_fname, 'r') as y_file:
+            yaml_params = yaml.load(y_file, Loader=yaml.FullLoader)
+            
+        logger.info('Writing params yaml to log dir ...')
+        
+        dump = os.path.join(log_dir, 'params-pretrain.yaml')
+        with open(dump, 'w') as f:
+            yaml.dump(yaml_params, f)
+    
     jobs, trainers = [], []
     with executor.batch():
         for ap in args_for_pretrain:
@@ -161,6 +173,8 @@ def launch():
     if args.batch_launch:
         with open(args.fname, 'r') as y_file:
             config_fnames = yaml.load(y_file, Loader=yaml.FullLoader)
+        
+        args.fname = None
     # ---------------------------------------------------------------------- #
 
     # ---------------------------------------------------------------------- #
@@ -188,7 +202,8 @@ def launch():
         timeout=args.time,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
-        exclude_nodes=args.exclude)
+        exclude_nodes=args.exclude,
+        args_fname=args.fname)
     # ---------------------------------------------------------------------- #
 
 

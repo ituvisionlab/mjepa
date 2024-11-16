@@ -37,7 +37,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder:  evals/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
+  folder:  logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
   write_tag: jepa
 loss:
   loss_exp: 1.0

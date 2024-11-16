@@ -410,6 +410,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 udata, masks_enc, masks_pred = next(loader) #returned from "call" of multiblock3d
             except Exception:
                 logger.info('Exhausted data loaders. Refreshing...')
+                torch.cuda.empty_cache()
+                
                 loader = iter(unsupervised_loader) #resets the loader iterator again
                 udata, masks_enc, masks_pred = next(loader)
             assert len(masks_enc) == len(masks_pred), \

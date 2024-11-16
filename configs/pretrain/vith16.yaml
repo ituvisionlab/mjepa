@@ -30,7 +30,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /gpfs/home/unalg01/jepa/evals/
+  folder: logs/
   write_tag: jepa
 loss:
   loss_exp: 1.0
