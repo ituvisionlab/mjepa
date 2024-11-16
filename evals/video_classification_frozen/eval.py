@@ -107,6 +107,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     eval_frame_step = args_pretrain.get('frame_step', 4)
     eval_duration = args_pretrain.get('clip_duration', None)
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
+    num_workers=args_data.get('num_workers',1)
     random_clip_sampling = args_data.get('random_clip_sampling', False)
 
     # -- OPTIMIZATION
@@ -229,6 +230,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         random_clip_sampling=random_clip_sampling,
         allow_segment_overlap=True,
         batch_size=batch_size,
+        num_workers=num_workers,
         world_size=world_size,
         rank=rank,
         training=True)
@@ -245,6 +247,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         num_views_per_segment=eval_num_views_per_segment,
         allow_segment_overlap=True,
         batch_size=batch_size,
+        num_workers=num_workers,
         world_size=world_size,
         rank=rank,
         training=False)

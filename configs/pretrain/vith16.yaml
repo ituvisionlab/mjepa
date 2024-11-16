@@ -1,22 +1,22 @@
 app: vjepa
-nodes: 16
-tasks_per_node: 8
+nodes: 1 #16
+tasks_per_node: 4 #8
 data:
-  dataset_type: VideoDataset
+  dataset_type: MRIDataset
   datasets:
-    - /your_path_to_kinetics710_csv_file_index.csv
-    - /your_path_to_ssv2_csv_file_index.csv
-    - /your_path_to_howto100m_csv_file_index.csv
+    - /gpfs/home/unalg01/jepa/src/datasets/updated_nii_file_paths.csv
+    # - /gpfs/home/unalg01/jepa/src/datasets/mood_file_paths.csv
   decode_one_clip: true
-  batch_size: 24
-  num_clips: 1
+  batch_size: 16
+  num_clips: 2
   num_frames: 16
   tubelet_size: 2
-  sampling_rate: 4
+  sampling_rate: 1
   crop_size: 224
   patch_size: 16
+  in_channel_size: 1
   pin_mem: true
-  num_workers: 12
+  num_workers: 1
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -30,7 +30,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /your_absolute_file_path_for_saving_logs_and_checkpoints/
+  folder: /gpfs/home/unalg01/jepa/evals/
   write_tag: jepa
 loss:
   loss_exp: 1.0
@@ -62,7 +62,7 @@ mask:
     max_keep: null
 meta:
   load_checkpoint: false
-  read_checkpoint: null
+  read_checkpoint: null #vith16.pth.tar # null
   seed: 234
   eval_freq: 100
   use_sdpa: true
@@ -80,11 +80,11 @@ optimization:
   clip_grad: 10.0
   weight_decay: 0.04
   final_weight_decay: 0.4
-  epochs: 300
-  warmup: 40
-  start_lr: 0.0002
-  lr: 0.000625
-  final_lr: 1.0e-06
+  epochs: 500
+  warmup: 10 # 40
+  start_lr: 0.0001 #0.001 
+  lr: 0.0001
+  final_lr: 1.0e-06 #1.0e-05
   ema:
   - 0.998
   - 1.0
