@@ -67,8 +67,7 @@ def make_mridataset(
         filter_long_videos=filter_long_videos,
         duration=duration,
         shared_transform=shared_transform,
-        transform=transform,
-        in_chans = in_chans)
+        transform=transform)
 
     logger.info('MRIDataset dataset created')
     if datasets_weights is not None:

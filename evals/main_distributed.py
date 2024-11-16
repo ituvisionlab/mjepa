@@ -83,7 +83,8 @@ def launch_evals_with_parsed_args(
     nodes=1,
     tasks_per_node=4,
     delay_seconds=10,
-    exclude_nodes=None
+    exclude_nodes=None,
+    args_fname=None
 ):
     if not isinstance(args_for_evals, list):
         logger.info(f'Passed in eval-args of type {type(args_for_evals)}')
@@ -107,8 +108,19 @@ def launch_evals_with_parsed_args(
         executor.update_parameters(slurm_exclude=exclude_nodes)
 
      # Create log folder for the experiment
-    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_eval_distributed_', postfix='')
+    log_dir = get_new_log_dir(args_for_evals['logging']['folder'], prefix=f'mjepa_eval_distributed_', postfix='')
     
+    if args_fname != None:
+        yaml_params = None
+        with open(args_fname, 'r') as y_file:
+            yaml_params = yaml.load(y_file, Loader=yaml.FullLoader)
+            
+        logger.info('Writing params yaml to log dir ...')
+        
+        dump = os.path.join(log_dir, 'params-pretrain.yaml')
+        with open(dump, 'w') as f:
+            yaml.dump(yaml_params, f)
+            
     jobs, trainers = [], []
     with executor.batch():
         for ae in args_for_evals:
@@ -134,6 +146,8 @@ def launch_evals():
     if args.batch_launch:
         with open(args.fname, 'r') as y_file:
             config_fnames = yaml.load(y_file, Loader=yaml.FullLoader)
+        
+        args.fname = None
     # ---------------------------------------------------------------------- #
 
     # ---------------------------------------------------------------------- #
@@ -150,7 +164,7 @@ def launch_evals():
     logger.info(f'Loaded {len(configs)} config files')
     logger.info(f'Running all jobs with {nodes=} / {tasks_per_node=}')
     # ---------------------------------------------------------------------- #
-
+    
     # ---------------------------------------------------------------------- #
     # 3. Launch evals with parsed config files
     # ---------------------------------------------------------------------- #
@@ -161,7 +175,8 @@ def launch_evals():
         timeout=args.time,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
-        exclude_nodes=args.exclude)
+        exclude_nodes=args.exclude,
+        args_fname=args.fname)
     # ---------------------------------------------------------------------- #
 
 
