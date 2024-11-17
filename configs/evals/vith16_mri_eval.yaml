@@ -4,6 +4,8 @@ tag: mri-probe  #k400-16x8x3
 eval_name: video_classification_frozen
 resume_checkpoint: false
 checkpoint_path: null
+logging:
+  folder: logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: src/datasets/updated_nii_file_paths.csv

@@ -59,7 +59,6 @@ def process_main(rank, fname, world_size, devices, log_dir):
     if rank == 0:
         pprint.PrettyPrinter(indent=4).pprint(params)
         dump = os.path.join(log_dir, 'params-pretrain.yaml')
-        #dump = os.path.join(params['logging']['folder'], 'params-pretrain-mri.yaml')
         with open(dump, 'w') as f:
             yaml.dump(params, f)
 
@@ -95,9 +94,13 @@ if __name__ == '__main__':
      # Run only one process for debugging
     # process_main(0, args.fname, num_gpus, gpu_devices)
 
-    # Tensorboard config
+    # Logging config
+    params = None
+    with open(args.fname, 'r') as y_file:
+        params = yaml.load(y_file, Loader=yaml.FullLoader)
+        
     
-    log_dir = get_new_log_dir(args.log_dir, prefix=f'mjepa_pretrain_', postfix='')
+    log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')
     
     mp.set_start_method('spawn')
     
