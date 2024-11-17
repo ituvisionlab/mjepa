@@ -13,7 +13,7 @@ data:
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 1 # 64
+  batch_size: 2 # 64
   num_clips: 4
   num_frames: 16
   tubelet_size: 2

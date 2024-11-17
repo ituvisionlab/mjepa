@@ -332,9 +332,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         mixed_precision=mixed_precision,
         betas=betas,
         eps=eps)
-    encoder = DistributedDataParallel(encoder, static_graph=True)
-    predictor = DistributedDataParallel(predictor, static_graph=True)
-    target_encoder = DistributedDataParallel(target_encoder)
+    encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
+    predictor = DistributedDataParallel(predictor, static_graph=True, gradient_as_bucket_view=True)
+    target_encoder = DistributedDataParallel(target_encoder, gradient_as_bucket_view=True)
     for p in target_encoder.parameters():
         p.requires_grad = False
 

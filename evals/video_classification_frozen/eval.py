@@ -285,7 +285,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         warmup=warmup,
         num_epochs=num_epochs,
         use_bfloat16=use_bfloat16)
-    classifier = DistributedDataParallel(classifier, static_graph=True)
+    classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
     # -- load training checkpoint
     start_epoch = 0
