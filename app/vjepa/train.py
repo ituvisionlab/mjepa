@@ -168,7 +168,25 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     os.makedirs(model_folder, exist_ok=True)
     os.makedirs(csv_folder, exist_ok=True)
     os.makedirs(tb_folder, exist_ok=True)
-
+    
+    
+    # Model checkpoint folders
+    
+    latest_model_folder = os.path.join(model_folder, "latest-model")
+    best_model_folder = os.path.join(model_folder, "best-model")
+    periodic_model_folder = os.path.join(model_folder, "periodic-model")
+    
+    os.makedirs(latest_model_folder, exist_ok=True)
+    os.makedirs(best_model_folder, exist_ok=True)
+    os.makedirs(periodic_model_folder, exist_ok=True)
+    
+    
+    latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
+    latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
+    
+    best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
+    best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+    
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
 
@@ -191,10 +209,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         device = torch.device(f'cuda:0')
         torch.cuda.set_device(device)
 
-    # -- log/checkpointing paths
-    log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
-    latest_file = f'{tag}-latest.pth.tar'
-    latest_path = os.path.join(model_folder, latest_file)
+    # -- load pretrained model path
     load_path = None
     if load_model:
         load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None #latest_path
@@ -209,6 +224,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     
 
     # -- make csv_logger
+    log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
     csv_logger = CSVLogger(
         log_file,
         ('%d', 'epoch'),
@@ -350,7 +366,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
             next(momentum_scheduler)
             mask_collator.step()
 
-    def save_checkpoint(epoch, path):
+    def save_checkpoint(epoch, path, info_path):
         if rank != 0:
             return
         save_dict = {
@@ -367,6 +383,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         }
         try:
             torch.save(save_dict, path)
+            with open(info_path, "w") as info_f:
+                info_f.write(f"Model path: {path},\nEpoch: {epoch+1}, loss: {loss_meter.avg}, lr: {lr}")
+            
         except Exception as e:
             logger.info(f'Encountered exception when saving checkpoint: {e}')
 
@@ -387,6 +406,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 loader = iter(unsupervised_loader)
                 udata = next(loader)
 
+    epoch_losses = []
+    
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         logger.info('Epoch %d' % (epoch + 1))
@@ -620,17 +641,26 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                                grad_stats_pred.global_norm))
             log_stats()
             assert not np.isnan(loss), 'loss is nan'
-            del clips
             torch.cuda.empty_cache()
 
         # -- Save Checkpoint
         logger.info('avg. loss %.3f' % loss_meter.avg)
         # -- Save Last
         if epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1):
-            save_checkpoint(epoch + 1, latest_path)
-            if save_every_freq > 0 and epoch % save_every_freq == 0:
-                save_every_file = f'{tag}-e{epoch}.pth.tar'
-                save_every_path = os.path.join(model_folder, save_every_file)
-                save_checkpoint(epoch + 1, save_every_path)
+            
+            if not os.path.exists(latest_path):
+                save_checkpoint(epoch + 1, latest_path, latest_info_path)
+            else:
+                if len(epoch_losses) > 0:
+                    if loss_meter.avg < min(epoch_losses):
+                        save_checkpoint(epoch + 1, best_path, best_info_path)
+                    elif loss_meter.avg < min(epoch_losses[-10:]):
+                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
+                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
+                        save_checkpoint(epoch + 1, periodic_path, periodic_info_path)
+                    else:
+                        save_checkpoint(epoch + 1, latest_path, latest_info_path)
+        
+        epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()
