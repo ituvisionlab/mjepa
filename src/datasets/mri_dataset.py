@@ -162,11 +162,14 @@ class MRIDataset(torch.utils.data.Dataset):
 
         # Load MRI volume
         volume = self.load_nifti_file(sample,self.in_chans)
+         # debug_print
+        # print(f'File name at {index}: ',sample)
+
         if volume is None:
             # Handle failed loading by skipping the sample
             warnings.warn(f'Failed to load volume at index {index}')
             return self.__getitem__((index + 1) % len(self.samples))
-      
+
         buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
            
        
@@ -198,7 +201,9 @@ class MRIDataset(torch.utils.data.Dataset):
             # Transform from xyz (Sagittal) to zxy (Axial)
             volume = volume.transpose(2, 0, 1)  # Shape: (Z, X, Y)
 
-    
+            # for ADNI: clip first 20 frames (neck) and last 12 frames (black top)
+            volume = volume[20:-12]
+
             #volume = self.center_crop(volume, crop_sizes={1: 240, 2: 160})
             # Resize along axes 1 and 2 to size 224
             volume = self.resize(volume, crop_sizes={1: 224, 2: 224})
@@ -375,6 +380,15 @@ class MRIDataset(torch.utils.data.Dataset):
             volume = np.stack(resized_slices, axis=0)
         else:
             raise NotImplementedError("Resizing along axes other than 1 and 2 is not implemented.")
+
+        # debug_save
+        # output_dir = "volume_resized_output"
+        # os.makedirs(output_dir, exist_ok=True)
+        # output_path = os.path.join(output_dir, "volume_resized_output.nii.gz")
+        # volout = np.squeeze(volume)
+        # volout = np.transpose(volout, (0, 2, 1))
+        # nii_img = nib.Nifti1Image(volout, affine=np.eye(4))
+        # nib.save(nii_img, output_path)
 
         return volume
 

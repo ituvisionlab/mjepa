@@ -95,15 +95,15 @@ class MRITransform(object):
 
         buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
 
-        buffer = self.spatial_transform(
-            images=buffer,
-            target_height=self.crop_size,
-            target_width=self.crop_size,
-            scale=self.random_resize_scale,
-            ratio=self.random_resize_aspect_ratio,
-        )
-        if self.random_horizontal_flip:
-            buffer, _ = video_transforms.horizontal_flip(0.5, buffer)
+        # buffer = self.spatial_transform(
+        #     images=buffer,
+        #     target_height=self.crop_size,
+        #     target_width=self.crop_size,
+        #     scale=self.random_resize_scale,
+        #     ratio=self.random_resize_aspect_ratio,
+        # )
+        # if self.random_horizontal_flip:
+        #     buffer, _ = video_transforms.horizontal_flip(0.5, buffer)
 
         # GU_COMMENT
         #buffer = _tensor_normalize_inplace(buffer, self.mean, self.std)
