@@ -165,7 +165,25 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     os.makedirs(tb_folder, exist_ok=True)
     
     csv_log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
-    latest_path_to_save = os.path.join(model_folder, f'{tag}-latest.pth.tar')
+    
+    
+    # Model checkpoint folders
+    checkpoint_freq = 1
+    
+    latest_model_folder = os.path.join(model_folder, "latest-model")
+    best_model_folder = os.path.join(model_folder, "best-model")
+    periodic_model_folder = os.path.join(model_folder, "periodic-model")
+    
+    os.makedirs(latest_model_folder, exist_ok=True)
+    os.makedirs(best_model_folder, exist_ok=True)
+    os.makedirs(periodic_model_folder, exist_ok=True)
+    
+    latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
+    latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
+    
+    best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
+    best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+    
     
     # Tensorboard logging
     tb_rank_folder = os.path.join(tb_folder, f"{tag}_rank_{rank}")
@@ -175,8 +193,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # -- make csv_logger
     csv_logger = CSVLogger(csv_log_file,
                             ('%d', 'epoch'),
-                            ('%.5f', 'loss'),
-                            ('%.5f', 'acc'))
+                            ('%.5f', 'train acc'),
+                            ('%.5f', 'val acc'),
+                            ('%.5f', 'train loss'),
+                            ('%.5f', 'val loss'))
 
     # Initialize model
 
@@ -280,7 +300,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             scheduler.step()
             wd_scheduler.step()
 
-    def save_checkpoint(epoch):
+    def save_checkpoint(epoch, train_acc, val_acc, path, info_path):
         save_dict = {
             'classifier': classifier.state_dict(),
             'opt': optimizer.state_dict(),
@@ -291,13 +311,17 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             'lr': lr
         }
         if rank == 0:
-            torch.save(save_dict, latest_path_to_save) #rather than to save on latest_path pretrained classifier
-
-   # TRAIN LOOP
+            torch.save(save_dict, path) #rather than to save on latest_path pretrained classifier
+            with open(info_path, "w") as info_f:
+                info_f.write(f"Model path: {path},\nEpoch: {epoch+1},\ntrain acc: {train_acc}, val acc: {val_acc}, lr: {lr}")
+                
+    epoch_accs = []
+    epoch_val_accs = []
+    # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
-        train_acc = run_one_epoch(
+        train_acc, train_loss = run_one_epoch(
             device=device,
             training=True,
             num_temporal_views=eval_num_segments if attend_across_segments else 1,
@@ -316,7 +340,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             eval_freq=train_eval_freq,
             rank=rank)
 
-        val_acc = run_one_epoch(
+        val_acc, val_loss = run_one_epoch(
             device=device,
             training=False,
             num_temporal_views=eval_num_segments,
@@ -339,9 +363,25 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
         
         # if rank == 0:
-        csv_logger.log(epoch + 1, train_acc, val_acc)
+        csv_logger.log(epoch + 1, train_acc, val_acc, train_loss, val_loss)
         
-        save_checkpoint(epoch + 1)
+        if epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1):
+            
+            if not os.path.exists(latest_path):
+                save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
+            else:
+                if len(epoch_accs) > 0:
+                    if train_acc < min(epoch_accs):
+                        save_checkpoint(epoch + 1, train_acc, val_acc, best_path, best_info_path)
+                    elif train_acc < min(epoch_accs[-10:]):
+                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
+                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
+                        save_checkpoint(epoch + 1, train_acc, val_acc, periodic_path, periodic_info_path)
+                    else:
+                        save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
+        
+        epoch_accs.append(train_acc)
+        epoch_val_accs.append(val_acc)
 
 
 def run_one_epoch(
@@ -450,7 +490,7 @@ def run_one_epoch(
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
 
-    return top1_meter.avg
+    return top1_meter.avg, loss
 
 
 def load_checkpoint(
