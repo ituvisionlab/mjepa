@@ -22,8 +22,8 @@ data:
   patch_size: 16
   in_channel_size: 1
   random_clip_sampling: true
-  pin_mem: true
-  num_workers: 1 #0 #12
+  pin_mem: false #true
+  num_workers: 0 #12
   filter_short_videos: false
   clip_duration: null
 data_aug:

@@ -46,7 +46,7 @@ from app.vjepa.utils import (
     init_video_model,
     init_opt,
 )
-from app.vjepa.transforms_old import make_transforms
+from app.vjepa.transforms import make_transforms
 
 
 # --
