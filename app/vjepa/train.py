@@ -618,7 +618,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                                grad_stats_pred.global_norm))
             log_stats()
             assert not np.isnan(loss), 'loss is nan'
-            del clips
+            # del clips
             torch.cuda.empty_cache()
 
         # -- Save Checkpoint

@@ -7,14 +7,15 @@ data:
     - /gpfs/home/unalg01/jepa/src/datasets/updated_nii_file_paths.csv
     # - /gpfs/home/unalg01/jepa/src/datasets/mood_file_paths.csv
   decode_one_clip: true
-  batch_size: 16
-  num_clips: 2
+  batch_size: 4
+  num_clips: 4
   num_frames: 16
   tubelet_size: 2
   sampling_rate: 1
   crop_size: 224
   patch_size: 16
   in_channel_size: 1
+  random_clip_sampling: false
   pin_mem: true
   num_workers: 1
   filter_short_videos: false
@@ -69,8 +70,8 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_huge
-  pred_depth: 12
-  pred_embed_dim: 384
+  pred_depth: 12  #32
+  pred_embed_dim: 384 # 1280
   uniform_power: true
   use_mask_tokens: true
   zero_init_mask_tokens: true
