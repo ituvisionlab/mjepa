@@ -14,7 +14,7 @@ data:
   sampling_rate: 1
   crop_size: 224
   patch_size: 16
-  in_channel_size: 1
+  in_channel_size: 3
   random_clip_sampling: true
   pin_mem: false #true
   num_workers: 1 # 0?
@@ -62,8 +62,8 @@ mask:
     max_temporal_keep: 1.0
     max_keep: null
 meta:
-  load_checkpoint: false
-  read_checkpoint: null #vith16.pth.tar # null
+  load_checkpoint: true
+  read_checkpoint: vith16.pth.tar # null
   seed: 234
   eval_freq: 100
   use_sdpa: true
@@ -81,8 +81,8 @@ optimization:
   clip_grad: 10.0
   weight_decay: 0.04
   final_weight_decay: 0.4
-  epochs: 500
-  warmup: 10 # 40
+  epochs: 1000
+  warmup: 0 # 40
   start_lr: 0.0001 #0.001 
   lr: 0.0001
   final_lr: 1.0e-06 #1.0e-05
