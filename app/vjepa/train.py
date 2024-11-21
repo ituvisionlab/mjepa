@@ -21,6 +21,8 @@ import copy
 import time
 import numpy as np
 
+import matplotlib.pyplot as plt #GU_
+
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
@@ -45,6 +47,7 @@ from app.vjepa.utils import (
     load_checkpoint,
     init_video_model,
     init_opt,
+    save_and_visualize_masks,
 )
 from app.vjepa.transforms import make_transforms
 
@@ -458,6 +461,14 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 return (clips, _masks_enc, _masks_pred)
             clips, masks_enc, masks_pred = load_clips()
 
+            
+            # visualization_interval = 10  # Adjust as needed (e.g., visualize every 10 iterations)
+            # if itr % visualization_interval == 0:
+            # # Save and visualize masks for the first sample in the batch
+            #     save_and_visualize_masks(masks_enc, masks_pred, epoch, itr,)
+
+
+        # -------------------------------------------------
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
 

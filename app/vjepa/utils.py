@@ -13,6 +13,7 @@ import os
 import time
 
 import torch
+import matplotlib.pyplot as plt
 
 import src.models.vision_transformer as video_vit
 import src.models.predictor as vit_pred
@@ -217,3 +218,88 @@ def get_new_log_dir(root='./logs', postfix='', prefix=''):
     os.makedirs(log_dir)
     return log_dir
 
+# --- Add this code to save and visualize masks ---
+def save_and_visualize_masks(masks_enc, masks_pred, epoch, itr, no_frames, width=16, height=16, no_slices=2):
+            # """Reconstructs and visualizes the masks for encoder and predictor.
+            # Args:
+            #     masks_enc (list of tensors): Encoder masks.
+            #     masks_pred (list of tensors): Predictor masks.
+            #     epoch (int): Current epoch number.
+            #     itr (int): Current iteration number.
+            # """
+            # Assuming masks_enc and masks_pred are lists of tensors
+    for idx, (mask_enc, mask_pred) in enumerate(zip(masks_enc, masks_pred)):
+        # Reconstruct masks for the first sample in the batch
+        batch_index = 0  # Change if you want to visualize other samples
+
+        # Get the mask indices for the sample
+        mask_enc_indices = mask_enc[batch_index]
+        mask_pred_indices = mask_pred[batch_index]
+
+        # Reconstruct the masks
+        mask_enc_grid = reconstruct_mask_grid(mask_enc_indices,no_frames, width, height, no_slices)
+        mask_pred_grid = reconstruct_mask_grid(mask_pred_indices, width, height, no_slices)
+
+        # Visualize the masks
+        visualize_masks(mask_enc_grid, mask_pred_grid, epoch, itr, idx)
+
+def reconstruct_mask_grid(mask_indices, width, height, no_slices):
+    """
+    Reconstructs the mask grid from the mask indices.
+
+    Args:
+        mask_indices (tensor): Flattened indices of unmasked patches.
+
+    Returns:
+        mask_grid (tensor): A binary tensor of shape (T, H, W) where 1 indicates unmasked patches.
+    """
+    # Get the total number of patches
+    total_patches = no_slices * height * width  # Replace with actual values
+
+    # Create a flat mask with all zeros
+    flat_mask = torch.zeros(total_patches, dtype=torch.int32)
+
+    # Set the unmasked positions to 1
+    flat_mask[mask_indices] = 1
+
+    # Reshape the mask to (T, H, W)
+    mask_grid = flat_mask.view(no_slices, height, width)
+
+    return mask_grid
+
+def visualize_masks(mask_enc_grid, mask_pred_grid, epoch, itr, mask_idx):
+    """
+    Visualizes and saves the encoder and predictor masks.
+
+    Args:
+        mask_enc_grid (tensor): Encoder mask grid of shape (T, H, W).
+        mask_pred_grid (tensor): Predictor mask grid of shape (T, H, W).
+        epoch (int): Current epoch number.
+        itr (int): Current iteration number.
+        mask_idx (int): Index of the mask in the list of masks.
+    """
+    # Create a directory to save the images
+    save_dir = os.path.join('mask_visualizations', f'epoch_{epoch}_iter_{itr}')
+    os.makedirs(save_dir, exist_ok=True)
+
+    # For each time step, visualize the mask
+    T = mask_enc_grid.shape[0]
+    for t in range(T):
+        fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+
+        # Encoder mask
+        axes[0].imshow(mask_enc_grid[t].cpu(), cmap='gray')
+        axes[0].set_title(f'Encoder Mask - Time {t}')
+        axes[0].axis('off')
+
+        # Predictor mask
+        axes[1].imshow(mask_pred_grid[t].cpu(), cmap='gray')
+        axes[1].set_title(f'Predictor Mask - Time {t}')
+        axes[1].axis('off')
+
+        # Save the figure
+        fig.suptitle(f'Epoch {epoch}, Iteration {itr}, Mask {mask_idx}, Time {t}')
+        fig.tight_layout()
+        save_path = os.path.join(save_dir, f'mask_{mask_idx}_time_{t}.png')
+        plt.savefig(save_path)
+        plt.close(fig)
