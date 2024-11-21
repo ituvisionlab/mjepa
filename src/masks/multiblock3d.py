@@ -45,9 +45,10 @@ class MaskCollator(object):
             )
             self.mask_generators.append(mask_generator)
 
-    def step(self):
-        for mask_generator in self.mask_generators:
-            mask_generator.step()
+    #GU_
+    # def step(self):
+    #     for mask_generator in self.mask_generators:
+    #         mask_generator.step()
 
     def __call__(self, batch):
 
@@ -135,22 +136,37 @@ class _MaskGenerator(object):
 
         return (t, h, w)
 
-    def _sample_block_mask(self, b_size):
+     #GU_
+    def _sample_block_mask(self, b_size, generator):
         t, h, w = b_size
-        top = torch.randint(0, self.height - h + 1, (1,))
-        left = torch.randint(0, self.width - w + 1, (1,))
-        start = torch.randint(0, self.duration - t + 1, (1,))
+        top = torch.randint(0, self.height - h + 1, (1,), generator=generator).item()
+        left = torch.randint(0, self.width - w + 1, (1,), generator=generator).item()
+        start = torch.randint(0, self.duration - t + 1, (1,), generator=generator).item()
 
         mask = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
         mask[start:start+t, top:top+h, left:left+w] = 0
 
-        # Context mask will only span the first X frames
-        # (X=self.max_context_frames)
         if self.max_context_duration < self.duration:
             mask[self.max_context_duration:, :, :] = 0
 
-        # --
         return mask
+
+    # def _sample_block_mask(self, b_size):
+    #     t, h, w = b_size
+    #     top = torch.randint(0, self.height - h + 1, (1,))
+    #     left = torch.randint(0, self.width - w + 1, (1,))
+    #     start = torch.randint(0, self.duration - t + 1, (1,))
+
+    #     mask = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
+    #     mask[start:start+t, top:top+h, left:left+w] = 0
+
+    #     # Context mask will only span the first X frames
+    #     # (X=self.max_context_frames)
+    #     if self.max_context_duration < self.duration:
+    #         mask[self.max_context_duration:, :, :] = 0
+
+    #     # --
+    #     return mask
 
     def __call__(self, batch_size):
         """
@@ -159,7 +175,8 @@ class _MaskGenerator(object):
         # 2. sample several pred block locations for each image (w/o seed)
         # 3. return pred masks and complement (enc mask)
         """
-        seed = self.step()
+        #seed = self.step() #GU_
+        seed = torch.initial_seed() # Obtain the initial seed for the current worker
         g = torch.Generator()
         g.manual_seed(seed)
         p_size = self._sample_block_size(
@@ -171,25 +188,29 @@ class _MaskGenerator(object):
 
         collated_masks_pred, collated_masks_enc = [], []
         min_keep_enc = min_keep_pred = self.duration * self.height * self.width
-        for _ in range(batch_size):
+        # for _ in range(batch_size): #GU_
 
-            empty_context = True
-            while empty_context:
+        empty_context = True
+        while empty_context:
 
-                mask_e = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
-                for _ in range(self.npred):
-                    mask_e *= self._sample_block_mask(p_size)
-                mask_e = mask_e.flatten()
+            mask_e = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
+            for _ in range(self.npred):
+                mask_e *= self._sample_block_mask(p_size, generator=g) #GU_ All random functions will use the same generator g, ensuring consistent and random mask generation within each worker.
+            mask_e = mask_e.flatten()
 
-                mask_p = torch.argwhere(mask_e == 0).squeeze()
-                mask_e = torch.nonzero(mask_e).squeeze()
+            mask_p = torch.argwhere(mask_e == 0).squeeze()
+            mask_e = torch.nonzero(mask_e).squeeze()
 
-                empty_context = len(mask_e) == 0
-                if not empty_context:
-                    min_keep_pred = min(min_keep_pred, len(mask_p))
-                    min_keep_enc = min(min_keep_enc, len(mask_e))
-                    collated_masks_pred.append(mask_p)
-                    collated_masks_enc.append(mask_e)
+            empty_context = len(mask_e) == 0
+            if not empty_context:
+                min_keep_pred = min(min_keep_pred, len(mask_p))
+                min_keep_enc = min(min_keep_enc, len(mask_e))
+                collated_masks_pred.append(mask_p)
+                collated_masks_enc.append(mask_e)
+        
+        #GU_ replicate the masks along the batchsize
+        collated_masks_enc *= batch_size
+        collated_masks_pred *= batch_size
 
         if self.max_keep is not None:
             min_keep_enc = min(min_keep_enc, self.max_keep)
@@ -201,3 +222,5 @@ class _MaskGenerator(object):
         collated_masks_enc = torch.utils.data.default_collate(collated_masks_enc)
 
         return collated_masks_enc, collated_masks_pred
+
+   
