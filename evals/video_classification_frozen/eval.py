@@ -236,7 +236,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         depth=1,
         num_classes=num_classes,
     ).to(device)
-
+    print("Print the classifier")
+    print(classifier)
+    
     train_loader = make_dataloader(
         dataset_type=dataset_type,
         root_path=train_data_path,
@@ -428,7 +430,7 @@ def run_one_epoch(
             batch_size = len(labels)
 
             # clips list: len = no_of_clips (num_segments)
-            # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224])
+            # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
             # clips[1][0].shape ""
             # Forward and prediction
             with torch.no_grad():
@@ -531,7 +533,7 @@ def load_pretrained(
 ):
     logger.info(f'Loading pretrained model from {pretrained}')
     checkpoint = torch.load(pretrained, map_location='cpu')
-    print("Hello 1")
+    print("Print the pretrained model")
     print(checkpoint.keys())
     #print(checkpoint['classifier'])
     try:
