@@ -131,7 +131,10 @@ def launch_evals_with_parsed_args(
 
     for job in jobs:
         logger.info(f'Launched eval job with id {job.job_id}')
-
+        jobid_txt = os.path.join(log_dir, f"{job.job_id}.txt")  # Use job_id as the filename
+        # Save the job ID in a file named after the job ID
+        with open(jobid_txt, "w") as f:
+            f.write(f"Job ID: {job.job_id}\n")
 
 def launch_evals():
 
