@@ -169,6 +169,7 @@ def make_transforms(
     motion_shift=False,
     crop_size=224,
     num_views_per_clip=1,
+    in_chans=3,
     #normalize=((0.485, 0.456, 0.406),
     #           (0.229, 0.224, 0.225))
     normalize=((0.0),(1))
@@ -180,6 +181,7 @@ def make_transforms(
             num_views_per_clip=num_views_per_clip,
             short_side_size=crop_size,
             normalize=normalize,
+            in_chans=in_chans,
         )
 
     else:
@@ -193,6 +195,7 @@ def make_transforms(
             motion_shift=motion_shift,
             crop_size=crop_size,
             normalize=normalize,
+            in_chans=in_chans,
         )
     return _frames_augmentation
 
@@ -208,6 +211,7 @@ class MRITransform(object):
         auto_augment=False,
         motion_shift=False,
         crop_size=224,
+        in_chans=3,
         normalize=((0.0),(1)) # GU_COMMENT
     ):
 
@@ -217,7 +221,7 @@ class MRITransform(object):
         #self.eval_transform = video_transforms.Compose([
         #    video_transforms.Resize(short_side_size, interpolation='bilinear'),
         #    video_transforms.CenterCrop(size=(crop_size, crop_size)),
-        #    volume_transforms.ClipToTensor(),
+        #    volume_transforms.ClipToTensor(channel_nb=in_chans),
         #    video_transforms.Normalize(mean=normalize[0], std=normalize[1])
         # ])
 
@@ -292,13 +296,14 @@ class EvalMRITransform(object):
         self,
         num_views_per_clip=1,
         short_side_size=224,
+        in_chans=3,
         normalize=((0.0),(1)) #GU_COMMENT
     ):
         self.views_per_clip = num_views_per_clip
         self.short_side_size = short_side_size
         self.spatial_resize = video_transforms.Resize(short_side_size, interpolation='bilinear')
         self.to_tensor = video_transforms.Compose([
-            volume_transforms.ClipToTensor(),
+            volume_transforms.ClipToTensor(channel_nb=in_chans),
             # video_transforms.Normalize(mean=normalize[0], std=normalize[1]) #GU_COMMENT
         ])
 

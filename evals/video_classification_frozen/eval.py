@@ -576,17 +576,18 @@ def make_dataloader(
     num_workers=4,
     subset_file=None
 ):
-    # Make Video Transforms
+    # Make Transforms
     transform = make_transforms(
         training=training,
         num_views_per_clip=num_views_per_segment,
         random_horizontal_flip=False,
         random_resize_aspect_ratio=(0.75, 4/3),
         random_resize_scale=(0.08, 1.0),
-        reprob=0.25,
+        reprob=0,
         auto_augment=False,
         motion_shift=False,
         crop_size=resolution,
+        in_chans=in_chans,
     )
 
     data_loader, _ = init_data(
