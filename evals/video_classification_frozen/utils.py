@@ -175,7 +175,7 @@ def make_transforms(
     normalize=((0.0),(1))
 ):
 
-    if not training and num_views_per_clip > 1:
+    if not training: # and num_views_per_clip > 1:  # GU_
         print('Making EvalMRITransform, multi-view')
         _frames_augmentation = EvalMRITransform(
             num_views_per_clip=num_views_per_clip,
@@ -316,7 +316,7 @@ class EvalMRITransform(object):
 
         num_views = self.views_per_clip
         side_len = self.short_side_size
-        spatial_step = (max(H, W) - side_len) // (num_views - 1)
+        # spatial_step = (max(H, W) - side_len) // (num_views - 1) # GU_
 
         all_views = []
         #GU_COMMENT

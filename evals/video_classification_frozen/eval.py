@@ -602,6 +602,7 @@ def make_dataloader(
         duration=eval_duration,
         num_clips=num_segments,
         in_chans=in_chans,
+        crop_size=resolution,
         random_clip_sampling=random_clip_sampling, 
         allow_clip_overlap=allow_segment_overlap,
         num_workers=num_workers,

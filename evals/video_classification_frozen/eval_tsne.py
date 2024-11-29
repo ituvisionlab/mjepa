@@ -27,13 +27,13 @@ def parse_arguments():
     """
     parser = argparse.ArgumentParser(
         description='t-SNE Visualization of Encoded Features')
-    parser.add_argument('--pretrained_path', type=str, default='/gpfs/data/sodicksonlab/gozde/logs/mnist/jepa-latest.pth.tar', #required=True,
+    parser.add_argument('--pretrained_path', type=str, default='/gpfs/data/sodicksonlab/gozde/logs/mnist-pretrain-nov27/jepa-periodic-epoch-121.pth.tar', #required=True,
                         help='Path to the pretrained encoder checkpoint')
     parser.add_argument('--checkpoint_key', type=str, default='target_encoder',
                         help='Key for the encoder in the checkpoint')
     parser.add_argument('--model_name', type=str, default='vit_large',
                         help='Name of the encoder model architecture')
-    parser.add_argument('--patch_size', type=int, default=7,
+    parser.add_argument('--patch_size', type=int, default=16,
                         help='Patch size for the encoder')
     parser.add_argument('--crop_size', type=int, default=224,
                         help='Crop size for the input images')
@@ -58,8 +58,10 @@ def parse_arguments():
                         help='Path to save the t-SNE plot')
     parser.add_argument('--subset_file', type=str, default=None,
                         help='Path to a subset file if using a subset of data')
-    parser.add_argument('--max_samples', type=int, default=300,
+    parser.add_argument('--max_samples', type=int, default=320,
                         help='Maximum number of samples to use for t-SNE')
+    parser.add_argument('--use_bfloat16', type=bool, default=True,
+                        help='whether to use bfloat16')
     args = parser.parse_args()
     return args
 
@@ -75,7 +77,7 @@ def load_pretrained_encoder(args, device):
         tubelet_size=args.tubelet_size,
         in_chans=args.in_chans,
     )
-
+    print(encoder)
     # Load the pretrained weights
     checkpoint = torch.load(args.pretrained_path, map_location='cpu')
     try:
@@ -96,6 +98,7 @@ def load_pretrained_encoder(args, device):
             model_dict[k] = pretrained_dict[k]
         else:
             print(f"Layer {k} not loaded from checkpoint")
+    print(encoder)
     encoder.load_state_dict(model_dict)
     encoder.to(device)
     encoder.eval()  # Set to evaluation mode
@@ -105,25 +108,25 @@ def make_dataloader(args):
     """
     Creates a DataLoader for the dataset.
     """
-    # Define the data transformations
-    transform = make_transforms(
-        training=False,
-        num_views_per_clip=1,
-        random_horizontal_flip=False,
-        random_resize_aspect_ratio=(0.75, 4/3),
-        random_resize_scale=(0.08, 1.0),
-        reprob=0,
-        auto_augment=False,
-        motion_shift=False,
-        crop_size=args.crop_size,
-        in_chans=args.in_chans,
-    )
+    # # Define the data transformations
+    # transform = make_transforms(
+    #     training=False,
+    #     num_views_per_clip=1,
+    #     random_horizontal_flip=False,
+    #     random_resize_aspect_ratio=(0.75, 4/3),
+    #     random_resize_scale=(0.08, 1.0),
+    #     reprob=0,
+    #     auto_augment=False,
+    #     motion_shift=False,
+    #     crop_size=args.crop_size,
+    #     in_chans=args.in_chans,
+    # )
 
     # Initialize the data loader
     data_loader, _ = init_data(
         data=args.dataset_type,
         root_path=[args.data_path],
-        transform=transform,
+        transform=None,
         batch_size=args.batch_size,
         world_size=1,
         rank=0,
@@ -149,26 +152,42 @@ def extract_features(encoder, data_loader, device, args):
     labels = []
     total_samples = 0
     with torch.no_grad():
-        for batch in data_loader:
+        for i, data in enumerate(data_loader):
+            print("batch: ", i)
             # Get the inputs and labels
-            inputs = batch[0]  # Inputs
-            batch_labels = batch[1]  # Labels
+            # inputs = batch[0]  # Inputs
+            # batch_labels = batch[1]  # Labels
 
-            # Move data to the device
-            if isinstance(inputs[0], list) or isinstance(inputs[0], tuple):
-                # For video data with multiple clips
-                # Flatten the list of lists and move to device
-                inputs = [clip.to(device) for clips in inputs for clip in clips]
-                batch_size = batch_labels.size(0)
-            else:
-                # For image data or video data with single clip
-                inputs = [clip.to(device) for clip in inputs]
-                batch_size = batch_labels.size(0)
+            # # Move data to the device
+            # if isinstance(inputs[0], list) or isinstance(inputs[0], tuple):
+            #     # For video data with multiple clips
+            #     # Flatten the list of lists and move to device
+            #     inputs = [clip.to(device) for clips in inputs for clip in clips]
+            #     batch_size = batch_labels.size(0)
+            # else:
+            #     # For image data or video data with single clip
+            #     inputs = [clip.to(device) for clip in inputs]
+            #     batch_size = batch_labels.size(0)
 
-            batch_labels = batch_labels.numpy()
+            # batch_labels = batch_labels.numpy()
 
-            # Pass inputs through the encoder
-            outputs = encoder(inputs)
+            with torch.cuda.amp.autocast(dtype=torch.float16, enabled=args.use_bfloat16):
+
+                # Load data and put on GPU: move frames to GPU
+                clips = [
+                    [dij.to(device, non_blocking=True) for dij in di]  # iterate over spatial views of clip
+                    for di in data[0]  # iterate over temporal index of clip
+                ]
+                clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
+                labels = data[1].to(device)
+                batch_size = len(labels)
+
+                # clips list: len = no_of_clips (num_segments)
+                # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
+                # clips[1][0].shape ""
+                # Forward and prediction
+                with torch.no_grad():
+                    outputs = encoder(clips, clip_indices)
 
             # outputs shape: [batch_size, K, embed_dim]
             # K is the number of tokens (patches)
@@ -194,10 +213,12 @@ def extract_features(encoder, data_loader, device, args):
 
             # Convert to numpy arrays
             batch_features = batch_features.cpu().numpy()
-
+            
+            print(batch_features.shape)
+            
             # Collect features and labels
             features.append(batch_features)
-            labels.append(batch_labels)
+            labels.append(labels)
 
             total_samples += batch_features.shape[0]
             if total_samples >= args.max_samples:

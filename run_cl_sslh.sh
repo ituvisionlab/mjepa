@@ -11,4 +11,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m evals.main_distributed --fname configs/evals/vith16_mri_eval1.yaml --folder /gpfs/home/unalg01/jepa --partition a100_short
+python -m evals.main_distributed --fname configs/evals/vith16_mri_eval.yaml --folder /gpfs/home/unalg01/jepa --partition a100_short
