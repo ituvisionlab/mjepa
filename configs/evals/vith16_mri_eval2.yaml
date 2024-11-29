@@ -44,6 +44,6 @@ pretrain:
   patch_size: 16
   frame_step: 1
   in_channel_size: 1
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_11_19__06_51_45/model_ckpt/latest-model/  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar  # name of pretrained model file inside folder
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_11_19__06_51_45/model_ckpt/best-model/  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  checkpoint: jepa-best.pth.tar  # name of pretrained model file inside folder
   write_tag: jepa

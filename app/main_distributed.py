@@ -16,6 +16,9 @@ import logging
 import sys
 import traceback
 
+import sys 
+sys.path.append('/gpfs/home/unalg01/jepa')
+
 from app.scaffold import main as app_main
 from src.utils.logging import get_logger
 from app.vjepa.utils import get_new_log_dir
@@ -38,7 +41,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     '--folder', type=str,
     help='location to save submitit logs',
-    default='/home/gozde/medChangeDet/jepa/evals/')
+    default='/gpfs/home/unalg01/jepa/evals/')
     # default='/fsx-jepa/massran/submitit/')
 parser.add_argument(
     '--exclude', type=str,
