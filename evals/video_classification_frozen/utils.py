@@ -158,6 +158,42 @@ class ClipAggregation(nn.Module):
 
         return all_outputs
 
+def make_video_transforms(
+    training=True,
+    random_horizontal_flip=True,
+    random_resize_aspect_ratio=(3/4, 4/3),
+    random_resize_scale=(0.3, 1.0),
+    reprob=0.0,
+    auto_augment=False,
+    motion_shift=False,
+    crop_size=224,
+    num_views_per_clip=1,
+    normalize=((0.485, 0.456, 0.406),
+               (0.229, 0.224, 0.225))
+):
+
+    if not training and num_views_per_clip > 1:
+        print('Making EvalVideoTransform, multi-view')
+        _frames_augmentation = EvalVideoTransform(
+            num_views_per_clip=num_views_per_clip,
+            short_side_size=crop_size,
+            normalize=normalize,
+        )
+
+    else:
+        _frames_augmentation = VideoTransform(
+            training=training,
+            random_horizontal_flip=random_horizontal_flip,
+            random_resize_aspect_ratio=random_resize_aspect_ratio,
+            random_resize_scale=random_resize_scale,
+            reprob=reprob,
+            auto_augment=auto_augment,
+            motion_shift=motion_shift,
+            crop_size=crop_size,
+            normalize=normalize,
+        )
+    return _frames_augmentation
+
 
 def make_transforms(
     training=True,
@@ -172,7 +208,8 @@ def make_transforms(
     in_chans=3,
     #normalize=((0.485, 0.456, 0.406),
     #           (0.229, 0.224, 0.225))
-    normalize=((0.0),(1))
+    normalize=((0.0),(1)),
+    in_chans=3
 ):
 
     if not training: # and num_views_per_clip > 1:  # GU_
@@ -181,7 +218,7 @@ def make_transforms(
             num_views_per_clip=num_views_per_clip,
             short_side_size=crop_size,
             normalize=normalize,
-            in_chans=in_chans,
+            in_chans=in_chans
         )
 
     else:
@@ -195,7 +232,7 @@ def make_transforms(
             motion_shift=motion_shift,
             crop_size=crop_size,
             normalize=normalize,
-            in_chans=in_chans,
+            in_chans=in_chans
         )
     return _frames_augmentation
 
@@ -211,8 +248,8 @@ class MRITransform(object):
         auto_augment=False,
         motion_shift=False,
         crop_size=224,
-        in_chans=3,
-        normalize=((0.0),(1)) # GU_COMMENT
+        normalize=((0.0),(1)), # GU_COMMENT
+        in_chans=3
     ):
 
         self.training = training
@@ -296,8 +333,8 @@ class EvalMRITransform(object):
         self,
         num_views_per_clip=1,
         short_side_size=224,
-        in_chans=3,
-        normalize=((0.0),(1)) #GU_COMMENT
+        normalize=((0.0),(1)), #GU_COMMENT,
+        in_chans=3
     ):
         self.views_per_clip = num_views_per_clip
         self.short_side_size = short_side_size

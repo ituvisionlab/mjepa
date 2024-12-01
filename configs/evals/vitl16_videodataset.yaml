@@ -2,14 +2,14 @@ nodes: 1
 tasks_per_node: 1
 tag: k400-16x8x3
 eval_name: video_classification_frozen
-resume_checkpoint: true
+resume_checkpoint: false
 checkpoint_path: /home/gozde/medChangeDet/jepa/src/models/pretrained_weights/k400-probe.pth.tar #classification model
 logging:
   folder: logs/
 data:
   root_path: /home/gozde/medChangeDet/jepa/
-  dataset_train: /home/gozde/medChangeDet/jepa/src/datasets/video_train.csv 
-  dataset_val: /home/gozde/medChangeDet/jepa/src/datasets/video_val.csv
+  dataset_train: /home/gozde/medChangeDet/jepa/src/datasets/video_train_correct_labels.csv 
+  dataset_val: /home/gozde/medChangeDet/jepa/src/datasets/video_val_correct_labels.csv
   dataset_type: VideoDataset
   num_classes: 400
   frames_per_clip: 16
@@ -17,7 +17,7 @@ data:
   num_views_per_segment: 3
   frame_step: 4
   num_workers: 1
-  random_clip_sampling: false
+  random_clip_sampling: true
 optimization:
   attend_across_segments: true
   num_epochs: 500
