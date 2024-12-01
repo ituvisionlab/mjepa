@@ -165,7 +165,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     
     model_folder = os.path.join(log_dir, "model_ckpt")
     csv_folder = os.path.join(log_dir, "csv_logs")
-    jepa_ckpt_folder = "./src/models/pretrained_weights"
+    jepa_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
     tb_folder = os.path.join(log_dir, "tensorboard")
     
     os.makedirs(model_folder, exist_ok=True)
@@ -300,6 +300,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
          duration=duration,
          num_clips=num_clips,
          in_chans=in_chans,
+         crop_size=crop_size,
          random_clip_sampling=random_clip_sampling,
          transform=transform,
          datasets_weights=datasets_weights,

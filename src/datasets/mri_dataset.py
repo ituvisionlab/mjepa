@@ -23,7 +23,7 @@ from PIL import Image
 import torch
 
 import sys 
-sys.path.append('/home/gozde/medChangeDet/jepa')
+sys.path.append('/gpfs/home/unalg01/jepa')
 
 from src.datasets.utils.weighted_sampler import DistributedWeightedSampler
 
@@ -38,6 +38,7 @@ def make_mridataset(
     frame_step=1,
     num_clips=1,
     in_chans=3,
+    crop_size=224,
     random_clip_sampling=True,
     allow_clip_overlap=False,
     filter_short_videos=False,
@@ -61,6 +62,7 @@ def make_mridataset(
         frame_step=frame_step,
         num_clips=num_clips,
         in_chans=in_chans,
+        crop_size=crop_size,
         random_clip_sampling=random_clip_sampling,
         allow_clip_overlap=allow_clip_overlap,
         filter_short_videos=filter_short_videos,
@@ -108,6 +110,7 @@ class MRIDataset(torch.utils.data.Dataset):
         frame_step=1,
         num_clips=1,
         in_chans=3,
+        crop_size=224,
         transform=None,
         shared_transform=None,
         random_clip_sampling=True,
@@ -122,6 +125,7 @@ class MRIDataset(torch.utils.data.Dataset):
         self.frame_step = frame_step
         self.num_clips = num_clips
         self.in_chans=in_chans
+        self.crop_size=crop_size
         self.transform = transform
         self.shared_transform = shared_transform
         self.random_clip_sampling = random_clip_sampling
@@ -201,20 +205,24 @@ class MRIDataset(torch.utils.data.Dataset):
             # Transform from xyz (Sagittal) to zxy (Axial)
             volume = volume.transpose(2, 0, 1)  # Shape: (Z, X, Y)
 
+            # print(f"Volume shape: {volume.shape}")
             # for ADNI: clip first 20 frames (neck) and last 12 frames (black top)
-            volume = volume[20:-12]
+            #volume = volume[20:-12]
 
             #volume = self.center_crop(volume, crop_sizes={1: 240, 2: 160})
-            # Resize along axes 1 and 2 to size 224
-            volume = self.resize(volume, crop_sizes={1: 224, 2: 224})
+            # Resize along axes 1 and 2 to size crop_size=224
+            volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size})
+            # print(f"Volume shape after resize: {volume.shape}")
             
-            # save one png file for debugging
-            # plt.imsave('slice.png', volume[100], cmap='gray')
+            # GU_Debug: save one png file for debugging
+            # plt.imsave('slice.png', volume[10], cmap='gray')
 
             # Preprocess the volume: intensity normalization
             volume, volume_mean, volume_std = self.preprocess_volume(volume,in_chans)
             
-             # plt.imsave('slice_preprocessed.png', volume[100, :, :, 0]*volume_std + volume_mean, cmap='gray')
+            # GU_Debug:
+            # plt.imsave('slice_preprocessed.png', volume[100, :, :, 0]*volume_std + volume_mean, cmap='gray')
+            # plt.imsave('slice_preprocessed.png', volume[10, :, :, 0]*volume_std + volume_mean, cmap='gray')
 
             return volume
     
@@ -404,7 +412,7 @@ if __name__ == "__main__":
 
     # Create the dataset and data loader
     dataset, data_loader, sampler = make_mridataset(
-        data_paths='/home/gozde/medChangeDet/jepa/src/datasets/filtered_nii_small.csv',
+        data_paths='/gpfs/home/unalg01/jepa/src/datasets/filtered_nii_small.csv',
         batch_size = 1,
         frames_per_clip=16,
         frame_step=1,
