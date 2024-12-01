@@ -208,8 +208,7 @@ def make_transforms(
     in_chans=3,
     #normalize=((0.485, 0.456, 0.406),
     #           (0.229, 0.224, 0.225))
-    normalize=((0.0),(1)),
-    in_chans=3
+    normalize=((0.0),(1))
 ):
 
     if not training: # and num_views_per_clip > 1:  # GU_

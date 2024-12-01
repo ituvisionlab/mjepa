@@ -35,6 +35,7 @@ import torch.utils.tensorboard
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
+sys.path.append('/home/gozde/medChangeDet/jepa')
 
 import src.models.vision_transformer as vit
 from src.models.attentive_pooler import AttentiveClassifier

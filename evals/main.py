@@ -15,6 +15,7 @@ import yaml
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
+sys.path.append('/home/gozde/medChangeDet/jepa')
 
 from app.vjepa.utils import get_new_log_dir
 from src.utils.distributed import init_distributed
