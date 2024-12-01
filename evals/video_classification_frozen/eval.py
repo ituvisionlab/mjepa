@@ -56,6 +56,7 @@ from src.utils.logging import (
 
 from evals.video_classification_frozen.utils import (
     make_transforms,
+    make_video_transforms,
     ClipAggregation,
     FrameAggregation
 )
@@ -487,7 +488,7 @@ def run_one_epoch(
         log_writer.flush()
         torch.cuda.empty_cache()
         
-        if itr % 20 == 0 and rank == 0:
+        if itr % 5 == 0 and rank == 0:
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
@@ -587,6 +588,7 @@ def make_dataloader(
         auto_augment=False,
         motion_shift=False,
         crop_size=resolution,
+        in_chans=in_chans
     )
 
     data_loader, _ = init_data(
