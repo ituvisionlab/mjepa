@@ -1,0 +1,80 @@
+app: vjepa
+nodes: 1
+tasks_per_node: 4  #1
+data:
+  # dataset_type: VideoDataset
+  dataset_type: MRIDataset
+  datasets: 
+  - src/datasets/mnist3d/nii_volumes.csv # Relative path instead of abs path
+  decode_one_clip: true
+  batch_size: 16
+  num_clips: 4
+  num_frames: 16
+  tubelet_size: 2
+  sampling_rate: 1
+  crop_size: 32
+  patch_size: 8
+  in_channel_size: 1
+  random_clip_sampling: true
+  pin_mem: false #true
+  num_workers: 0 #12
+  filter_short_videos: false
+  clip_duration: null
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+  - 0.85
+  - 1.15
+  random_resize_scale:
+  - 0.8
+  - 1.0
+  reprob: 0.0
+logging:
+  folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
+  write_tag: jepa
+loss:
+  loss_exp: 1.0
+  reg_coeff: 0.0
+mask:
+  - aspect_ratio:
+      - 0.75
+      - 1.5
+    num_blocks: 4
+    spatial_scale:
+      - 0.4
+      - 0.4
+    temporal_scale:
+      - 1.0
+      - 1.0
+    max_temporal_keep: 1.0
+    max_keep: null
+meta:
+  load_checkpoint: false
+  read_checkpoint: null # vitl16.pth.tar # null #r_file
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
+  seed: 234
+  eval_freq: 100
+  use_sdpa: true
+  dtype: bfloat16
+model:
+  model_name: vit_large
+  pred_depth: 12
+  pred_embed_dim: 384
+  uniform_power: true
+  use_mask_tokens: true
+  zero_init_mask_tokens: true
+optimization:
+  ipe: 200
+  ipe_scale: 1.25
+  clip_grad: 1.0
+  weight_decay: 0.01
+  final_weight_decay: 0.1
+  epochs: 2000
+  warmup: 10
+  start_lr: 0.000625 #0.001
+  lr: 0.000625 #0.001
+  final_lr: 1.0e-06
+  ema:
+  - 0.998
+  - 1.0

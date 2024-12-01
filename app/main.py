@@ -14,7 +14,7 @@ import torch.version
 import yaml
 
 import sys 
-sys.path.append('/home/gozde/medChangeDet/jepa')
+sys.path.append('/gpfs/home/unalg01/jepa')
 
 from app.scaffold import main as app_main
 from src.utils.distributed import init_distributed

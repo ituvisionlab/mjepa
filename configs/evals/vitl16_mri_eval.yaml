@@ -44,7 +44,7 @@ pretrain:
   patch_size: 16
   in_channel_size: 3
   frame_step: 1 # added
-  folder: logs/mjepa_pretrain_2024_11_10__18_48_47/model_ckpt #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  # folder: /home/gozde/medChangeDet/jepa/evals/ #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_11_22__09_01_23/model_ckpt/periodic-model/ #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  checkpoint: jepa-periodic-epoch-96.pth.tar #jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa

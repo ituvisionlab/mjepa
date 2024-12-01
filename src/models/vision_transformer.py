@@ -290,7 +290,7 @@ def vit_giant(patch_size=16, **kwargs):
 
 def vit_gigantic(patch_size=14, **kwargs):
     model = VisionTransformer(
-        patch_size=patch_size, embed_dim=1664, depth=48, num_heads=16, mpl_ratio=64/13,
+        patch_size=patch_size, embed_dim=1664, depth=48, num_heads=16, mlp_ratio=64/13,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs
     )
     return model

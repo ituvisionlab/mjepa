@@ -34,7 +34,7 @@ from torch.nn.parallel import DistributedDataParallel
 import torch.utils.tensorboard
 
 import sys 
-sys.path.append('/home/gozde/medChangeDet/jepa')
+sys.path.append('/gpfs/home/unalg01/jepa')
 
 import src.models.vision_transformer as vit
 from src.models.attentive_pooler import AttentiveClassifier
@@ -374,9 +374,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
             else:
                 if len(epoch_accs) > 0:
-                    if train_acc < min(epoch_accs):
+                    if train_acc > max(epoch_accs):
                         save_checkpoint(epoch + 1, train_acc, val_acc, best_path, best_info_path)
-                    elif train_acc < min(epoch_accs[-10:]):
+                    elif epoch%20==0:
                         periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
                         periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
                         save_checkpoint(epoch + 1, train_acc, val_acc, periodic_path, periodic_info_path)
@@ -577,14 +577,14 @@ def make_dataloader(
     num_workers=4,
     subset_file=None
 ):
-    # Make Video Transforms
+    # Make Transforms
     transform = make_transforms(
         training=training,
         num_views_per_clip=num_views_per_segment,
         random_horizontal_flip=False,
         random_resize_aspect_ratio=(0.75, 4/3),
         random_resize_scale=(0.08, 1.0),
-        reprob=0.25,
+        reprob=0,
         auto_augment=False,
         motion_shift=False,
         crop_size=resolution,
@@ -603,6 +603,7 @@ def make_dataloader(
         duration=eval_duration,
         num_clips=num_segments,
         in_chans=in_chans,
+        crop_size=resolution,
         random_clip_sampling=random_clip_sampling, 
         allow_clip_overlap=allow_segment_overlap,
         num_workers=num_workers,

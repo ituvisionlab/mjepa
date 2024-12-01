@@ -16,6 +16,9 @@ import logging
 import sys
 import traceback
 
+import sys 
+sys.path.append('/gpfs/home/unalg01/jepa')
+
 from app.scaffold import main as app_main
 from src.utils.logging import get_logger
 from app.vjepa.utils import get_new_log_dir
@@ -38,7 +41,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     '--folder', type=str,
     help='location to save submitit logs',
-    default='/home/gozde/medChangeDet/jepa/evals/')
+    default='/gpfs/home/unalg01/jepa/evals/')
     # default='/fsx-jepa/massran/submitit/')
 parser.add_argument(
     '--exclude', type=str,
@@ -126,7 +129,7 @@ def launch_app_with_parsed_args(
     logger.info(f"partition: {partition}")
     
     # Create log folder for the experiment
-    log_dir = get_new_log_dir(args_for_pretrain['logging']['folder'], prefix=f'mjepa_pretrain_distributed_', postfix='')
+    log_dir = get_new_log_dir(args_for_pretrain[0]['logging']['folder'], prefix=f'mjepa_pretrain_distributed_', postfix='')
 
     if args_fname != None:
         yaml_params = None
@@ -158,6 +161,10 @@ def launch_app_with_parsed_args(
     for job in jobs:
         logger.info(f"Submitted job with ID: {job.job_id}")
         # print(job.job_id)
+        jobid_txt = os.path.join(log_dir, f"{job.job_id}.txt")  # Use job_id as the filename
+        # Save the job ID in a file named after the job ID
+        with open(jobid_txt, "w") as f:
+            f.write(f"Job ID: {job.job_id}\n")
 
 def launch():
 
