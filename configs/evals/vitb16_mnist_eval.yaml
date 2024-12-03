@@ -1,28 +1,29 @@
 nodes: 1
 tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
-eval_name: mri_tsne_frozen
+eval_name: video_classification_frozen
 resume_checkpoint: false
-max_samples: 500
-checkpoint_path: null #/home/gozde/medChangeDet/jepa/src/models/pretrained_weights/k400-probe.pth.tar #classification model
+checkpoint_path: null #classification model
 logging:
-  folder: logs/ # /gpfs/data/sodicksonlab/gozde/logs/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/mnist3d/nii_volumes.csv # Relative path instead of abs path
-  dataset_val: src/datasets/mnist3d/nii_volumes.csv # Relative path instead of abs path
+  dataset_train: src/datasets/mnist3d/nii_volumes.csv
+  dataset_val: src/datasets/mnist3d/nii_volumes.csv
   dataset_type: MRIDataset
   num_classes: 10
   frames_per_clip: 16
-  num_segments: 2
+  num_segments: 2 # 4
   num_views_per_segment: 3
   frame_step: 1
+  num_workers: 1
+  random_clip_sampling: false
 optimization:
   attend_across_segments: true
   num_epochs: 200
   resolution: 32
-  batch_size: 4 #4
-  weight_decay: 0.001
+  batch_size: 16
+  weight_decay: 0.01
   lr: 0.001
   start_lr: 0.001
   final_lr: 0.0
@@ -43,10 +44,9 @@ pretrain:
   patch_size: 8
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_14/model_ckpt/latest-model/
-  #/home/gozde/medChangeDet/jepa/logs/mjepa_pretrain_2024_11_10__18_48_47/model_ckpt/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar # jepa-periodic-epoch-251.pth.tar #jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
+  checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa

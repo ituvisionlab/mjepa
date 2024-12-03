@@ -375,7 +375,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
             else:
                 if len(epoch_accs) > 0:
-                    if train_acc > max(epoch_accs):
+                    if train_acc > max(epoch_accs) and epoch > 4:
                         save_checkpoint(epoch + 1, train_acc, val_acc, best_path, best_info_path)
                     elif epoch%20==0:
                         periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
@@ -383,9 +383,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                         save_checkpoint(epoch + 1, train_acc, val_acc, periodic_path, periodic_info_path)
                     else:
                         save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
-        
-        epoch_accs.append(train_acc)
-        epoch_val_accs.append(val_acc)
+        if epoch > 4:
+            epoch_accs.append(train_acc)
+            epoch_val_accs.append(val_acc)
 
 
 def run_one_epoch(

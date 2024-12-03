@@ -402,7 +402,10 @@ def run_one_epoch(
 
     logits = np.concatenate(logits, axis=0)
     
-    logits = np.mean(logits, axis=2)
+    # logits = np.mean(logits, axis=1) # global average pool over the L (no_patches) x num_clips dimension
+    logits = logits.reshape(logits.shape[0], -1) # flatten the last dimensions other than the first batch dimension 
+                                                # to a 1D vector of size: L (no_patches) x num_clipsx embed_dim
+    print(logits.shape)
     
     logit_labels = np.concatenate(logit_labels, axis=0)
     
