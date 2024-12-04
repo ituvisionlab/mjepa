@@ -331,24 +331,6 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
 
-        val_acc, val_loss = run_one_epoch(
-            device=device,
-            training=False,
-            num_temporal_views=eval_num_segments,
-            attend_across_segments=attend_across_segments,
-            num_spatial_views=eval_num_views_per_segment,
-            encoder=encoder,
-            classifier=classifier,
-            scaler=scaler,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            wd_scheduler=wd_scheduler,
-            data_loader=val_loader,
-            use_bfloat16=use_bfloat16,
-            log_writer=log_writer,
-            epoch=epoch,
-            eval_freq=val_eval_freq,
-            rank=rank)
 
         train_acc, train_loss = run_one_epoch(
             device=device,
@@ -369,24 +351,24 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             eval_freq=train_eval_freq,
             rank=rank)
 
-        # val_acc, val_loss = run_one_epoch(
-        #     device=device,
-        #     training=False,
-        #     num_temporal_views=eval_num_segments,
-        #     attend_across_segments=attend_across_segments,
-        #     num_spatial_views=eval_num_views_per_segment,
-        #     encoder=encoder,
-        #     classifier=classifier,
-        #     scaler=scaler,
-        #     optimizer=optimizer,
-        #     scheduler=scheduler,
-        #     wd_scheduler=wd_scheduler,
-        #     data_loader=val_loader,
-        #     use_bfloat16=use_bfloat16,
-        #     log_writer=log_writer,
-        #     epoch=epoch,
-        #     eval_freq=val_eval_freq,
-        #     rank=rank)
+        val_acc, val_loss = run_one_epoch(
+             device=device,
+             training=False,
+             num_temporal_views=eval_num_segments,
+             attend_across_segments=attend_across_segments,
+             num_spatial_views=eval_num_views_per_segment,
+             encoder=encoder,
+             classifier=classifier,
+             scaler=scaler,
+             optimizer=optimizer,
+             scheduler=scheduler,
+             wd_scheduler=wd_scheduler,
+             data_loader=val_loader,
+             use_bfloat16=use_bfloat16,
+             log_writer=log_writer,
+             epoch=epoch,
+             eval_freq=val_eval_freq,
+             rank=rank)
 
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
