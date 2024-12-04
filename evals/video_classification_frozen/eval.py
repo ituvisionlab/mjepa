@@ -166,7 +166,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     os.makedirs(csv_folder, exist_ok=True)
     os.makedirs(tb_folder, exist_ok=True)
     
-    csv_log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
+    csv_log_file = os.path.join(csv_folder, f'{eval_tag}_r{rank}.csv')
     
     
     # Model checkpoint folders
@@ -180,15 +180,15 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     os.makedirs(best_model_folder, exist_ok=True)
     os.makedirs(periodic_model_folder, exist_ok=True)
     
-    latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
+    latest_path = os.path.join(latest_model_folder, f'{eval_tag}-latest.pth.tar')
     latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
     
-    best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
+    best_path = os.path.join(best_model_folder, f'{eval_tag}-best.pth.tar')
     best_info_path = os.path.join(best_model_folder, f'best-info.txt')
     
     
     # Tensorboard logging
-    tb_rank_folder = os.path.join(tb_folder, f"{tag}_rank_{rank}")
+    tb_rank_folder = os.path.join(tb_folder, f"{eval_tag}_rank_{rank}")
     os.makedirs(tb_rank_folder, exist_ok=True)
     log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
     
@@ -240,6 +240,11 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     ).to(device)
     print("Print the classifier")
     print(classifier)
+
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f'Classifier number of parameters: {count_parameters(classifier)}')
     
     train_loader = make_dataloader(
         dataset_type=dataset_type,
@@ -325,24 +330,6 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
-        train_acc, train_loss = run_one_epoch(
-            device=device,
-            training=True,
-            num_temporal_views=eval_num_segments if attend_across_segments else 1,
-            attend_across_segments=attend_across_segments,
-            num_spatial_views=1,
-            encoder=encoder,
-            classifier=classifier,
-            scaler=scaler,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            wd_scheduler=wd_scheduler,
-            data_loader=train_loader,
-            use_bfloat16=use_bfloat16,
-            log_writer=log_writer,
-            epoch=epoch,
-            eval_freq=train_eval_freq,
-            rank=rank)
 
         val_acc, val_loss = run_one_epoch(
             device=device,
@@ -363,6 +350,44 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             eval_freq=val_eval_freq,
             rank=rank)
 
+        train_acc, train_loss = run_one_epoch(
+            device=device,
+            training=True,
+            num_temporal_views=eval_num_segments if attend_across_segments else 1,
+            attend_across_segments=attend_across_segments,
+            num_spatial_views=1,
+            encoder=encoder,
+            classifier=classifier,
+            scaler=scaler,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            wd_scheduler=wd_scheduler,
+            data_loader=train_loader,
+            use_bfloat16=use_bfloat16,
+            log_writer=log_writer,
+            epoch=epoch,
+            eval_freq=train_eval_freq,
+            rank=rank)
+
+        # val_acc, val_loss = run_one_epoch(
+        #     device=device,
+        #     training=False,
+        #     num_temporal_views=eval_num_segments,
+        #     attend_across_segments=attend_across_segments,
+        #     num_spatial_views=eval_num_views_per_segment,
+        #     encoder=encoder,
+        #     classifier=classifier,
+        #     scaler=scaler,
+        #     optimizer=optimizer,
+        #     scheduler=scheduler,
+        #     wd_scheduler=wd_scheduler,
+        #     data_loader=val_loader,
+        #     use_bfloat16=use_bfloat16,
+        #     log_writer=log_writer,
+        #     epoch=epoch,
+        #     eval_freq=val_eval_freq,
+        #     rank=rank)
+
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
         
@@ -378,7 +403,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                     if train_acc > max(epoch_accs) and epoch > 4:
                         save_checkpoint(epoch + 1, train_acc, val_acc, best_path, best_info_path)
                     elif epoch%20==0:
-                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
+                        periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch+1}.pth.tar')
                         periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
                         save_checkpoint(epoch + 1, train_acc, val_acc, periodic_path, periodic_info_path)
                     else:

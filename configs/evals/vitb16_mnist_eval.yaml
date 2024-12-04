@@ -1,9 +1,9 @@
 nodes: 1
 tasks_per_node: 4
-tag: mri-probe #k400-16x8x3
+tag: mnist-probe #k400-16x8x3
 eval_name: video_classification_frozen
-resume_checkpoint: false
-checkpoint_path: null #classification model
+resume_checkpoint: true # false
+checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
 logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
@@ -20,7 +20,7 @@ data:
   random_clip_sampling: false
 optimization:
   attend_across_segments: true
-  num_epochs: 200
+  num_epochs: 400
   resolution: 32
   batch_size: 16
   weight_decay: 0.01
@@ -44,7 +44,7 @@ pretrain:
   patch_size: 8
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/

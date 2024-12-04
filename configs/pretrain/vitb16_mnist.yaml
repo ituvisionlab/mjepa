@@ -5,7 +5,7 @@ data:
   # dataset_type: VideoDataset
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/mnist3d/nii_volumes.csv # Relative path instead of abs path
+  - src/datasets/mnist3d/mnist_train_split.csv # Relative path instead of abs path
   decode_one_clip: true  # unused
   batch_size: 16
   num_clips: 2
