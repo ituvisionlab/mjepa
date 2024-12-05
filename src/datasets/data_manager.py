@@ -35,7 +35,7 @@ def init_data(
     num_clips=1,
     in_chans=3,
     crop_size=224,
-    random_clip_sampling=False,
+    random_clip_sampling=True,
     allow_clip_overlap=False,
     filter_short_videos=False,
     filter_long_videos=int(1e9),

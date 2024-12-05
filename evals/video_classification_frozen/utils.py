@@ -347,8 +347,11 @@ class EvalMRITransform(object):
 
         # Sample several spatial views of each clip
         # buffer = np.array(self.spatial_resize(buffer))  #GU_COMMENT
-        buffer = np.array(buffer)
+        buffer = np.array(buffer) #T x W x H x C
         T, H, W, C = buffer.shape
+
+        buffer = torch.tensor(buffer, dtype=torch.float32) #T H W C
+        buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
 
         num_views = self.views_per_clip
         side_len = self.short_side_size
@@ -364,9 +367,10 @@ class EvalMRITransform(object):
         #        view = buffer[:, :, start:start+side_len, :]
         #    view = self.to_tensor(view)
         #    all_views.append(view)
-        view = self.to_tensor(buffer)    
-        all_views.append(view)
-
+        # view = self.to_tensor(buffer)    
+        # all_views.append(view)
+        
+        all_views.append(buffer)
         return all_views
 
 class VideoTransform(object):
