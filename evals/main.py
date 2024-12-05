@@ -34,6 +34,10 @@ parser.add_argument(
     '--log_dir', type=str, default="./logs",
     help='directory path for tensorboard logging'
 )
+parser.add_argument(
+    '--keep_logs',  type=bool, default=True,
+    help="Turn logging off by setting it to False"
+)
 
 def process_main(rank, fname, world_size, devices, log_dir):
     import os
@@ -44,7 +48,7 @@ def process_main(rank, fname, world_size, devices, log_dir):
 
     import logging
     #logging.basicConfig()
-    logging.basicConfig(filename='my_log_file.log')
+    # logging.basicConfig(filename='my_log_file.log')
     
     logger = logging.getLogger()
     if rank == 0:
@@ -64,7 +68,7 @@ def process_main(rank, fname, world_size, devices, log_dir):
         pp.pprint(params)
     
     # Log config
-    if rank == 0:
+    if rank == 0 and log_dir != None:
         dump = os.path.join(log_dir, 'params-pretrain.yaml')
         with open(dump, 'w') as f:
             yaml.dump(params, f)
@@ -95,8 +99,11 @@ if __name__ == '__main__':
     with open(args.fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
     
-    log_dir = get_new_log_dir(params['logging']['folder'], prefix=f'mjepa_eval_', postfix='')
-
+    if args.keep_logs or "tsne" in params["eval_name"].lower():
+        log_dir = get_new_log_dir(params['logging']['folder'], prefix=f'mjepa_eval_', postfix='')
+    else:
+        log_dir = None
+        
     mp.set_start_method('spawn')
     
     processes = []

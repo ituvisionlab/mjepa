@@ -3,14 +3,14 @@ tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
 eval_name: mri_tsne_frozen
 resume_checkpoint: false
-max_samples: 500
+max_samples: 100
 checkpoint_path: null #/home/gozde/medChangeDet/jepa/src/models/pretrained_weights/k400-probe.pth.tar #classification model
 logging:
   folder: logs/ # /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/mnist3d/nii_volumes.csv # Relative path instead of abs path
-  dataset_val: src/datasets/mnist3d/nii_volumes.csv # Relative path instead of abs path
+  dataset_train: src/datasets/nii_paths_train_split.csv # Relative path instead of abs path
+  dataset_val: src/datasets/nii_paths_val_split.csv # Relative path instead of abs path
   dataset_type: MRIDataset
   num_classes: 10
   frames_per_clip: 16
@@ -35,15 +35,15 @@ pretrain:
   checkpoint_key: target_encoder
   clip_duration: null
   frames_per_clip: 16
-  tubelet_size: 8
+  tubelet_size: 2
   uniform_power: true
   use_silu: false
   tight_silu: false
   use_sdpa: true
-  patch_size: 8
+  patch_size: 16
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
+  folder: logs/mjepa_pretrain_2024_11_30__05_06_48/model_ckpt/latest-model
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_14/model_ckpt/latest-model/
   #/home/gozde/medChangeDet/jepa/logs/mjepa_pretrain_2024_11_10__18_48_47/model_ckpt/

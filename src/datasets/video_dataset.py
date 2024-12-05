@@ -129,8 +129,28 @@ class VideoDataset(torch.utils.data.Dataset):
 
             if data_path[-4:] == '.csv':
                 data = pd.read_csv(data_path, header=None, delimiter=" ")
-                samples += list(data.values[:, 0])
-                labels += list(data.values[:, 1])
+                
+                selected_mode = False
+                selected_classes = [5, 8, 9]
+                
+                if selected_mode:
+                    sample_paths = list(data.values[:, 0])
+                    sample_labels = list(data.values[:, 1])
+                    
+                    sample_paths_new = []
+                    sample_labels_new = []
+                    
+                    for i, j in zip(sample_paths, sample_labels):
+                        if int(j) in selected_classes:
+                            sample_paths_new.append(i)
+                            sample_labels_new.append(j)
+                    
+                    samples += sample_paths_new
+                    labels += sample_labels_new
+                else:
+                    samples += list(data.values[:, 0])
+                    labels += list(data.values[:, 1])
+                
                 num_samples = len(data)
                 self.num_samples_per_dataset.append(num_samples)
 

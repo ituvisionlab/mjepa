@@ -32,6 +32,7 @@ import torch.nn.parallel
 from torch.nn.parallel import DistributedDataParallel
 
 import torch.utils.tensorboard
+import wandb
 
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
@@ -65,7 +66,7 @@ from evals.video_classification_frozen.utils import (
     FrameAggregation
 )
 
-logging.basicConfig(filename='my_log_file.log')
+# logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -164,48 +165,66 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # if not os.path.exists(folder):
     #     os.makedirs(folder, exist_ok=True)
     
-    model_folder = os.path.join(log_dir, "model_ckpt")
-    csv_folder = os.path.join(log_dir, "csv_logs")
-    tb_folder = os.path.join(log_dir, "tensorboard")
+    # model_folder = os.path.join(log_dir, "model_ckpt")
+    # csv_folder = os.path.join(log_dir, "csv_logs")
+    # tb_folder = os.path.join(log_dir, "tensorboard")
     
-    os.makedirs(model_folder, exist_ok=True)
-    os.makedirs(csv_folder, exist_ok=True)
-    os.makedirs(tb_folder, exist_ok=True)
+    # os.makedirs(model_folder, exist_ok=True)
+    # os.makedirs(csv_folder, exist_ok=True)
+    # os.makedirs(tb_folder, exist_ok=True)
     
-    csv_log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
-    
-    
-    # Model checkpoint folders
-    checkpoint_freq = 1
-    
-    latest_model_folder = os.path.join(model_folder, "latest-model")
-    best_model_folder = os.path.join(model_folder, "best-model")
-    periodic_model_folder = os.path.join(model_folder, "periodic-model")
-    
-    os.makedirs(latest_model_folder, exist_ok=True)
-    os.makedirs(best_model_folder, exist_ok=True)
-    os.makedirs(periodic_model_folder, exist_ok=True)
-    
-    latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
-    latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
-    
-    best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
-    best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+    # csv_log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
     
     
-    # Tensorboard logging
-    tb_rank_folder = os.path.join(tb_folder, f"{tag}_rank_{rank}")
-    os.makedirs(tb_rank_folder, exist_ok=True)
-    log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+    # # Model checkpoint folders
+    # checkpoint_freq = 1
     
-    # -- make csv_logger
-    csv_logger = CSVLogger(csv_log_file,
-                            ('%d', 'epoch'),
-                            ('%.5f', 'train acc'),
-                            ('%.5f', 'val acc'),
-                            ('%.5f', 'train loss'),
-                            ('%.5f', 'val loss'))
+    # latest_model_folder = os.path.join(model_folder, "latest-model")
+    # best_model_folder = os.path.join(model_folder, "best-model")
+    # periodic_model_folder = os.path.join(model_folder, "periodic-model")
+    
+    # os.makedirs(latest_model_folder, exist_ok=True)
+    # os.makedirs(best_model_folder, exist_ok=True)
+    # os.makedirs(periodic_model_folder, exist_ok=True)
+    
+    # latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
+    # latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
+    
+    # best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
+    # best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+    
+    
+    # # Tensorboard logging
+    # tb_rank_folder = os.path.join(tb_folder, f"{tag}_rank_{rank}")
+    # os.makedirs(tb_rank_folder, exist_ok=True)
+    # log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+    
+    # # -- make csv_logger
+    # csv_logger = CSVLogger(csv_log_file,
+    #                         ('%d', 'epoch'),
+    #                         ('%.5f', 'train acc'),
+    #                         ('%.5f', 'val acc'),
+    #                         ('%.5f', 'train loss'),
+    #                         ('%.5f', 'val loss'))
+    if rank == 0:
+        # wandb init
+        run = wandb.init(
+            # set the wandb project where this run will be logged
+            project="mjepa-project",
+            
+            entity="mgulsen2020-wandb",
+            
+            dir=log_dir,
 
+            # track hyperparameters and run metadata
+            config=args_eval,
+            
+            name="TSNE_" + os.path.basename(log_dir)
+            
+            # group="mjepa-DDP"
+            )
+    else:
+        run = None
     # Initialize model
 
     # -- pretrained encoder (frozen)
@@ -297,14 +316,14 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         wd_scheduler=wd_scheduler,
         data_loader=train_loader,
         use_bfloat16=use_bfloat16,
-        log_writer=log_writer,
+        log_writer=None,
         eval_freq=train_eval_freq,
         rank=rank,
         max_samples=max_samples)
     
-    plot_tsne(logits, logit_labels, tsne_out_path)
+    plot_tsne(logits, logit_labels, tsne_out_path, run, rank)
     
-def plot_tsne(features, labels, tsne_out_path):
+def plot_tsne(features, labels, tsne_out_path, run, rank):
     """
     Applies t-SNE to the features and plots the embeddings.
     """
@@ -329,7 +348,14 @@ def plot_tsne(features, labels, tsne_out_path):
     plt.ylabel('Dimension 2')
     plt.grid(True)
     plt.savefig(tsne_out_path)
-    plt.show()
+    # plt.show()
+    
+    tsne_wandb_image = wandb.Image(tsne_out_path, caption="TSNE plot")
+
+    if run != None and rank == 0:
+        run.log({"tsne_plot": tsne_wandb_image})
+        
+        run.finish()
     
 def run_one_epoch(
     device,
@@ -402,10 +428,10 @@ def run_one_epoch(
 
     logits = np.concatenate(logits, axis=0)
     
-    # logits = np.mean(logits, axis=1) # global average pool over the L (no_patches) x num_clips dimension
-    logits = logits.reshape(logits.shape[0], -1) # flatten the last dimensions other than the first batch dimension 
+    logits = np.mean(logits, axis=1) # global average pool over the L (no_patches) x num_clips dimension
+    # logits = logits.reshape(logits.shape[0], -1) # flatten the last dimensions other than the first batch dimension 
                                                 # to a 1D vector of size: L (no_patches) x num_clipsx embed_dim
-    print(logits.shape)
+    print("Features shape:", logits.shape)
     
     logit_labels = np.concatenate(logit_labels, axis=0)
     

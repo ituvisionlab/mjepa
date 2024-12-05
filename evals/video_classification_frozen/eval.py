@@ -32,6 +32,7 @@ import torch.nn.parallel
 from torch.nn.parallel import DistributedDataParallel
 
 import torch.utils.tensorboard
+import wandb
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
@@ -62,7 +63,7 @@ from evals.video_classification_frozen.utils import (
     FrameAggregation
 )
 
-logging.basicConfig(filename='my_log_file.log')
+# logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -150,58 +151,86 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # -- log/checkpointing paths
     
-    # folder = log_dir
-    # folder = os.path.join(pretrain_folder, 'video_classification_frozen/')
-    
-    # if eval_tag is not None:
-    #     folder = os.path.join(folder, eval_tag)
-    # if not os.path.exists(folder):
-    #     os.makedirs(folder, exist_ok=True)
-    
-    model_folder = os.path.join(log_dir, "model_ckpt")
-    csv_folder = os.path.join(log_dir, "csv_logs")
-    tb_folder = os.path.join(log_dir, "tensorboard")
-    
-    os.makedirs(model_folder, exist_ok=True)
-    os.makedirs(csv_folder, exist_ok=True)
-    os.makedirs(tb_folder, exist_ok=True)
-    
-    csv_log_file = os.path.join(csv_folder, f'{eval_tag}_r{rank}.csv')
-    
-    
-    # Model checkpoint folders
     checkpoint_freq = 1
     
-    latest_model_folder = os.path.join(model_folder, "latest-model")
-    best_model_folder = os.path.join(model_folder, "best-model")
-    periodic_model_folder = os.path.join(model_folder, "periodic-model")
-    
-    os.makedirs(latest_model_folder, exist_ok=True)
-    os.makedirs(best_model_folder, exist_ok=True)
-    os.makedirs(periodic_model_folder, exist_ok=True)
-    
-    latest_path = os.path.join(latest_model_folder, f'{eval_tag}-latest.pth.tar')
-    latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
-    
-    best_path = os.path.join(best_model_folder, f'{eval_tag}-best.pth.tar')
-    best_info_path = os.path.join(best_model_folder, f'best-info.txt')
-    
-    
-    # Tensorboard logging
-    tb_rank_folder = os.path.join(tb_folder, f"{eval_tag}_rank_{rank}")
-    os.makedirs(tb_rank_folder, exist_ok=True)
-    log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
-    
-    # -- make csv_logger
-    csv_logger = CSVLogger(csv_log_file,
-                            ('%d', 'epoch'),
-                            ('%.5f', 'train acc'),
-                            ('%.5f', 'val acc'),
-                            ('%.5f', 'train loss'),
-                            ('%.5f', 'val loss'))
+    if log_dir != None:
+        model_folder = os.path.join(log_dir, "model_ckpt")
+        csv_folder = os.path.join(log_dir, "csv_logs")
+        tb_folder = os.path.join(log_dir, "tensorboard")
+        
+        os.makedirs(model_folder, exist_ok=True)
+        os.makedirs(csv_folder, exist_ok=True)
+        os.makedirs(tb_folder, exist_ok=True)
+        
+        csv_log_file = os.path.join(csv_folder, f'{eval_tag}_r{rank}.csv')
+        
+        
+        # Model checkpoint folders
+        
+        latest_model_folder = os.path.join(model_folder, "latest-model")
+        best_model_folder = os.path.join(model_folder, "best-model")
+        periodic_model_folder = os.path.join(model_folder, "periodic-model")
+        
+        os.makedirs(latest_model_folder, exist_ok=True)
+        os.makedirs(best_model_folder, exist_ok=True)
+        os.makedirs(periodic_model_folder, exist_ok=True)
+        
+        latest_path = os.path.join(latest_model_folder, f'{eval_tag}-latest.pth.tar')
+        latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
+        
+        best_path = os.path.join(best_model_folder, f'{eval_tag}-best.pth.tar')
+        best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+        
+        
+        # Tensorboard logging
+        tb_rank_folder = os.path.join(tb_folder, f"{eval_tag}_rank_{rank}")
+        os.makedirs(tb_rank_folder, exist_ok=True)
+        log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+        
+        # -- make csv_logger
+        csv_logger = CSVLogger(csv_log_file,
+                                ('%d', 'epoch'),
+                                ('%.5f', 'train acc'),
+                                ('%.5f', 'val acc'),
+                                ('%.5f', 'train loss'),
+                                ('%.5f', 'val loss'))
+        
+        if rank == 0:
+            # wandb init
+            run = wandb.init(
+                # set the wandb project where this run will be logged
+                project="mjepa-project",
+                
+                entity="mgulsen2020-wandb",
+                
+                dir=log_dir,
 
+                # track hyperparameters and run metadata
+                config=args_eval,
+                
+                name=os.path.basename(log_dir)
+                
+                # group="mjepa-DDP"
+                )
+        else:
+            run = None
+    else:
+        model_folder = None
+        csv_folder = None
+        tb_folder = None
+        csv_log_file = None
+        latest_model_folder = None
+        best_model_folder = None
+        periodic_model_folder = None
+        latest_path = None
+        latest_info_path = None
+        best_path = None
+        best_info_path = None
+        tb_rank_folder = None
+        log_writer = None
+        csv_logger = None
+        
     # Initialize model
-
     # -- pretrained encoder (frozen)
     encoder = init_model(
         crop_size=resolution,
@@ -349,7 +378,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             log_writer=log_writer,
             epoch=epoch,
             eval_freq=train_eval_freq,
-            rank=rank)
+            rank=rank,
+            run=run)
 
         val_acc, val_loss = run_one_epoch(
              device=device,
@@ -368,15 +398,17 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              log_writer=log_writer,
              epoch=epoch,
              eval_freq=val_eval_freq,
-             rank=rank)
+             rank=rank,
+             run=run)
 
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
         
         # if rank == 0:
-        csv_logger.log(epoch + 1, train_acc, val_acc, train_loss, val_loss)
+        if csv_logger != None:
+            csv_logger.log(epoch + 1, train_acc, val_acc, train_loss, val_loss)
         
-        if epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1):
+        if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
             
             if not os.path.exists(latest_path):
                 save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
@@ -393,6 +425,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         if epoch > 4:
             epoch_accs.append(train_acc)
             epoch_val_accs.append(val_acc)
+            
+    if run != None:
+        run.finish()
 
 
 def run_one_epoch(
@@ -412,7 +447,8 @@ def run_one_epoch(
     log_writer,
     epoch,
     eval_freq,
-    rank
+    rank,
+    run
 ):
 
     classifier.train(mode=training)
@@ -483,17 +519,34 @@ def run_one_epoch(
                 optimizer.step()
             optimizer.zero_grad()
 
-        if training and itr % eval_freq == 0:
-            log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
-            log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-            log_writer.add_scalar('train/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
+        if log_writer != None:
+            if training and itr % eval_freq == 0:
+                log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
+                log_writer.add_scalar('train/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
+            
+            if not training and itr % eval_freq == 0:
+                log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
+                log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
+                log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
+            
+            log_writer.flush()
+            
+        if run != None and rank == 0:
+            if training and itr % eval_freq == 0:
+                run.log({
+                        'train/acc': top1_meter.avg,
+                        'train/loss': loss,
+                        'train/mem': torch.cuda.max_memory_allocated() / 1024.**2
+                    })
+            
+            if not training and itr % eval_freq == 0:
+                run.log({
+                        'val/acc': top1_meter.avg,
+                        'val/loss': loss,
+                        'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
+                    })
         
-        if not training and itr % eval_freq == 0:
-            log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
-            log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
-            log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-        
-        log_writer.flush()
         torch.cuda.empty_cache()
         
         if itr % 5 == 0 and rank == 0:

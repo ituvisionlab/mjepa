@@ -28,6 +28,7 @@ import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel, DataParallel
 import torch.utils.tensorboard
+import wandb
 
 from src.datasets.data_manager import init_data
 from src.masks.random_tube import MaskCollator as TubeMaskCollator
@@ -68,7 +69,7 @@ logger = get_logger(__name__)
 
 
 # def main(args, resume_preempt=False, log_writer=None):
-def main(args, resume_preempt=False, log_dir="./logs/evals"):
+def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
     # ----------------------------------------------------------------------- #
@@ -163,32 +164,47 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
     # folder = cfgs_logging.get('folder')
     tag = cfgs_logging.get('write_tag')
     
-    model_folder = os.path.join(log_dir, "model_ckpt")
-    csv_folder = os.path.join(log_dir, "csv_logs")
-    jepa_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
-    tb_folder = os.path.join(log_dir, "tensorboard")
+    # jepa_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
+    jepa_ckpt_folder = cfgs_meta.get("ckpt_folder", "src/models/pretrained_weights")
     
-    os.makedirs(model_folder, exist_ok=True)
-    os.makedirs(csv_folder, exist_ok=True)
-    os.makedirs(tb_folder, exist_ok=True)
-    
-    
-    # Model checkpoint folders
-    
-    latest_model_folder = os.path.join(model_folder, "latest-model")
-    best_model_folder = os.path.join(model_folder, "best-model")
-    periodic_model_folder = os.path.join(model_folder, "periodic-model")
-    
-    os.makedirs(latest_model_folder, exist_ok=True)
-    os.makedirs(best_model_folder, exist_ok=True)
-    os.makedirs(periodic_model_folder, exist_ok=True)
-    
-    
-    latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
-    latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
-    
-    best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
-    best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+    if log_dir != None:
+        model_folder = os.path.join(log_dir, "model_ckpt")
+        csv_folder = os.path.join(log_dir, "csv_logs")
+        tb_folder = os.path.join(log_dir, "tensorboard")
+        
+        os.makedirs(model_folder, exist_ok=True)
+        os.makedirs(csv_folder, exist_ok=True)
+        os.makedirs(tb_folder, exist_ok=True)
+        
+        
+        # Model checkpoint folders
+        
+        latest_model_folder = os.path.join(model_folder, "latest-model")
+        best_model_folder = os.path.join(model_folder, "best-model")
+        periodic_model_folder = os.path.join(model_folder, "periodic-model")
+        
+        os.makedirs(latest_model_folder, exist_ok=True)
+        os.makedirs(best_model_folder, exist_ok=True)
+        os.makedirs(periodic_model_folder, exist_ok=True)
+        
+        
+        latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
+        latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
+        
+        best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
+        best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+        
+    else:
+        model_folder = None
+        csv_folder = None
+        tb_folder = None
+        latest_model_folder = None
+        best_model_folder = None
+        periodic_model_folder = None
+        latest_path = None
+        latest_info_path = None
+        best_path = None
+        best_info_path = None
     
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
@@ -219,28 +235,56 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
-            
-    # Tensorboard logging
-    tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
-    os.makedirs(tb_rank_folder, exist_ok=True)
-    log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
     
+    if log_dir != None:
+        
+        if rank == 0:
+            # wandb init
+            run = wandb.init(
+                # set the wandb project where this run will be logged
+                project="mjepa-project",
+                
+                entity="mgulsen2020-wandb",
+                
+                dir=log_dir,
 
-    # -- make csv_logger
-    log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
-    csv_logger = CSVLogger(
-        log_file,
-        ('%d', 'epoch'),
-        ('%d', 'itr'),
-        ('%.5f', 'loss'),
-        ('%.5f', 'loss-jepa'),
-        ('%.5f', 'reg-loss'),
-        ('%.5f', 'enc-grad-norm'),
-        ('%.5f', 'pred-grad-norm'),
-        ('%d', 'gpu-time(ms)'),
-        ('%d', 'wall-time(ms)'),
-    )
-
+                # track hyperparameters and run metadata
+                config=args,
+                
+                name=os.path.basename(log_dir)
+                
+                # group="mjepa-DDP"
+                )
+        else:
+            run = None
+        
+        # Tensorboard logging
+        tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
+        os.makedirs(tb_rank_folder, exist_ok=True)
+        log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+        
+        # -- make csv_logger
+        log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
+        csv_logger = CSVLogger(
+            log_file,
+            ('%d', 'epoch'),
+            ('%d', 'itr'),
+            ('%.5f', 'loss'),
+            ('%.5f', 'loss-jepa'),
+            ('%.5f', 'reg-loss'),
+            ('%.5f', 'enc-grad-norm'),
+            ('%.5f', 'pred-grad-norm'),
+            ('%d', 'gpu-time(ms)'),
+            ('%d', 'wall-time(ms)'),
+        )
+    else:
+        tb_rank_folder = None
+        log_writer = None
+        
+        log_file = None
+        csv_logger = None
+    
+    
     # -- init model
     encoder, predictor = init_video_model(
         uniform_power=uniform_power,
@@ -598,6 +642,21 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
                 log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
                 log_writer.flush()
+                
+                
+                # Wandb logging
+                if run != None and rank == 0:
+                    run.log({
+                            'train/loss': loss,
+                            'train/loss_jepa': loss_jepa,
+                            'train/loss_reg': loss_reg,
+                            'train/global_norm': grad_stats.global_norm,
+                            'train/pred_global_norm': grad_stats_pred.global_norm,
+                            'train/gpu_etime_ms': gpu_etime_ms,
+                            'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
+                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2
+                        })
+                
                     
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
@@ -651,15 +710,19 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                                grad_stats_pred.min,
                                grad_stats_pred.max,
                                grad_stats_pred.global_norm))
-            log_stats()
+            
+            if log_dir != None:
+                log_stats()
+                
             assert not np.isnan(loss), 'loss is nan'
 
             torch.cuda.empty_cache()
 
         # -- Save Checkpoint
-        logger.info('avg. loss %.3f' % loss_meter.avg)
+        logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
+        
         # -- Save Last
-        if epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1):
+        if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
             
             if not os.path.exists(latest_path):
                 save_checkpoint(epoch + 1, latest_path, latest_info_path)
@@ -677,3 +740,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
             epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()
+    
+    if run != None:
+        run.finish()
