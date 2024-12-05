@@ -13,7 +13,7 @@ data:
   #  - /your_path_to_ssv2_csv_file_index.csv
   #  - /your_path_to_howto100m_csv_file_index.csv
   decode_one_clip: true
-  batch_size: 2 # 64
+  batch_size: 1 # 64
   num_clips: 4
   num_frames: 16
   tubelet_size: 2
@@ -70,6 +70,7 @@ mask:
 meta:
   load_checkpoint: false
   read_checkpoint: null # vitl16.pth.tar # null #r_file
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
   seed: 234
   eval_freq: 100
   use_sdpa: true

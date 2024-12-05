@@ -1,9 +1,10 @@
 nodes: 1
 tasks_per_node: 4
 tag: k400-16x8x3
-eval_name: video_classification_frozen
+eval_name: mri_tsne_frozen
 resume_checkpoint: true # false
 checkpoint_path: src/models/pretrained_weights/k400-probe.pth.tar
+max_samples: 50
 logging:
   folder: logs/
 data:

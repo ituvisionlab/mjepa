@@ -12,6 +12,7 @@ import pprint
 import sys
 import time
 import yaml
+from collections import OrderedDict
 
 import submitit
 
@@ -20,6 +21,26 @@ from app.vjepa.utils import get_new_log_dir
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO) # ,filename='main_log_file.log'
 logger = logging.getLogger()
+
+class OrderedLoader(yaml.SafeLoader):
+    pass
+
+def construct_ordered_mapping(loader, node):
+    loader.flatten_mapping(node)
+    return OrderedDict(loader.construct_pairs(node))
+
+OrderedLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    construct_ordered_mapping
+)
+
+class OrderedDumper(yaml.SafeDumper):
+    pass
+
+def represent_ordered_mapping(dumper, data):
+    return dumper.represent_dict(data.items())
+
+OrderedDumper.add_representer(OrderedDict, represent_ordered_mapping)
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -113,13 +134,13 @@ def launch_evals_with_parsed_args(
     if args_fname != None:
         yaml_params = None
         with open(args_fname, 'r') as y_file:
-            yaml_params = yaml.load(y_file, Loader=yaml.FullLoader)
+            yaml_params = yaml.load(y_file, Loader=OrderedLoader)
             
         logger.info('Writing params yaml to log dir ...')
         
         dump = os.path.join(log_dir, 'params-pretrain.yaml')
         with open(dump, 'w') as f:
-            yaml.dump(yaml_params, f)
+            yaml.dump(yaml_params, f, Dumper=OrderedDumper, default_flow_style=False)
             
     jobs, trainers = [], []
     with executor.batch():

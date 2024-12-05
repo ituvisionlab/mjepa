@@ -15,6 +15,7 @@ import submitit
 import logging
 import sys
 import traceback
+from collections import OrderedDict
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
@@ -35,6 +36,27 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+class OrderedLoader(yaml.SafeLoader):
+    pass
+
+def construct_ordered_mapping(loader, node):
+    loader.flatten_mapping(node)
+    return OrderedDict(loader.construct_pairs(node))
+
+OrderedLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    construct_ordered_mapping
+)
+
+class OrderedDumper(yaml.SafeDumper):
+    pass
+
+def represent_ordered_mapping(dumper, data):
+    return dumper.represent_dict(data.items())
+
+OrderedDumper.add_representer(OrderedDict, represent_ordered_mapping)
+
 # end configure logging
 
 parser = argparse.ArgumentParser()
@@ -134,13 +156,13 @@ def launch_app_with_parsed_args(
     if args_fname != None:
         yaml_params = None
         with open(args_fname, 'r') as y_file:
-            yaml_params = yaml.load(y_file, Loader=yaml.FullLoader)
+            yaml_params = yaml.load(y_file, Loader=OrderedLoader)
             
         logger.info('Writing params yaml to log dir ...')
         
         dump = os.path.join(log_dir, 'params-pretrain.yaml')
         with open(dump, 'w') as f:
-            yaml.dump(yaml_params, f)
+            yaml.dump(yaml_params, f, Dumper=OrderedDumper, default_flow_style=False)
     
     jobs, trainers = [], []
     with executor.batch():

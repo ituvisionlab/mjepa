@@ -214,6 +214,8 @@ def init_opt(
     return optimizer, scaler, scheduler, wd_scheduler
 
 def get_new_log_dir(root='./logs', postfix='', prefix=''):
+    if root == None:
+        return None
     log_dir = os.path.join(root, prefix + time.strftime('%Y_%m_%d__%H_%M_%S', time.localtime()) + postfix)
     os.makedirs(log_dir)
     return log_dir
