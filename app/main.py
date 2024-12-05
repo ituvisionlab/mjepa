@@ -10,16 +10,16 @@ import argparse
 import multiprocessing as mp
 
 import pprint
-import torch.version
 import yaml
+import os
 
 import sys 
+sys.path.append('/home/gozde/medChangeDet/jepa')
 sys.path.append('/gpfs/home/unalg01/jepa')
 
 from app.scaffold import main as app_main
 from src.utils.distributed import init_distributed
 from app.vjepa.utils import get_new_log_dir
-import torch.utils.tensorboard
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -32,6 +32,10 @@ parser.add_argument(
 parser.add_argument(
     '--log_dir', type=str, default="./logs",
     help='directory path for tensorboard logging'
+)
+parser.add_argument(
+    '--keep_logs',  type=bool, default=True,
+    help="Turn logging off by setting it to False"
 )
 
 
@@ -56,7 +60,7 @@ def process_main(rank, fname, world_size, devices, log_dir):
         logger.info('loaded params...')
 
     # Log config
-    if rank == 0:
+    if rank == 0 and log_dir != None:
         pprint.PrettyPrinter(indent=4).pprint(params)
         dump = os.path.join(log_dir, 'params-pretrain.yaml')
         with open(dump, 'w') as f:
@@ -65,22 +69,8 @@ def process_main(rank, fname, world_size, devices, log_dir):
     # Init distributed (access to comm between GPUS on same machine)
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
     logger.info(f'Running... (rank: {rank}/{world_size})')
-
-
-    # Tensorboard config
     
-    # writer = None
-    # if rank == 0:
-    #     log_path = "./logs"
-    #     log_dir = get_new_log_dir(log_path, prefix=f'{params["app"]}_pretrain_', postfix='')
-    #     params['logging']['log_path'] = log_dir
-    #     writer = torch.utils.tensorboard.SummaryWriter(params['logging']['log_path'])
-    
-    
-    
-        
     # Launch the app with loaded config
-    # app_main(params['app'], args=params, log_writer=writer)
     app_main(params['app'], args=params, log_dir=log_dir)
 
 
@@ -98,9 +88,30 @@ if __name__ == '__main__':
     params = None
     with open(args.fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
-        
     
-    log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')
+    
+    if args.keep_logs:
+        log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')
+        
+        # Wand initialization
+        # run = wandb.init(
+        #     # set the wandb project where this run will be logged
+        #     project="mjepa-project",
+            
+        #     entity="mgulsen2020-wandb",
+            
+        #     dir=os.path.join(log_dir),
+
+        #     # track hyperparameters and run metadata
+        #     config=params,
+            
+        #     name=os.path.basename(log_dir),
+            
+        #     group="mjepa-DDP")    
+        
+    else:
+        log_dir = None
+        # run = None
     
     mp.set_start_method('spawn')
     
