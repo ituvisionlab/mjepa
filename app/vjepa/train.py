@@ -665,15 +665,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals"):
                 save_checkpoint(epoch + 1, latest_path, latest_info_path)
             else:
                 if len(epoch_losses) > 0:
-                    if loss_meter.avg < min(epoch_losses):
+                    if loss_meter.avg < min(epoch_losses) and epoch > 20 :
                         save_checkpoint(epoch + 1, best_path, best_info_path)
-                    elif loss_meter.avg < min(epoch_losses[-10:]):
+                    elif epoch % 50 == 0:
                         periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
                         periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
                         save_checkpoint(epoch + 1, periodic_path, periodic_info_path)
                     else:
                         save_checkpoint(epoch + 1, latest_path, latest_info_path)
-        
-        epoch_losses.append(loss_meter.avg)
+        if epoch > 20:
+            epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()

@@ -42,7 +42,7 @@ pretrain:
   patch_size: 16
   in_channel_size: 1
   frame_step: 1 # added
-  folder: logs/mjepa_pretrain_2024_11_30__05_06_48/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
   #/home/gozde/medChangeDet/jepa/logs/mjepa_pretrain_2024_11_10__18_48_47/model_ckpt/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: jepa-latest.pth.tar #jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
