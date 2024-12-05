@@ -212,7 +212,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             # set the wandb project where this run will be logged
             project="mjepa-project",
             
-            entity="mgulsen2020-wandb",
+            entity="ituvisionlab",
             
             dir=log_dir,
 

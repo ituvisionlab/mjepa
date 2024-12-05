@@ -2,14 +2,14 @@ nodes: 1
 tasks_per_node: 4
 tag: mnist-probe #k400-16x8x3
 eval_name: video_classification_frozen
-resume_checkpoint: true # false
-checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
+resume_checkpoint: false #true 
+checkpoint_path: null #/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
 logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/mnist3d/nii_volumes.csv
-  dataset_val: src/datasets/mnist3d/nii_volumes.csv
+  dataset_train: src/datasets/mnist3d/mnist_valtrain_split.csv
+  dataset_val: src/datasets/mnist3d/mnist_valtest_split.csv
   dataset_type: MRIDataset
   num_classes: 10
   frames_per_clip: 16
@@ -44,7 +44,7 @@ pretrain:
   patch_size: 8
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_04__15_18_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
