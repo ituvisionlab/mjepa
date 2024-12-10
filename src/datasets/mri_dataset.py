@@ -190,6 +190,8 @@ class MRIDataset(torch.utils.data.Dataset):
         if self.transform is not None:
             buffer = [self.transform(clip) for clip in buffer]
         
+        plt.imsave('slice.png', buffer[0][10], cmap='gray')
+
         return buffer, label, clip_indices
 
     def load_nifti_file(self, file_path,in_chans=3):
