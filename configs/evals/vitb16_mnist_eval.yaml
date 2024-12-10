@@ -36,15 +36,17 @@ pretrain:
   checkpoint_key: target_encoder
   clip_duration: null
   frames_per_clip: 16
-  tubelet_size: 8
+  tubelet_size: 4
   uniform_power: true
   use_silu: false
   tight_silu: false
   use_sdpa: true
-  patch_size: 8
+  patch_size: 4
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_04__15_18_47/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_08__16_06_24/model_ckpt/latest-model/ 
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_05__21_17_18/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_04__15_18_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
