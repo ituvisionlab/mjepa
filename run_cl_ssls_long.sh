@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=a100_long
-#SBATCH --gres=gpu:3
+#SBATCH --gres=gpu:2
 #SBATCH --mem=192GB
 #SBATCH --job-name=sslgoz
 #SBATCH --mail-type=END
@@ -11,4 +11,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main_distributed --fname configs/pretrain/vitb16_adni.yaml --folder /gpfs/home/unalg01/jepa --partition a100_long
+python -m evals.main_distributed --fname configs/evals/vits16_mnist_eval.yaml --folder /gpfs/home/unalg01/jepa --partition a100_long

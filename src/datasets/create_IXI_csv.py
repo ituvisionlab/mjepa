@@ -2,7 +2,7 @@ import os
 import csv
 import glob
 
-files = glob.glob("/media/disk2/IXI-T1/**/*.nii.gz", recursive=True)
+files = glob.glob("/gpfs/data/sodicksonlab/gozde/IXI/**/*.nii.gz", recursive=True)
 
 files = sorted(files)
 
@@ -19,7 +19,7 @@ with open("src/datasets/ixi_file_paths.csv", mode='w', newline='') as csv_file:
         
         writer.writerow([0, subject_id, t1_nii_file_path])
 
-print("CSV file created")
+print("IXI CSV file created")
 
         
         
