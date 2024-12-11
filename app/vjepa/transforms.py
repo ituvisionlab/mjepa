@@ -12,11 +12,13 @@ import random
 import src.datasets.utils.video.transforms as video_transforms
 from src.datasets.utils.video.randerase import RandomErasing
 
+import matplotlib.pyplot as plt
 
 def make_transforms(
     random_horizontal_flip=True,
-    random_resize_aspect_ratio=(3/4, 4/3),
-    random_resize_scale=(0.3, 1.0),
+    random_resize_aspect_ratio=(1.0,1.0), #(3/4, 4/3),
+    random_resize_scale=(0.9, 1.0),
+    rot_degree = 0.0,
     reprob=0.0,
     auto_augment=False,
     motion_shift=False,
@@ -31,6 +33,8 @@ def make_transforms(
         random_resize_aspect_ratio=random_resize_aspect_ratio,
         auto_augment=auto_augment,
         crop_size=crop_size,
+        random_resize_scale=random_resize_scale,
+        rot_degree = rot_degree
     )
     return _frames_augmentation
 
@@ -39,16 +43,16 @@ class MRITransform(object):
     def __init__(
         self,
         random_horizontal_flip=True,
-        random_resize_aspect_ratio=(0.9, 1.1),
+        random_resize_aspect_ratio=(1.0,1.0), #(0.9, 1.1),
         random_resize_scale=(0.8,1.0), # use for crop_retention ratio
-        random_rotate=12,
+        rot_degree = 0.0, 
         auto_augment=False,
         crop_size=224,
     ):
         self.random_horizontal_flip = random_horizontal_flip
         self.random_resize_aspect_ratio = random_resize_aspect_ratio
         self.random_resize_scale = random_resize_scale
-        self.random_rotate = random_rotate
+        self.rot_degree = rot_degree
         self.auto_augment = auto_augment
         self.crop_size = crop_size
         self.crop_retention=random_resize_scale[0]
@@ -93,18 +97,18 @@ class MRITransform(object):
         # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
         buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
 
-        # Define the MRI transformation list 
+      # Define the MRI transformation list 
         transforms_dict = {
             tio.RandomAffine(
                 scales=self.random_resize_aspect_ratio,
-                degrees=self.random_rotate,
+                degrees=self.rot_degree,
             ),  # No weight specified
 
             tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
 
-            self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
+            # self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
 
-            tio.RandomElasticDeformation(),
+            tio.RandomElasticDeformation(num_control_points=9),
         }
         # Combine MRI transforms using OneOf
         transform = tio.OneOf(transforms_dict)
@@ -112,6 +116,10 @@ class MRITransform(object):
         if self.auto_augment:
             buffer = transform(buffer)
        
+        buffer = buffer.permute(0, 3, 1, 2)  # C H W T ->  C T H W
+        #GU_ debug
+        # plt.imsave('xformedBuffer.png', buffer[0][100, :, :], cmap='gray') 
+
         return buffer
 
 

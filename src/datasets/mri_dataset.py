@@ -174,9 +174,16 @@ class MRIDataset(torch.utils.data.Dataset):
             warnings.warn(f'Failed to load volume at index {index}')
             return self.__getitem__((index + 1) % len(self.samples))
 
+        if self.transform is not None:
+            volume = self.transform(volume)
+
+        #GU_ debug
+        # affine = np.eye(4)
+        # nifti_image = nib.Nifti1Image(volume[0].numpy(), affine)
+        # nib.save(nifti_image, 'output_volume.nii')
+
         buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
-           
-       
+             
         def split_into_clips(video):
             """ Split video into a list of clips """
             fpc = self.frames_per_clip
@@ -184,13 +191,14 @@ class MRIDataset(torch.utils.data.Dataset):
             return [video[i*fpc:(i+1)*fpc] for i in range(nc)]
 
         # Parse video into frames & apply data augmentations
-        if self.shared_transform is not None:
-            buffer = self.shared_transform(buffer)
+        # if self.shared_transform is not None:
+        #     buffer = self.shared_transform(buffer)
+
         buffer = split_into_clips(buffer)
-        if self.transform is not None:
-            buffer = [self.transform(clip) for clip in buffer]
+        # if self.transform is not None:
+        #     buffer = [self.transform(clip) for clip in buffer]
         
-        plt.imsave('slice.png', buffer[0][10], cmap='gray')
+        # plt.imsave('slice.png', buffer[3][0][8, :, :], cmap='gray') # Num_clips x Channel x T x H X W 
 
         return buffer, label, clip_indices
 
@@ -202,14 +210,18 @@ class MRIDataset(torch.utils.data.Dataset):
         try:
             # Load the NIfTI file
             img = nib.load(file_path)
-            volume = img.get_fdata()
 
-            # Transform from xyz (Sagittal) to zxy (Axial)
+            #To-do : Do a CANONICAL transform to bring the MRI volume to RAS+ orientation: L:R, A:P, Bottom-Up
+            img = nib.funcs.as_closest_canonical(img)
+
+            volume = img.get_fdata()
+     
+            # Transform from xyz to zxy (to make it like video)
             volume = volume.transpose(2, 0, 1)  # Shape: (Z, X, Y)
 
             # print(f"Volume shape: {volume.shape}")
             # for ADNI: clip first 20 frames (neck) and last 12 frames (black top)
-            #volume = volume[20:-12]
+            volume = volume[20:-12]
 
             #volume = self.center_crop(volume, crop_sizes={1: 240, 2: 160})
             # Resize along axes 1 and 2 to size crop_size=224
