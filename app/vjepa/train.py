@@ -29,6 +29,7 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel, DataParallel
 import torch.utils.tensorboard
 import wandb
+import subprocess
 
 from src.datasets.data_manager import init_data
 from src.masks.random_tube import MaskCollator as TubeMaskCollator
@@ -244,7 +245,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # set the wandb project where this run will be logged
                 project="mjepa-project",
                 
-                entity="mgulsen2020-wandb",
+                entity="ituvisionlab",
                 
                 dir=log_dir,
 
@@ -740,6 +741,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()
-    
+
+        # SUBMIT A Classifier Evaluation Periodically
+        #if epoch % 150 == 0:
+        #    subprocess.call(['sbatch', './test.sh']) 
+
     if run != None:
         run.finish()

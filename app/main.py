@@ -34,7 +34,7 @@ parser.add_argument(
     help='directory path for tensorboard logging'
 )
 parser.add_argument(
-    '--keep_logs',  type=bool, default=True,
+    '--keep_logs',  type=bool, default=False,
     help="Turn logging off by setting it to False"
 )
 

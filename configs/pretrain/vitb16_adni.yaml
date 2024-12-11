@@ -2,18 +2,17 @@ app: vjepa
 nodes: 1
 tasks_per_node: 4  #1
 data:
-  # dataset_type: VideoDataset
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/mnist3d/mnist_train_split.csv # Relative path instead of abs path
+  - src/datasets/adni_train_split.csv # Relative path instead of abs path
   decode_one_clip: true  # unused
-  batch_size: 16
-  num_clips: 2
+  batch_size: 8
+  num_clips: 8
   num_frames: 16
-  tubelet_size: 4
+  tubelet_size: 8
   sampling_rate: 1
-  crop_size: 32
-  patch_size: 4
+  crop_size: 224
+  patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
   pin_mem: false #true
@@ -21,7 +20,7 @@ data:
   filter_short_videos: false
   clip_duration: null
 data_aug:
-  auto_augment: false
+  auto_augment: true #false
   motion_shift: false
   random_resize_aspect_ratio:
   - 0.85
@@ -42,8 +41,20 @@ mask:
       - 1.5
     num_blocks: 8
     spatial_scale:
-      - 0.3
-      - 0.3
+      - 0.15
+      - 0.15
+    temporal_scale:
+      - 1.0
+      - 1.0
+    max_temporal_keep: 1.0
+    max_keep: null
+  - aspect_ratio:
+      - 0.75
+      - 1.5
+    num_blocks: 2
+    spatial_scale:
+      - 0.7
+      - 0.7
     temporal_scale:
       - 1.0
       - 1.0
