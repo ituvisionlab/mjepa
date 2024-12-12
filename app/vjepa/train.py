@@ -660,7 +660,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2
                         })
                 
-                    
+            def info_stats():
+                
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
                         '[%d, %5d] loss: %.3f | p%.3f r%.3f | '
@@ -716,6 +717,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             
             if log_dir != None:
                 log_stats()
+                
+            info_stats()
                 
             assert not np.isnan(loss), 'loss is nan'
 

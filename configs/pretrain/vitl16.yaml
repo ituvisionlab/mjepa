@@ -27,7 +27,7 @@ data:
   filter_short_videos: false
   clip_duration: null
 data_aug:
-  auto_augment: false
+  auto_augment: true
   motion_shift: false
   random_resize_aspect_ratio:
   - 0.75

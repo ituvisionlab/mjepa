@@ -176,31 +176,30 @@ class MRIDataset(torch.utils.data.Dataset):
 
         if self.transform is not None:
             volume = self.transform(volume)
-
+            
         #GU_ debug
         # affine = np.eye(4)
         # nifti_image = nib.Nifti1Image(volume[0].numpy(), affine)
         # nib.save(nifti_image, 'output_volume.nii')
 
         buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
-             
-        def split_into_clips(video):
-            """ Split video into a list of clips """
-            fpc = self.frames_per_clip
-            nc = self.num_clips
-            return [video[i*fpc:(i+1)*fpc] for i in range(nc)]
+        
+        buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
 
-        # Parse video into frames & apply data augmentations
-        # if self.shared_transform is not None:
-        #     buffer = self.shared_transform(buffer)
-
-        buffer = split_into_clips(buffer)
+        buffer = self.split_into_clips(buffer)
+        
         # if self.transform is not None:
         #     buffer = [self.transform(clip) for clip in buffer]
         
         # plt.imsave('slice.png', buffer[3][0][8, :, :], cmap='gray') # Num_clips x Channel x T x H X W 
 
         return buffer, label, clip_indices
+
+    def split_into_clips(self, video):
+        """ Split video into a list of clips """
+        fpc = self.frames_per_clip
+        nc = self.num_clips
+        return [video[:, i*fpc:(i+1)*fpc] for i in range(nc)]
 
     def load_nifti_file(self, file_path,in_chans=3):
         if not os.path.exists(file_path):
