@@ -133,8 +133,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
     # -- DATA AUGS
     cfgs_data_aug = args.get('data_aug')
-    ar_range = cfgs_data_aug.get('random_resize_aspect_ratio', [3/4, 4/3])
-    rr_scale = cfgs_data_aug.get('random_resize_scale', [0.3, 1.0])
+    ar_range = cfgs_data_aug.get('random_resize_aspect_ratio', [1, 1])
+    rr_scale = cfgs_data_aug.get('random_resize_scale', [0.9, 1.0])
+    rot_degree = cfgs_data_aug.get('rotation_degree', 0.0)
     motion_shift = cfgs_data_aug.get('motion_shift', False)
     reprob = cfgs_data_aug.get('reprob', 0.)
     use_aa = cfgs_data_aug.get('auto_augment', False)
@@ -326,6 +327,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         random_horizontal_flip=True,
         random_resize_aspect_ratio=ar_range,
         random_resize_scale=rr_scale,
+        rot_degree = rot_degree,
         reprob=reprob,
         auto_augment=use_aa,
         motion_shift=motion_shift,
