@@ -95,28 +95,31 @@ class MRITransform(object):
 
         buffer = torch.tensor(buffer, dtype=torch.float32)
         # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
-        buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
-
-      # Define the MRI transformation list 
-        transforms_dict = {
-            tio.RandomAffine(
-                scales=self.random_resize_aspect_ratio,
-                degrees=self.rot_degree,
-            ),  # No weight specified
-
-            tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
-
-            # self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
-
-            tio.RandomElasticDeformation(num_control_points=9),
-        }
-        # Combine MRI transforms using OneOf
-        transform = tio.OneOf(transforms_dict)
-
+        
         if self.auto_augment:
+            buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+            
+            # Define the MRI transformation list 
+            transforms_dict = {
+                tio.RandomAffine(
+                    scales=self.random_resize_aspect_ratio,
+                    degrees=self.rot_degree,
+                ),  # No weight specified
+
+                tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
+
+                # self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
+
+                tio.RandomElasticDeformation(num_control_points=9),
+            }
+            # Combine MRI transforms using OneOf
+            transform = tio.OneOf(transforms_dict)
+
             buffer = transform(buffer)
        
-        buffer = buffer.permute(0, 3, 1, 2)  # C H W T ->  C T H W
+            # buffer = buffer.permute(0, 3, 1, 2)  # C H W T ->  C T H W
+            buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
+            
         #GU_ debug
         # plt.imsave('xformedBuffer.png', buffer[0][100, :, :], cmap='gray') 
 
