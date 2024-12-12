@@ -10,7 +10,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
-
+import torchio as tio
+import random
 import src.datasets.utils.video.transforms as video_transforms
 import src.datasets.utils.video.volume_transforms as volume_transforms
 
@@ -19,6 +20,7 @@ from src.datasets.utils.video.randerase import RandomErasing
 from src.models.utils.pos_embs import get_1d_sincos_pos_embed
 from src.masks.utils import apply_masks
 
+import matplotlib.pyplot as plt
 
 class FrameAggregation(nn.Module):
     """
@@ -198,8 +200,9 @@ def make_video_transforms(
 def make_transforms(
     training=True,
     random_horizontal_flip=True,
-    random_resize_aspect_ratio=(3/4, 4/3),
-    random_resize_scale=(0.3, 1.0),
+    random_resize_aspect_ratio=(1.0,1.0), #(3/4, 4/3),
+    random_resize_scale=(0.9, 1.0),
+    rot_degree = 0.0,
     reprob=0.0,
     auto_augment=False,
     motion_shift=False,
@@ -226,9 +229,8 @@ def make_transforms(
             random_horizontal_flip=random_horizontal_flip,
             random_resize_aspect_ratio=random_resize_aspect_ratio,
             random_resize_scale=random_resize_scale,
-            reprob=reprob,
+            rot_degree = rot_degree,
             auto_augment=auto_augment,
-            motion_shift=motion_shift,
             crop_size=crop_size,
             normalize=normalize,
             in_chans=in_chans
@@ -241,88 +243,53 @@ class MRITransform(object):
         self,
         training=True,
         random_horizontal_flip=True,
-        random_resize_aspect_ratio=(3/4, 4/3),
-        random_resize_scale=(0.3, 1.0),
-        reprob=0.0,
+         random_resize_aspect_ratio=(1.0,1.0), #(0.9, 1.1),
+        random_resize_scale=(0.8,1.0), # use for crop_retention ratio
+        rot_degree = 0.0, 
         auto_augment=False,
-        motion_shift=False,
         crop_size=224,
         normalize=((0.0),(1)), # GU_COMMENT
         in_chans=3
     ):
 
         self.training = training
-        # GU_COMMENT OUT Below
-        # short_side_size = int(crop_size * 256 / 224)
-        #self.eval_transform = video_transforms.Compose([
-        #    video_transforms.Resize(short_side_size, interpolation='bilinear'),
-        #    video_transforms.CenterCrop(size=(crop_size, crop_size)),
-        #    volume_transforms.ClipToTensor(channel_nb=in_chans),
-        #    video_transforms.Normalize(mean=normalize[0], std=normalize[1])
-        # ])
 
         self.random_horizontal_flip = random_horizontal_flip
         self.random_resize_aspect_ratio = random_resize_aspect_ratio
         self.random_resize_scale = random_resize_scale
+        self.rot_degree = rot_degree
         self.auto_augment = auto_augment
-        self.motion_shift = motion_shift
         self.crop_size = crop_size
+        self.crop_retention=random_resize_scale[0]
         self.normalize = torch.tensor(normalize)
-
-        self.autoaug_transform = video_transforms.create_random_augment(
-            input_size=(crop_size, crop_size),
-            auto_augment='rand-m7-n4-mstd0.5-inc1',
-            interpolation='bicubic',
-        )
-
-        self.spatial_transform = video_transforms.random_resized_crop_with_shift \
-            if motion_shift else video_transforms.random_resized_crop
-
-        self.reprob = reprob
-        self.erase_transform = RandomErasing(
-            reprob,
-            mode='pixel',
-            max_count=1,
-            num_splits=1,
-            device='cpu',
-        )
 
     def __call__(self, buffer):
 
-        if not self.training: 
-            return [self.eval_transform(buffer)]
-
-        # GU_COMMENT : FIX_ME: if auto_augment is true, CHECK permutes!!!!!
-        if self.auto_augment:
-            buffer = [transforms.ToPILImage()(frame) for frame in buffer] #converts C H W to H W C
-            buffer = self.autoaug_transform(buffer)
-            buffer = [transforms.ToTensor()(img) for img in buffer]
-            buffer = torch.stack(buffer)  # T H W C
-            # buffer = buffer.permute(0, 2, 3, 1)  # T H W C
-        else:
-            buffer = torch.tensor(buffer, dtype=torch.float32) #T H W C
+        buffer = torch.tensor(buffer, dtype=torch.float32) #T H W C      
         
-        # GU_COMMENT
-        # buffer = tensor_normalize(buffer, self.normalize[0], self.normalize[1])
-        # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
+        if self.auto_augment:
+            buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+            
+            # Define the MRI transformation list 
+            transforms_dict = {
+                tio.RandomAffine(
+                    scales=self.random_resize_aspect_ratio,
+                    degrees=self.rot_degree,
+                ),  # No weight specified
 
-        buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
+                tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
 
+                # self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
 
-        buffer = self.spatial_transform(
-            images=buffer,
-            target_height=self.crop_size,
-            target_width=self.crop_size,
-            scale=self.random_resize_scale,
-            ratio=self.random_resize_aspect_ratio,
-        )
-        if self.random_horizontal_flip:
-            buffer, _ = video_transforms.horizontal_flip(0.5, buffer)
+                tio.RandomElasticDeformation(num_control_points=9),
+            }
+            # Combine MRI transforms using OneOf
+            transform = tio.OneOf(transforms_dict)
 
-        if self.reprob > 0:
-            buffer = buffer.permute(1, 0, 2, 3)
-            buffer = self.erase_transform(buffer)
-            buffer = buffer.permute(1, 0, 2, 3)
+            buffer = transform(buffer)
+            buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
+
+        # buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
 
         return [buffer]
 
@@ -337,21 +304,19 @@ class EvalMRITransform(object):
     ):
         self.views_per_clip = num_views_per_clip
         self.short_side_size = short_side_size
-        self.spatial_resize = video_transforms.Resize(short_side_size, interpolation='bilinear')
-        self.to_tensor = video_transforms.Compose([
-            volume_transforms.ClipToTensor(channel_nb=in_chans),
-            # video_transforms.Normalize(mean=normalize[0], std=normalize[1]) #GU_COMMENT
-        ])
+        # self.spatial_resize = video_transforms.Resize(short_side_size, interpolation='bilinear')
+        # self.to_tensor = video_transforms.Compose([
+        #     volume_transforms.ClipToTensor(channel_nb=in_chans),
+        #     # video_transforms.Normalize(mean=normalize[0], std=normalize[1]) #GU_COMMENT
+        # ])
 
     def __call__(self, buffer):
 
-        # Sample several spatial views of each clip
-        # buffer = np.array(self.spatial_resize(buffer))  #GU_COMMENT
-        buffer = np.array(buffer) #T x W x H x C
+        buffer = np.array(buffer) #T W H C
         T, H, W, C = buffer.shape
 
         buffer = torch.tensor(buffer, dtype=torch.float32) #T H W C
-        buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
+       #  buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
 
         num_views = self.views_per_clip
         side_len = self.short_side_size
