@@ -92,23 +92,7 @@ if __name__ == '__main__':
     
     if args.keep_logs:
         log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')
-        
-        # Wand initialization
-        # run = wandb.init(
-        #     # set the wandb project where this run will be logged
-        #     project="mjepa-project",
-            
-        #     entity="mgulsen2020-wandb",
-            
-        #     dir=os.path.join(log_dir),
-
-        #     # track hyperparameters and run metadata
-        #     config=params,
-            
-        #     name=os.path.basename(log_dir),
-            
-        #     group="mjepa-DDP")    
-        
+                
     else:
         log_dir = None
         # run = None
