@@ -80,6 +80,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     load_model = cfgs_meta.get('load_checkpoint') or resume_preempt
     r_file = cfgs_meta.get('read_checkpoint', None)
     seed = cfgs_meta.get('seed', _GLOBAL_SEED)
+    run_ID =  cfgs_meta.get('run_ID', None)
     save_every_freq = cfgs_meta.get('save_every_freq', -1)
     skip_batches = cfgs_meta.get('skip_batches', -1)
     use_sdpa = cfgs_meta.get('use_sdpa', False)
@@ -241,8 +242,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     if log_dir != None:
         
         if rank == 0:
-            # wandb init
-            run = wandb.init(
+            if (run_ID == None):
+                # wandb init
+                run = wandb.init(
                 # set the wandb project where this run will be logged
                 project="mjepa-project",
                 
@@ -255,6 +257,19 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 name=os.path.basename(log_dir)
                 
+                # group="mjepa-DDP"
+                )
+            else:
+                run = wandb.init(
+                # set the wandb project where this run will be logged
+                project="mjepa-project",
+                entity="ituvisionlab",               
+                id = run_ID,
+                resume="allow",
+                dir=log_dir,
+                # track hyperparameters and run metadata
+                config=args,
+                name=os.path.basename(log_dir)
                 # group="mjepa-DDP"
                 )
         else:

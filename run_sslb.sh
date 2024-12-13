@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=a100_short
-#SBATCH --gres=gpu:3
+#SBATCH --gres=gpu:4
 #SBATCH --mem=192GB
 #SBATCH --job-name=sslgoz
 #SBATCH --mail-type=END

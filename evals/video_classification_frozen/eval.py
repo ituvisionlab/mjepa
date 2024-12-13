@@ -112,6 +112,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
     num_workers=args_data.get('num_workers',1)
     random_clip_sampling = args_data.get('random_clip_sampling', False)
+    auto_augment = args_data.get('auto_augment', False)
 
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
@@ -286,6 +287,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         num_views_per_segment=1,
         in_chans=in_chans,
         random_clip_sampling=random_clip_sampling,
+        auto_augment=auto_augment,
         allow_segment_overlap=True,
         batch_size=batch_size,
         num_workers=num_workers,
@@ -631,6 +633,7 @@ def make_dataloader(
     num_segments=8,
     in_chans=3,
     random_clip_sampling=False,
+    auto_augment=False,
     eval_duration=None,
     num_views_per_segment=1,
     allow_segment_overlap=True,
@@ -646,7 +649,7 @@ def make_dataloader(
         random_resize_aspect_ratio=(0.75, 4/3),
         random_resize_scale=(0.08, 1.0),
         reprob=0,
-        auto_augment=False,
+        auto_augment=auto_augment,
         motion_shift=False,
         crop_size=resolution,
         in_chans=in_chans
