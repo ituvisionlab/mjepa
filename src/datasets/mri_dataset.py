@@ -174,7 +174,7 @@ class MRIDataset(torch.utils.data.Dataset):
             warnings.warn(f'Failed to load volume at index {index}')
             return self.__getitem__((index + 1) % len(self.samples))
 
-        if self.transform is not None:
+        if self.transform is not None:  #even if auto_augment is false, converts the volume to a tensor
             volume = self.transform(volume)
             
         #GU_ debug
@@ -182,18 +182,22 @@ class MRIDataset(torch.utils.data.Dataset):
         # nifti_image = nib.Nifti1Image(volume[0].numpy(), affine)
         # nib.save(nifti_image, 'output_volume.nii')
 
-        buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
-        
-        buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
-
-        buffer = self.split_into_clips(buffer)
+        if not isinstance(volume, list):
+            buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
+            buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
+            buffer = self.split_into_clips(buffer)
+            return buffer, label, clip_indices
+        else:
+            buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
+            buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
+            buffer = self.split_into_clips(buffer)
+            return [buffer], label, clip_indices
         
         # if self.transform is not None:
         #     buffer = [self.transform(clip) for clip in buffer]
         
         # plt.imsave('slice.png', buffer[3][0][8, :, :], cmap='gray') # Num_clips x Channel x T x H X W 
-
-        return buffer, label, clip_indices
+    
 
     def split_into_clips(self, video):
         """ Split video into a list of clips """
