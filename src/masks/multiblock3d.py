@@ -46,9 +46,9 @@ class MaskCollator(object):
             self.mask_generators.append(mask_generator)
 
     #GU_
-    # def step(self):
-    #     for mask_generator in self.mask_generators:
-    #         mask_generator.step()
+    def step(self):
+        for mask_generator in self.mask_generators:
+            mask_generator.step()
 
     def __call__(self, batch):
 
