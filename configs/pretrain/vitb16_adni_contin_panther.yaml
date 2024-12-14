@@ -4,14 +4,14 @@ tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/brats_file_paths.csv
+  # - src/datasets/brats_file_paths.csv
   - src/datasets/updated_nii_file_paths.csv
-  - src/datasets/mood_file_paths.csv
-  - src/datasets/oasis_file_paths.csv
-  - src/datasets/ixi_file_paths.csv
+  # - src/datasets/mood_file_paths.csv
+  # - src/datasets/oasis_file_paths.csv
+  # - src/datasets/ixi_file_paths.csv
   decode_one_clip: true  # unused
-  batch_size: 8
-  num_clips: 8
+  batch_size: 4
+  num_clips: 2
   num_frames: 16
   tubelet_size: 2
   sampling_rate: 1
@@ -24,7 +24,7 @@ data:
   filter_short_videos: false
   clip_duration: null
 data_aug:
-  auto_augment: false
+  auto_augment: true
   motion_shift: false
   random_resize_aspect_ratio:
   - 1.0 
@@ -70,7 +70,7 @@ meta:
   read_checkpoint: jepa-latest.pth.tar # vitl16.pth.tar # null #r_file
   ckpt_folder: null # logs/mjepa_pretrain_2024_11_30__05_06_48/model_ckpt/latest-model #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_08__16_12_11/model_ckpt/latest-model/
   seed: 234
-  run_ID: kvokkfom #2e2giwpg #hivf7alg #null
+  run_ID: null #kvokkfom #2e2giwpg #hivf7alg #null
   eval_freq: 100
   use_sdpa: true
   dtype: bfloat16
