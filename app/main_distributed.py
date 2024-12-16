@@ -80,7 +80,7 @@ parser.add_argument(
     '--partition', type=str,
     help='cluster partition to submit jobs on')
 parser.add_argument(
-    '--time', type=int, default=4300,
+    '--time', type=int, default=11520, #4300,
     help='time in minutes to run job')
 parser.add_argument(
     '--log_dir', type=str, default="./logs",
@@ -123,7 +123,7 @@ def launch_app_with_parsed_args(
     args_for_pretrain,
     submitit_folder,
     partition,
-    timeout=4300,
+    timeout= 11520, #4300,
     nodes=1,
     tasks_per_node=4,
     exclude_nodes=None,
@@ -131,7 +131,7 @@ def launch_app_with_parsed_args(
 ):
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
-        slurm_max_num_timeout=20)
+        slurm_max_num_timeout=0) #20)
     executor.update_parameters(
         slurm_partition=partition,
         # slurm_mem_per_gpu='128G', 
@@ -139,7 +139,7 @@ def launch_app_with_parsed_args(
         timeout_min=timeout,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
-        cpus_per_task=1,
+        cpus_per_task=4,
         gpus_per_node=tasks_per_node)
 
     if exclude_nodes is not None:
