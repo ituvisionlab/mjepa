@@ -16,7 +16,7 @@ data:
   num_segments: 16 # 4
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 1
+  num_workers: 4
   random_clip_sampling: false
   auto_augment: true
 optimization:
@@ -45,7 +45,8 @@ pretrain:
   patch_size: 8
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_08__16_12_11/model_ckpt/latest-model/ 
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_13__13_24_05/model_ckpt/latest-model 
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_08__16_12_11/model_ckpt/latest-model/ 
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_05__21_17_18/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_04__15_18_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
