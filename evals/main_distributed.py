@@ -62,7 +62,7 @@ parser.add_argument(
     '--partition', type=str,
     help='cluster partition to submit jobs on')
 parser.add_argument(
-    '--time', type=int, default= 11520, #4300,
+    '--time', type=int, default= 4300,
     help='time in minutes to run job')
 parser.add_argument(
     '--log_dir', type=str, default="./logs",
@@ -100,7 +100,7 @@ def launch_evals_with_parsed_args(
     args_for_evals,
     submitit_folder,
     partition='learnlab,learnfair',
-    timeout= 11520,#4300,
+    timeout= 4300,
     nodes=1,
     tasks_per_node=4,
     delay_seconds=10,
@@ -115,7 +115,7 @@ def launch_evals_with_parsed_args(
     logger.info('Launching evaluations in separate jobs...')
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
-        slurm_max_num_timeout=0) #20)
+        slurm_max_num_timeout=1) #20)
     executor.update_parameters(
         slurm_partition=partition,
         slurm_mem='192G',
@@ -206,4 +206,5 @@ def launch_evals():
 
 if __name__ == '__main__':
     args = parser.parse_args()
+    print("Entered main_distributed.py")
     launch_evals()

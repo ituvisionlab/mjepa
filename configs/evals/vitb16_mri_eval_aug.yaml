@@ -16,7 +16,7 @@ data:
   num_segments: 16 # 4
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 4
+  num_workers: 2
   random_clip_sampling: false
   auto_augment: true
 optimization:
