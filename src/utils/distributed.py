@@ -6,6 +6,7 @@
 #
 
 import os
+import platform
 
 import torch
 import torch.distributed as dist
@@ -35,8 +36,14 @@ def init_distributed(port=37123, rank_and_world_size=(None, None)):
 
     try:
         os.environ['MASTER_PORT'] = str(port)
+        
+        hostname = platform.node()
+        backend_engine = "nccl"
+        if hostname == "panther": # nccl backend doesn't work on panther machine for now
+            backend_engine = "gloo"
+            
         torch.distributed.init_process_group(
-            backend='nccl', # gloo
+            backend=backend_engine, # nccl
             world_size=world_size,
             rank=rank
         )
