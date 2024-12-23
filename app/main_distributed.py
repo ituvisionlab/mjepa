@@ -135,11 +135,11 @@ def launch_app_with_parsed_args(
     executor.update_parameters(
         slurm_partition=partition,
         # slurm_mem_per_gpu='128G', 
-        slurm_mem='192G',
+        slurm_mem='256G',  #'192G',
         timeout_min=timeout,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
-        cpus_per_task=4,
+        cpus_per_task=6,
         gpus_per_node=tasks_per_node)
 
     if exclude_nodes is not None:
