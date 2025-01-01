@@ -1,13 +1,14 @@
 app: vjepa
-nodes: 1
+nodes: 2
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/adni_train_split.csv # Relative path instead of abs path
+  - src/datasets/adni_new_train_split.csv # Relative path instead of abs path
   - src/datasets/oasis_train_split.csv
   - src/datasets/ixi_file_paths.csv
   - src/datasets/mood_file_paths.csv
+  - src/datasets/ppmi_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
   num_clips: 8
@@ -83,7 +84,7 @@ optimization:
   ipe: 200
   ipe_scale: 1.25
   clip_grad: 1.0
-  weight_decay: 0.04
+  weight_decay: 0.004
   final_weight_decay: 0.1
   epochs: 2000
   warmup: 20
