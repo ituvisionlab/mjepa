@@ -33,6 +33,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 import torch.utils.tensorboard
 import wandb
+from sklearn.metrics import roc_auc_score, recall_score, f1_score, confusion_matrix
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
@@ -456,6 +457,10 @@ def run_one_epoch(
     classifier.train(mode=training)
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
+    auroc_meter = AverageMeter()
+    recall_meter = AverageMeter()
+    specificity_meter = AverageMeter()
+    f1_meter = AverageMeter()
     ipe = len(data_loader)
     if eval_freq > ipe:
         eval_freq = 1
@@ -507,6 +512,26 @@ def run_one_epoch(
             top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum() / batch_size
             top1_acc = float(AllReduce.apply(top1_acc))
             top1_meter.update(top1_acc)
+            
+            # Compute additional metrics per batch
+            preds = outputs.max(dim=1).indices
+            auroc = roc_auc_score(labels.cpu().numpy(), outputs.cpu().numpy()[:, 1]) if len(outputs[0]) == 2 else 0
+            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy())
+            cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
+            tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy())
+
+            # Reduce metrics across GPUs
+            auroc = float(AllReduce.apply(torch.tensor(auroc, device='cuda')))
+            recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
+            specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
+            f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
+
+            auroc_meter.update(auroc)
+            recall_meter.update(recall)
+            specificity_meter.update(specificity)
+            f1_meter.update(f1)
 
         if training:
             if use_bfloat16:
@@ -539,6 +564,10 @@ def run_one_epoch(
                 run.log({
                         'train/acc': top1_meter.avg,
                         'train/loss': loss,
+                        'train/auroc': auroc_meter.avg,
+                        'train/recall': recall_meter.avg,
+                        'train/specificity': specificity_meter.avg,
+                        'train/f1': f1_meter.avg,
                         'train/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
             
@@ -546,6 +575,10 @@ def run_one_epoch(
                 run.log({
                         'val/acc': top1_meter.avg,
                         'val/loss': loss,
+                        'val/auroc': auroc_meter.avg,
+                        'val/recall': recall_meter.avg,
+                        'val/specificity': specificity_meter.avg,
+                        'val/f1': f1_meter.avg,
                         'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
         

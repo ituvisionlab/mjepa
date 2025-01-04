@@ -83,6 +83,9 @@ parser.add_argument(
     '--time', type=int, default=4300, #11520, 
     help='time in minutes to run job')
 parser.add_argument(
+    '--nodes', type=int, default=1,
+    help='number of nodes')
+parser.add_argument(
     '--log_dir', type=str, default="./logs",
     help='folder to save experiment logs')
 
@@ -229,7 +232,7 @@ def launch():
         submitit_folder=args.folder,
         partition=args.partition,
         timeout=args.time,
-        nodes=nodes,
+        nodes=args.nodes,
         tasks_per_node=tasks_per_node,
         exclude_nodes=args.exclude,
         args_fname=args.fname)

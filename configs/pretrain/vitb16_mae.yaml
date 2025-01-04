@@ -1,5 +1,5 @@
 app: vjepa
-nodes: 2
+nodes: 1
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
@@ -11,8 +11,8 @@ data:
   - src/datasets/ppmi_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
-  num_clips: 8
-  num_frames: 16
+  num_clips: 1
+  num_frames: 128
   tubelet_size: 8
   sampling_rate: 1
   crop_size: 224
@@ -36,7 +36,7 @@ data_aug:
   reprob: 0.0
 logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
-  write_tag: jepa
+  write_tag: mae
 loss:
   loss_exp: 1.0
   reg_coeff: 0.0
@@ -48,18 +48,6 @@ mask:
     spatial_scale:
       - 0.15
       - 0.15
-    temporal_scale:
-      - 1.0
-      - 1.0
-    max_temporal_keep: 1.0
-    max_keep: null
-  - aspect_ratio:
-      - 0.75
-      - 1.5
-    num_blocks: 2
-    spatial_scale:
-      - 0.7
-      - 0.7
     temporal_scale:
       - 1.0
       - 1.0

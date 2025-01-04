@@ -2,7 +2,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 # Load the CSV file
-file_path = '/gpfs/home/unalg01/jepa/src/datasets/adni_new_val_split.csv' #ppmi_val_split.csv 
+file_path = '/gpfs/home/unalg01/jepa/src/datasets/ppmi_T1_anatomical_nii.csv' 
 data = pd.read_csv(file_path)
 
 # Specify the split ratio
@@ -25,7 +25,7 @@ train_data = data[data[group_col].isin(train_subjects)]
 val_data = data[data[group_col].isin(val_subjects)]
 
 # Save the splits to new CSV files
-train_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_new_valtrain_split.csv', index=False)
-val_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_new_valtest_split.csv', index=False)
+train_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/ppmi_train_split.csv', index=False)
+val_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/ppmi_val_split.csv', index=False)
 
-print("Data has been split and saved to 'valtrain_split.csv' and 'valtest_split.csv'.")
+print("Data has been split by subject_id and saved to 'ppmi_train_split.csv' and 'ppmi_val_split.csv'.")
