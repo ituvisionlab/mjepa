@@ -8,8 +8,8 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/adni_valtrain_split.csv
-  dataset_val: src/datasets/adni_valtest_split.csv
+  dataset_train: src/datasets/adni_new_valtrain_split.csv
+  dataset_val: src/datasets/adni_new_valtest_split.csv
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 16
@@ -45,7 +45,8 @@ pretrain:
   patch_size: 8
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_23__18_24_50/model_ckpt/latest-model/ 
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_03__15_56_36/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_23__18_24_50/model_ckpt/latest-model/ 
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_24__11_50_50/model_ckpt/latest-model/ 
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_13__13_24_05/model_ckpt/latest-model 
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_08__16_12_11/model_ckpt/latest-model/ 

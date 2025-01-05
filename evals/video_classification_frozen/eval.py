@@ -382,7 +382,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             epoch=epoch,
             eval_freq=train_eval_freq,
             rank=rank,
-            run=run)
+            run=run,
+            num_classes=num_classes)
 
         val_acc, val_loss = run_one_epoch(
              device=device,
@@ -402,7 +403,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              epoch=epoch,
              eval_freq=val_eval_freq,
              rank=rank,
-             run=run)
+             run=run,
+             num_classes=num_classes)
 
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
@@ -451,13 +453,14 @@ def run_one_epoch(
     epoch,
     eval_freq,
     rank,
-    run
+    run,
+    num_classes
 ):
 
     classifier.train(mode=training)
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
-    auroc_meter = AverageMeter()
+    #auroc_meter = AverageMeter()
     recall_meter = AverageMeter()
     specificity_meter = AverageMeter()
     f1_meter = AverageMeter()
@@ -515,20 +518,27 @@ def run_one_epoch(
             
             # Compute additional metrics per batch
             preds = outputs.max(dim=1).indices
-            auroc = roc_auc_score(labels.cpu().numpy(), outputs.cpu().numpy()[:, 1]) if len(outputs[0]) == 2 else 0
             recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy())
             cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
             tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
             specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
             f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy())
 
+            # auroc calculations
+            # logits = outputs.max(dim=1).values
+            # auroc = roc_auc_score(labels.cpu().numpy(), logits.cpu().numpy(), labels=np.arange(num_classes))
+            # if len(set(labels.cpu().numpy())) > 1:
+            #     auroc = roc_auc_score(labels.cpu().numpy(), outputs.cpu().numpy()[:, 1])
+            # else:
+            #     auroc = 0  # float('nan') 
+
             # Reduce metrics across GPUs
-            auroc = float(AllReduce.apply(torch.tensor(auroc, device='cuda')))
+            # auroc = float(AllReduce.apply(torch.tensor(auroc, device='cuda')))
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
             specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
             f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
 
-            auroc_meter.update(auroc)
+            # auroc_meter.update(auroc)
             recall_meter.update(recall)
             specificity_meter.update(specificity)
             f1_meter.update(f1)
@@ -564,7 +574,7 @@ def run_one_epoch(
                 run.log({
                         'train/acc': top1_meter.avg,
                         'train/loss': loss,
-                        'train/auroc': auroc_meter.avg,
+               #         'train/auroc': auroc_meter.avg,
                         'train/recall': recall_meter.avg,
                         'train/specificity': specificity_meter.avg,
                         'train/f1': f1_meter.avg,
@@ -575,7 +585,7 @@ def run_one_epoch(
                 run.log({
                         'val/acc': top1_meter.avg,
                         'val/loss': loss,
-                        'val/auroc': auroc_meter.avg,
+               #         'val/auroc': auroc_meter.avg,
                         'val/recall': recall_meter.avg,
                         'val/specificity': specificity_meter.avg,
                         'val/f1': f1_meter.avg,

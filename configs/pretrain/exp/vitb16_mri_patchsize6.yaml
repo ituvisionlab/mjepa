@@ -5,6 +5,10 @@ data:
   dataset_type: MRIDataset
   datasets: 
   - src/datasets/adni_new_train_split.csv # Relative path instead of abs path
+  - src/datasets/oasis_train_split.csv
+  - src/datasets/ixi_file_paths.csv
+  - src/datasets/mood_file_paths.csv
+  - src/datasets/ppmi_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
   num_clips: 8
@@ -12,15 +16,15 @@ data:
   tubelet_size: 8
   sampling_rate: 1
   crop_size: 224
-  patch_size: 8
+  patch_size: 6
   in_channel_size: 1
   random_clip_sampling: true
-  pin_mem: false #true
-  num_workers: 8 #12
+  pin_mem: true
+  num_workers: 8
   filter_short_videos: false
   clip_duration: null
 data_aug:
-  auto_augment: true #false
+  auto_augment: true
   motion_shift: false
   random_resize_aspect_ratio:
   - 0.9 

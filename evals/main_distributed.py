@@ -62,6 +62,9 @@ parser.add_argument(
     '--partition', type=str,
     help='cluster partition to submit jobs on')
 parser.add_argument(
+    '--reservation', type=str,
+    help='cluster reservation to submit jobs on')
+parser.add_argument(
     '--time', type=int, default= 4300,
     help='time in minutes to run job')
 parser.add_argument(
@@ -99,7 +102,8 @@ class Trainer:
 def launch_evals_with_parsed_args(
     args_for_evals,
     submitit_folder,
-    partition='learnlab,learnfair',
+    partition='a100_short', #'learnlab,learnfair',
+    reservation='sodicksonlab_reservation',
     timeout= 4300,
     nodes=1,
     tasks_per_node=4,
@@ -123,7 +127,10 @@ def launch_evals_with_parsed_args(
         nodes=nodes,
         tasks_per_node=tasks_per_node,
         cpus_per_task= 4, #1,
-        gpus_per_node=tasks_per_node)
+        gpus_per_node=tasks_per_node,
+        slurm_additional_parameters={
+        'reservation': reservation,
+        } )
 
     if exclude_nodes is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)
@@ -196,6 +203,7 @@ def launch_evals():
         args_for_evals=configs,
         submitit_folder=args.folder,
         partition=args.partition,
+        reservation=args.reservation,
         timeout=args.time,
         nodes=nodes,
         tasks_per_node=tasks_per_node,
