@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 import torch
+import torchio as tio
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
