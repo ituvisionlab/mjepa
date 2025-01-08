@@ -364,7 +364,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
 
-
+        
+        
         train_acc, train_loss = run_one_epoch(
             device=device,
             training=True,
@@ -406,7 +407,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              rank=rank,
              run=run,
              num_classes=num_classes)
-
+        
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
         
@@ -468,6 +469,7 @@ def run_one_epoch(
     ipe = len(data_loader)
     if eval_freq > ipe:
         eval_freq = 1
+        
     for itr, data in enumerate(data_loader):
 
         if training:
@@ -501,7 +503,16 @@ def run_one_epoch(
                 if attend_across_segments:
                     outputs = [classifier(o) for o in outputs]
                 else:
-                    outputs = [[classifier(ost) for ost in os] for os in outputs]
+                    lst1 = []
+                    for os in outputs:
+                        lst2 = []
+                        for ost in os:
+                            ost_out = classifier(ost)
+                            lst2.append(ost_out)
+                        lst1.append(lst2)
+                        
+                    outputs = lst1
+                    # outputs = [[classifier(ost) for ost in os] for os in outputs]
         # outputs tensor shape: Batchsize x num_classes
         # Compute loss
         if attend_across_segments:
@@ -556,49 +567,6 @@ def run_one_epoch(
                 torch.nn.utils.clip_grad_norm_(classifier.parameters(), 1.0)
                 optimizer.step()
             optimizer.zero_grad()
-
-        if log_writer != None:
-            if training and itr % eval_freq == 0:
-                log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
-            if not training and itr % eval_freq == 0:
-                log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
-                log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
-            log_writer.flush()
-            
-        if run != None and rank == 0:
-            if training and itr % eval_freq == 0:
-                run.log({
-                        'train/acc': top1_meter.avg,
-                        'train/loss': loss,
-               #         'train/auroc': auroc_meter.avg,
-                        'train/recall': recall_meter.avg,
-                        'train/specificity': specificity_meter.avg,
-                        'train/f1': f1_meter.avg,
-                        'train/mem': torch.cuda.max_memory_allocated() / 1024.**2
-                    })
-            
-            if not training and itr % eval_freq == 0:
-                run.log({
-                        'val/acc': top1_meter.avg,
-                        'val/loss': loss,
-               #         'val/auroc': auroc_meter.avg,
-                        'val/recall': recall_meter.avg,
-                        'val/specificity': specificity_meter.avg,
-                        'val/f1': f1_meter.avg,
-                        'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
-                    })
-        
-        torch.cuda.empty_cache()
-        
-        if itr % 5 == 0 and rank == 0:
-            logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
-                        % (itr, top1_meter.avg, loss,
-                           torch.cuda.max_memory_allocated() / 1024.**2))
 
     return top1_meter.avg, loss
 
