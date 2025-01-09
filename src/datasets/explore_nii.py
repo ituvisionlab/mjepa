@@ -1,6 +1,7 @@
 import nibabel as nib
 from nibabel.orientations import aff2axcodes
 from nibabel.orientations import axcodes2ornt, ornt_transform, apply_orientation
+import matplotlib.pyplot as plt
 
 class RandomHorizontalFlip:
     def __init__(self, left_right_axis):
@@ -29,8 +30,9 @@ def reorient_to_RAS(img):
     return new_img
 
 # Load the image
-nii_file_name = 'src/datasets/BraTS2020/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/BraTS20_Training_001/BraTS20_Training_001_t1.nii' 
+# nii_file_name = 'src/datasets/BraTS2020/BraTS2020_TrainingData/MICCAI_BraTS2020_TrainingData/BraTS20_Training_001/BraTS20_Training_001_t1.nii' 
 # nii_file_name = '/media/yusuf/backup/ADNI-NC/ADNI_NC/016_S_4638/MT1__GradWarp__N3m/2013-02-01_10_55_25.0/I358089/ADNI_016_S_4638_MR_MT1__GradWarp__N3m_Br_20130206105826694_S181331_I358089.nii' 
+nii_file_name = '/media/yusuf/disk1/ADNI/OAS31092_MR_d0203/anat2/sub-OAS31092_ses-d0203_acq-TSE_run-02_T2w.nii.gz'
 img = nib.load(nii_file_name)
 data = img.get_fdata()
 affine = img.affine
@@ -66,9 +68,11 @@ print(f'Inferior-Superior axis: {inferior_superior_axis}')
 reoriented_img = reorient_to_RAS(img)
 data = reoriented_img.get_fdata()
 
+plt.imsave('slice_.png', data[20], cmap='gray')
+
 # flip along axis 0 : width
 axis_map = {0: axcodes[0], 1: axcodes[1], 2: axcodes[2]}
 left_right_axis = [axis for axis, direction in axis_map.items() if direction in ('L', 'R')][0]
 
 # Instantiate the transformation with the correct axis
-transform = RandomHorizontalFlip(left_right_axis=left_right_axis)
+# transform = RandomHorizontalFlip(left_right_axis=left_right_axis)
