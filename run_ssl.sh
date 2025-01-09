@@ -1,18 +1,14 @@
 #!/bin/bash
-#SBATCH --nodes=1
-#SBATCH --partition=a100_long
-#SBATCH --tasks-per-node=8
-#SBATCH --time=4-00:00:00
-#SBATCH --mem=128GB
+#SBATCH --partition=a100_short
+#SBATCH --gres=gpu:4
+#SBATCH --mem=256GB
 #SBATCH --job-name=sslgoz
-#SBATCH --gres=gpu:1
 #SBATCH --mail-type=END
 #SBATCH --mail-user=gozde.unal@nyulangone.org
-#SBATCH --output=/gpfs/data/sodicksonlab/gozde/slurm/slurm_%j.log
+#SBATCH --output=/gpfs/data/sodicksonlab/gozde/slurm/slurmDistrib_%j.log
 module load anaconda3
 source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main --fname configs/pretrain/vitl16single.yaml
-
+python -m app.main_distributed --fname configs/pretrain/vitb16_mri_8x8x8_crop256_LR5e4_warmup10_seed2007.yaml --folder /gpfs/home/unalg01/jepa --partition a100_short

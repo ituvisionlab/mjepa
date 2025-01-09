@@ -1,7 +1,9 @@
 #!/bin/bash
-#SBATCH --partition=a100_long
+#SBATCH --reservation=sodicksonlab_reservation
+#SBATCH --partition=reservation
 #SBATCH --gres=gpu:4
 #SBATCH --mem=256GB
+#SBATCH --nodes=1
 #SBATCH --job-name=sslgoz
 #SBATCH --mail-type=END
 #SBATCH --mail-user=gozde.unal@nyulangone.org
@@ -11,4 +13,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main_distributed --fname configs/pretrain/vitb16_mri_8x8x8_LR5e4_warmup10_seed2007.yaml --time 5300 --folder /gpfs/home/unalg01/jepa --partition a100_long
+python -m app.main_distributed --fname configs/pretrain/exp/vitb16_mri_8x8x12.yaml --time 5700 --nodes 1 --folder /gpfs/home/unalg01/jepa --partition reservation --reservation sodicksonlab_reservation
