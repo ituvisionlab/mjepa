@@ -318,11 +318,14 @@ class EvalMRITransform(object):
         buffer = torch.tensor(buffer, dtype=torch.float32) #T H W C
        #  buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
 
-        num_views = self.views_per_clip
-        side_len = self.short_side_size
+        return [buffer]
+        
+        # num_views = self.views_per_clip
+        # side_len = self.short_side_size
         # spatial_step = (max(H, W) - side_len) // (num_views - 1) # GU_
 
-        all_views = []
+        # all_views = []
+        
         #GU_COMMENT
         #for i in range(num_views):
         #    start = i*spatial_step
@@ -335,8 +338,8 @@ class EvalMRITransform(object):
         # view = self.to_tensor(buffer)    
         # all_views.append(view)
         
-        all_views.append(buffer)
-        return all_views
+        # all_views.append(buffer)
+        # return all_views
 
 class VideoTransform(object):
 

@@ -1,18 +1,18 @@
 nodes: 1
 tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
-eval_name: encoder_test
+eval_name: video_classification_frozen
 resume_checkpoint: false #true 
 checkpoint_path: null #/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
 logging:
   folder: logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/nii_paths_testing_split.csv
-  dataset_val: src/datasets/nii_paths_testing_split.csv
+  dataset_train: src/datasets/nii_paths_train_split.csv
+  dataset_val: src/datasets/nii_paths_val_split.csv
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 8
+  frames_per_clip: 16
   num_segments: 16 # 4
   num_views_per_segment: 3
   frame_step: 1
@@ -23,7 +23,7 @@ optimization:
   attend_across_segments: true
   num_epochs: 400
   resolution: 224
-  batch_size: 2
+  batch_size: 4
   weight_decay: 0.01
   lr: 0.001
   start_lr: 0.001

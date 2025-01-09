@@ -192,13 +192,13 @@ class MRIDataset(torch.utils.data.Dataset):
             buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
-            return [buffer], label, clip_indices
+            return [[clip] for clip in buffer], label, clip_indices
         
         # if self.transform is not None:
         #     buffer = [self.transform(clip) for clip in buffer]
         
         # plt.imsave('slice.png', buffer[3][0][8, :, :], cmap='gray') # Num_clips x Channel x T x H X W 
-    
+        
 
     def split_into_clips(self, video):
         """ Split video into a list of clips """
@@ -225,7 +225,9 @@ class MRIDataset(torch.utils.data.Dataset):
 
             # print(f"Volume shape: {volume.shape}")
             # for ADNI: clip first 20 frames (neck) and last 12 frames (black top)
-            volume = volume[20:-12]
+            # volume = volume[20:-12]
+
+            
 
             #volume = self.center_crop(volume, crop_sizes={1: 240, 2: 160})
             # Resize along axes 1 and 2 to size crop_size=224
@@ -420,7 +422,37 @@ class MRIDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.samples)
+    
+    def filter_nifti(self, img, min_fov=50, max_spacing=6.5):
+       
+        header = img.header
+    
+        # Extract voxel dimensions and image dimensions
+        voxel_spacing = header.get_zooms()[:3]  # pixdim[1:3]
+        image_dimensions = header.get_data_shape()[:3]  # dim[1:3]
+    
+        # Compute field of view for each axis
+        fov = [spacing * dim for spacing, dim in zip(voxel_spacing, image_dimensions)]
+    
+        # Apply filtering criteria
+        if any(f < min_fov for f in fov) or any(s > max_spacing for s in voxel_spacing):
+            return False  # Exclude this file
+        return True  # Include this file
+    
+    def resample_image(self, img, target=None):
+        # Define the resample transform with target spacing of [1x1x1] mm
+        if target == None:
+            target=(1, 1, 1)
+        
+        resample = tio.Resample(target=target)
 
+        # Apply the resample transform
+        resampled_image = resample(img)
+
+        # Save the resampled image if needed
+        # resampled_image.save('resampled_image.nii')
+        
+        return resampled_image
     
 if __name__ == "__main__":
     # Instantiate the RandomHorizontalFlip transformation
