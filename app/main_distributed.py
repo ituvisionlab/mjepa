@@ -129,7 +129,7 @@ def launch_app_with_parsed_args(
     args_for_pretrain,
     submitit_folder,
     partition='a100_short',
-    reservation='None',
+    reservation=None,
     timeout=4300, #11520, 
     nodes=1,
     tasks_per_node=4,
@@ -142,31 +142,32 @@ def launch_app_with_parsed_args(
     
     # Update parameters conditionally based on reservation
     slurm_params = {
-        'partition': partition,
-        'mem': '256G',  # Adjust memory per your needs
-        'time': timeout,
-        'nodes': nodes,
-        'tasks_per_node': tasks_per_node,
-        'cpus_per_task': 10,
-        'gpus_per_node': tasks_per_node,
-    }
+         'partition': partition,
+         'mem': '256G',  # Adjust memory per your needs
+         'time': timeout,
+         'nodes': nodes,
+         'tasks_per_node': tasks_per_node,
+         'cpus_per_task': 10,
+         'gpus_per_node': tasks_per_node,
+     }
     if reservation:  # Add reservation only if provided
-        slurm_params['reservation'] = reservation
+        #slurm_params['reservation'] = reservation
+        slurm_params['slurm_additional_parameters'] = {'reservation': reservation}
     executor.update_parameters(**slurm_params)
     
-    # executor.update_parameters(
-    #     slurm_partition=partition,
-    #     # slurm_reservation=reservation,
-    #     # slurm_mem_per_gpu='128G', 
-    #     slurm_mem='256G',  #'192G',
-    #     timeout_min=timeout,
-    #     nodes=nodes,
-    #     tasks_per_node=tasks_per_node,
-    #     cpus_per_task=10, #for num_workers=8  #6 for num_workers=4
-    #     gpus_per_node=tasks_per_node,
-    #     slurm_additional_parameters={
-    #     'reservation': reservation,
-    #     } )
+    #executor.update_parameters(
+    #    slurm_partition=partition,
+    #    # slurm_reservation=reservation,
+    #    # slurm_mem_per_gpu='128G', 
+    #    slurm_mem='256G',  #'192G',
+    #    timeout_min=timeout,
+    #    nodes=nodes,
+    #    tasks_per_node=tasks_per_node,
+    #    cpus_per_task=10, #for num_workers=8  #6 for num_workers=4
+    #    gpus_per_node=tasks_per_node,
+    #    slurm_additional_parameters={
+    #    'reservation': reservation,
+    #    } )
 
     if exclude_nodes is not None:
     # if args_exclude is not None:
