@@ -7,7 +7,19 @@
 
 import torch
 import torchvision.transforms as transforms
+
 import torchio as tio
+import numpy as np
+
+# from monai.transforms import (
+#     Compose,
+#     RandAffine,
+#     RandFlip,
+#     Rand3DElastic,
+#     EnsureChannelFirst,
+#     ToTensorD
+# )
+
 import random
 import src.datasets.utils.video.transforms as video_transforms
 from src.datasets.utils.video.randerase import RandomErasing
@@ -97,6 +109,7 @@ class MRITransform(object):
         # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
         
         if self.auto_augment:
+            # buffer = np.transpose(buffer, (3, 1, 2, 0))  # T H W C -> C H W T
             buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
             
             # Define the MRI transformation list 
@@ -117,8 +130,39 @@ class MRITransform(object):
 
             buffer = transform(buffer)
        
-            # buffer = buffer.permute(0, 3, 1, 2)  # C H W T ->  C T H W
             buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
+        
+        # if self.auto_augment:
+        #     buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+
+        #     # Define the MONAI transformation pipeline
+        #     transforms = Compose([
+        #         RandAffine(
+        #             prob=1.0,
+        #             rotate_range=[
+        #                 self.rot_degree * torch.pi / 180.0 for _ in range(3)
+        #             ],  # rotation in radians
+        #             scale_range=[
+        #                 self.random_resize_aspect_ratio[1] - 1,
+        #                 self.random_resize_aspect_ratio[1] - 1,
+        #                 self.random_resize_aspect_ratio[1] - 1,
+        #             ] if self.random_resize_aspect_ratio else None,
+        #         ),
+        #         RandFlip(prob=0.5 if self.random_horizontal_flip else 0.0, spatial_axis=0),
+        #         Rand3DElastic(
+        #             sigma_range=(4, 6),
+        #             magnitude_range=(0.1, 0.2),
+        #             prob=1.0,
+        #             spatial_size=None,
+        #             mode="bilinear",
+        #             padding_mode="reflection",
+        #         ),
+        #     ])
+
+        #     # Apply transformations to the buffer
+        #     buffer = transforms(buffer)
+
+        #     buffer = buffer.permute(3, 1, 2, 0)  # C H W T -> T H W C
             
         #GU_ debug
         # plt.imsave('xformedBuffer.png', buffer[0][100, :, :], cmap='gray') 
