@@ -45,8 +45,8 @@ pretrain:
   patch_size: 8
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_03__15_56_19/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_31__17_37_21/model_ckpt/periodic-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_31__17_37_21/model_ckpt/periodic-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_03__15_56_19/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_31__18_27_29/model_ckpt/latest-model
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_23__17_28_39/model_ckpt/latest-model
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_13__13_24_05/model_ckpt/latest-model 

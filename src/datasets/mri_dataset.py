@@ -19,6 +19,7 @@ import nibabel as nib
 from scipy import ndimage
 import matplotlib.pyplot as plt
 from PIL import Image
+import random
 
 import torch
 import torchio as tio
@@ -206,7 +207,7 @@ class MRIDataset(torch.utils.data.Dataset):
         nc = self.num_clips
         return [video[:, i*fpc:(i+1)*fpc] for i in range(nc)]
 
-    def load_nifti_file(self, file_path,in_chans=3):
+    def load_nifti_file(self, file_path, in_chans=3):
         if not os.path.exists(file_path):
             warnings.warn(f'File not found: {file_path}')
             return None
@@ -215,71 +216,57 @@ class MRIDataset(torch.utils.data.Dataset):
             # Load the NIfTI file
             img = nib.load(file_path)
 
-            #To-do : Do a CANONICAL transform to bring the MRI volume to RAS+ orientation: L:R, A:P, Bottom-Up
-            img = nib.funcs.as_closest_canonical(img)
-
+            # Convert to RAS+ orientation (ensures consistent L:R, A:P, B:U axes)
+            img = nib.as_closest_canonical(img)
             volume = img.get_fdata()
-     
-            # Transform from xyz to zxy (to make it like video)
-            volume = volume.transpose(2, 0, 1)  # Shape: (Z, X, Y)
+            xsize, ysize, zsize = volume.shape
 
-            # print(f"Volume shape: {volume.shape}")
-            # for ADNI: clip first 20 frames (neck) and last 12 frames (black top)
-            # volume = volume[20:-12]
+            # Determine native in-plane orientation
+            dimensions = np.array([xsize, ysize, zsize])
+            sorted_indices = np.argsort(dimensions)  # Sort dimensions (ascending)
+            temporal_axis = sorted_indices[0]        # Smallest dimension -> temporal axis
+            inplane_axes = sorted_indices[1:]        # Two largest dimensions -> in-plane axes
 
+            # Determine the native orientation
+            if temporal_axis == 0:  # Sagittal
+                volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
+            elif temporal_axis == 1:  # Coronal
+                volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+            elif temporal_axis == 2:  # Axial
+                volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
+
+            # For approximately isotropic volumes (where all dimensions are close), choose a random orientation
+            if np.max(dimensions) / np.min(dimensions) < 1.2:  # Threshold for isotropy
+                orientations = ['axial', 'sagittal', 'coronal']
+                selected_orientation = random.choice(orientations)
+                if selected_orientation == 'axial':
+                    volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
+                elif selected_orientation == 'sagittal':
+                    volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
+                elif selected_orientation == 'coronal':
+                    volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+             
+            #Center crop each slice to a square (min dimension of in-plane axes)
+            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
+            min_dim = min(h, w)
+            start_h = (h - min_dim) // 2
+            start_w = (w - min_dim) // 2
+            volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
             
-
-            #volume = self.center_crop(volume, crop_sizes={1: 240, 2: 160})
-            # Resize along axes 1 and 2 to size crop_size=224
+            # Resize the in-plane dimensions to crop_size (default: 224x224)
             volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size})
-            # print(f"Volume shape after resize: {volume.shape}")
-            
-            # GU_Debug: save one png file for debugging
-            # plt.imsave('slice.png', volume[10], cmap='gray')
+
+            #GU_ debug
+            # plt.imsave('slicemid.png', volume[int(volume.shape[0]/2)], cmap='gray')
 
             # Preprocess the volume: intensity normalization
-            volume, volume_mean, volume_std = self.preprocess_volume(volume,in_chans)
-            
-            # GU_Debug:
-            # plt.imsave('slice_preprocessed.png', volume[100, :, :, 0]*volume_std + volume_mean, cmap='gray')
-            # plt.imsave('slice_preprocessed.png', volume[10, :, :, 0]*volume_std + volume_mean, cmap='gray')
+            volume, volume_mean, volume_std = self.preprocess_volume(volume, in_chans)
 
             return volume
-    
+
         except Exception as e:
             warnings.warn(f'Error loading {file_path}: {e}')
             return None
-
-    def center_crop(self, volume, crop_sizes):
-        """
-        Center crop the volume along specified axes to the desired sizes.
-
-        Parameters:
-            - volume (np.ndarray): The 3D MRI volume to be cropped.
-            - crop_sizes (dict): A dictionary where keys are axis indices (0, 1, 2)
-                         and values are the desired sizes along those axes.
-
-        Returns:
-            - volume (np.ndarray): The cropped volume.
-        """
-        shape = volume.shape  # Original shape after transpose
-        slices = []
-        for i in range(len(shape)):
-            if i in crop_sizes:
-                desired_size = crop_sizes[i]
-                original_size = shape[i]
-                if original_size < desired_size:
-                    warnings.warn(f"Cannot crop axis {i} to size {desired_size} because it's smaller ({original_size}).")
-                    start = 0
-                    end = original_size
-                else:
-                    start = (original_size - desired_size) // 2
-                    end = start + desired_size
-                slices.append(slice(start, end))
-            else:
-                slices.append(slice(0, shape[i]))  # Use the full range for axes not being cropped
-        volume = volume[tuple(slices)]
-        return volume
 
     def preprocess_volume(self, volume,in_chans=3):
         volume_mean = np.mean(volume)

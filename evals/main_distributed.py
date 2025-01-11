@@ -120,17 +120,32 @@ def launch_evals_with_parsed_args(
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
         slurm_max_num_timeout=1) #20)
-    executor.update_parameters(
-        slurm_partition=partition,
-        slurm_mem='192G',
-        timeout_min=timeout,
-        nodes=nodes,
-        tasks_per_node=tasks_per_node,
-        cpus_per_task= 4, #1,
-        gpus_per_node=tasks_per_node,
-        slurm_additional_parameters={
-        'reservation': reservation,
-        } )
+    # Update parameters conditionally based on reservation
+    slurm_params = {
+         'partition': partition,
+         'mem': '192G',  # Adjust memory per your needs
+         'time': timeout,
+         'nodes': nodes,
+         'tasks_per_node': tasks_per_node,
+         'cpus_per_task': 6,
+         'gpus_per_node': tasks_per_node,
+     }
+    if reservation:  # Add reservation only if provided
+        #slurm_params['reservation'] = reservation
+        slurm_params['slurm_additional_parameters'] = {'reservation': reservation}
+    executor.update_parameters(**slurm_params)
+    
+    # executor.update_parameters(
+    #     slurm_partition=partition,
+    #     slurm_mem='192G',
+    #     timeout_min=timeout,
+    #     nodes=nodes,
+    #     tasks_per_node=tasks_per_node,
+    #     cpus_per_task= 6, #1,
+    #     gpus_per_node=tasks_per_node,
+    #     slurm_additional_parameters={
+    #     'reservation': reservation,
+    #     } )
 
     if exclude_nodes is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)

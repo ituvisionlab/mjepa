@@ -1,0 +1,63 @@
+nodes: 1
+tasks_per_node: 2
+tag: mri-probe #k400-16x8x3
+eval_name: video_classification_frozen
+resume_checkpoint: false #true 
+checkpoint_path: null #/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
+logging:
+  folder: /gpfs/data/sodicksonlab/gozde/logs/
+data:
+  root_path: /gpfs/home/unalg01/jepa
+  dataset_train: src/datasets/adni_new_valtrain_split.csv
+  dataset_val: src/datasets/adni_new_valtest_split.csv
+  dataset_type: MRIDataset
+  num_classes: 2
+  frames_per_clip: 16
+  num_segments: 16 # 4
+  num_views_per_segment: 3
+  frame_step: 1
+  num_workers: 4
+  random_clip_sampling: false
+  auto_augment: true
+optimization:
+  attend_across_segments: true
+  num_epochs: 400
+  resolution: 224
+  batch_size: 8
+  weight_decay: 0.01
+  lr: 0.001
+  start_lr: 0.001
+  final_lr: 0.0
+  warmup: 0.
+  use_bfloat16: true
+  train_log_iter_freq: 1
+  val_log_iter_freq: 10
+pretrain:
+  model_name: vit_base
+  checkpoint_key: target_encoder
+  clip_duration: null
+  frames_per_clip: 16
+  tubelet_size: 12
+  uniform_power: true
+  use_silu: false
+  tight_silu: false
+  use_sdpa: true
+  patch_size: 8
+  in_channel_size: 1
+  frame_step: 1 # added
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_06__19_03_33/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_06__19_29_25/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_06__20_01_27/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_31__18_27_29/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_03__15_56_19/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_31__18_27_29/model_ckpt/latest-model
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_23__17_28_39/model_ckpt/latest-model
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_13__13_24_05/model_ckpt/latest-model 
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_08__16_12_11/model_ckpt/latest-model/ 
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_05__21_17_18/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_04__15_18_47/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__15_40_14/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2024_12_02__12_27_26/model_ckpt/latest-model/
+  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
+  write_tag: jepa

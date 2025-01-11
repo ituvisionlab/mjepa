@@ -4,11 +4,9 @@ tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/adni_new_train_split.csv # Relative path instead of abs path
-  - src/datasets/oasis_train_split.csv
-  - src/datasets/ixi_file_paths.csv
-  - src/datasets/mood_file_paths.csv
-  - src/datasets/ppmi_train_split.csv
+  - src/datasets/oasis3_all_train_split.csv # Relative path instead of abs path
+  - src/datasets/ppmi_all_train_split.csv
+  - src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
   num_clips: 8
@@ -25,6 +23,9 @@ data:
   clip_duration: null
 data_aug:
   auto_augment: true
+  random_noise: 0.025
+  random_bias: 0.2
+  intensity_gamma: 0.2
   motion_shift: false
   random_resize_aspect_ratio:
   - 0.9 
@@ -81,12 +82,12 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: true
 optimization:
-  ipe: 200
+  ipe: 300
   ipe_scale: 1.25
   clip_grad: 1.0
-  weight_decay: 0.004
+  weight_decay: 0.04
   final_weight_decay: 0.1
-  epochs: 2000
+  epochs: 1500
   warmup: 20
   start_lr: 0.0001 #0.001
   lr: 0.0001 #0.001

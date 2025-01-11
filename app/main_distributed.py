@@ -83,7 +83,7 @@ parser.add_argument(
     '--reservation', type=str,
     help='cluster reservation to submit jobs on')
 parser.add_argument(
-    '--time', type=int, default=4300, #11520, 
+    '--time', type=int, default=4300, #11520,
     help='time in minutes to run job')
 parser.add_argument(
     '--nodes', type=int, default=1,
