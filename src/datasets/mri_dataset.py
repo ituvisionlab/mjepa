@@ -179,15 +179,24 @@ class MRIDataset(torch.utils.data.Dataset):
         if self.transform is not None:  #even if auto_augment is false, converts the volume to a tensor
             volume = self.transform(volume)
             
+        volume = self.intensity_normalize(volume)
+
         #GU_ debug
-        # affine = np.eye(4)
-        # nifti_image = nib.Nifti1Image(volume[0].numpy(), affine)
-        # nib.save(nifti_image, 'output_volume.nii')
+        affine = np.eye(4)
+        nifti_image = nib.Nifti1Image(volume.numpy(), affine)
+        nib.save(nifti_image, 'output_volume.nii')
 
         if not isinstance(volume, list):
             buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
+            #GU_debug
+            # affine = np.eye(4)            
+            # for i in range(self.num_clips): # Assuming buffer is a PyTorch tensor of shape [C, T, W, H]
+            #     volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
+            #     nifti_image = nib.Nifti1Image(volume.numpy(), affine)
+            #     nib.save(nifti_image, f'buffer{i}_volume.nii')
+
             return buffer, label, clip_indices
         else:
             buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
@@ -245,22 +254,15 @@ class MRIDataset(torch.utils.data.Dataset):
                     volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
                 elif selected_orientation == 'coronal':
                     volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
-             
-            #Center crop each slice to a square (min dimension of in-plane axes)
-            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
-            min_dim = min(h, w)
-            start_h = (h - min_dim) // 2
-            start_w = (w - min_dim) // 2
-            volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
-            
+
             # Resize the in-plane dimensions to crop_size (default: 224x224)
             volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size})
 
-            #GU_ debug
-            # plt.imsave('slicemid.png', volume[int(volume.shape[0]/2)], cmap='gray')
+            # GU_Debug: save one png file for debugging
+            # plt.imsave('slice.png', volume[10], cmap='gray')
 
             # Preprocess the volume: intensity normalization
-            volume, volume_mean, volume_std = self.preprocess_volume(volume, in_chans)
+            volume = self.preprocess_volume(volume, in_chans)
 
             return volume
 
@@ -268,11 +270,39 @@ class MRIDataset(torch.utils.data.Dataset):
             warnings.warn(f'Error loading {file_path}: {e}')
             return None
 
+    def center_crop(self, volume, crop_sizes):
+        """
+        Center crop the volume along specified axes to the desired sizes.
+
+        Parameters:
+            - volume (np.ndarray): The 3D MRI volume to be cropped.
+            - crop_sizes (dict): A dictionary where keys are axis indices (0, 1, 2)
+                         and values are the desired sizes along those axes.
+
+        Returns:
+            - volume (np.ndarray): The cropped volume.
+        """
+        shape = volume.shape  # Original shape after transpose
+        slices = []
+        for i in range(len(shape)):
+            if i in crop_sizes:
+                desired_size = crop_sizes[i]
+                original_size = shape[i]
+                if original_size < desired_size:
+                    warnings.warn(f"Cannot crop axis {i} to size {desired_size} because it's smaller ({original_size}).")
+                    start = 0
+                    end = original_size
+                else:
+                    start = (original_size - desired_size) // 2
+                    end = start + desired_size
+                slices.append(slice(start, end))
+            else:
+                slices.append(slice(0, shape[i]))  # Use the full range for axes not being cropped
+        volume = volume[tuple(slices)]
+        return volume
+
     def preprocess_volume(self, volume,in_chans=3):
-        volume_mean = np.mean(volume)
-        volume_std = np.std(volume)
-        # Normalize intensities
-        volume = (volume - volume_mean) / volume_std
+       
         # Convert to float32
         volume = volume.astype(np.float32)
 
@@ -287,8 +317,29 @@ class MRIDataset(torch.utils.data.Dataset):
         # Should output (T, H, W, 3)
         #print(f"Volume shape after preprocessing: {volume.shape}")  
         
-        return volume, volume_mean, volume_std
+        return volume
+    
+    def intensity_normalize(self, volume):
+       
+       # Assuming 'volume' is a PyTorch tensor with shape [T, W, H, C]
+        volume_mean = torch.mean(volume, dim=(0, 1, 2))  # Shape: [C]
+        volume_std = torch.std(volume, dim=(0, 1, 2))  # Shape: [C]
 
+        epsilon = 1e-8  # Small value to avoid division by zero
+
+        # Set std to 1 if it's near zero (below a threshold)
+        volume_std = torch.where(volume_std < epsilon, torch.tensor(1.0, dtype=volume_std.dtype, device=volume_std.device), volume_std)
+
+        # Reshape mean and std for broadcasting
+        volume_mean = volume_mean.view(1, 1, 1, -1)  # Shape: [1, 1, 1, C]
+        volume_std = volume_std.view(1, 1, 1, -1)    # Shape: [1, 1, 1, C]
+
+        # Normalize intensities
+        volume = (volume - volume_mean) / (volume_std + epsilon)
+        
+        return volume
+    
+    
 
     def split_volume(self, volume):
         """  """

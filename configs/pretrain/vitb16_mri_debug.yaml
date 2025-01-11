@@ -4,8 +4,9 @@ tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/oasis3_all_train_split.csv # Relative path instead of abs path
-  - src/datasets/ppmi_all_train_split.csv
+  - src/datasets/debug_nii_list.csv
+  # - src/datasets/oasis3_all_train_split.csv # Relative path instead of abs path
+  # - src/datasets/ppmi_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
   num_clips: 8
@@ -22,9 +23,9 @@ data:
   clip_duration: null
 data_aug:
   auto_augment: true
-  random_noise: 0.025
-  random_bias: 0.2
-  intensity_gamma: 0.2
+  random_noise: 0.01
+  random_bias: 0.1
+  intensity_gamma: 0.1
   random_resize_aspect_ratio:
   - 0.9 
   - 1.1 

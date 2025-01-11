@@ -72,8 +72,13 @@ def extract_info_from_xml(xml_path):
 
 
 # Function to filter NIfTI files based on FOV and spacing
-def filter_nifti(img, min_fov=50, max_spacing=6.5):
+def filter_nifti(img, file_path, min_fov=50, max_spacing=6.5):
     header = img.header
+    volume = img.get_fdata()
+    # Return false if the volume is not 3D
+    if volume.ndim != 3:
+        print(f'Skipping non-3D volume (dim={volume.ndim}) at: {file_path}')
+        return False
     voxel_spacing = header.get_zooms()[:3]
     image_dimensions = header.get_data_shape()[:3]
     fov = [spacing * dim for spacing, dim in zip(voxel_spacing, image_dimensions)]
@@ -106,8 +111,8 @@ for root, dirs, files in os.walk(base_data_path):
             # Load the NIfTI image and apply FOV and spacing filter
             try:
                 img = nib.load(nii_file_path)
-                if not filter_nifti(img):
-                    print(f"Excluded based on FOV/spacing: {nii_file_path}")
+                if not filter_nifti(img,nii_file_path):
+                    print(f"Excluded based on FOV/spacing and non3D volume: {nii_file_path}")
                     cntr_filtered += 1
                     continue
             except Exception as e:
