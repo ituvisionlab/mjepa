@@ -76,7 +76,7 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_base
-  pred_depth: 12
+  pred_depth: 6
   pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true

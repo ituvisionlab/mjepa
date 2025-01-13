@@ -4,21 +4,20 @@ import nibabel as nib
 import glob
 import xml.etree.ElementTree as ET
 
-# Paths to ADNI dataset and metadata
-base_data_path = "/gpfs/data/sodicksonlab/gozde/ADNIall/ADNI"
-meta_data_path = "/gpfs/data/sodicksonlab/gozde/ADNI-meta/ADNI"
+# Paths to PPMI dataset and metadata
+base_data_path = "/gpfs/data/sodicksonlab/gozde/PPMI"
+meta_data_path = "/gpfs/data/sodicksonlab/gozde/PPMI-meta/PPMI"
 
 # Output CSV file
-output_csv = "adni_all_nii.csv"
+output_csv = "ppmi_all_nii.csv"
 
-# Label mapping
+# Label mapping: {'Control': 0, 'PD': 1, 'Prodromal': 2, 'SWEDD': 3, 'Other': 4}
 label_mapping = {
-    "CN": 0,
-    "MCI": 1,
-    "AD": 2,
-    "EMCI": 3,
-    "LMCI": 4,
-    "Other": 5
+    "Control": 0,
+    "PD": 1,
+    "Prodromal": 2,
+    "SWEDD": 3,
+    "Other": 4
 }
 
 def extract_info_from_xml(xml_path):
@@ -131,13 +130,18 @@ for root, dirs, files in os.walk(base_data_path):
                 print(f"Error loading NIfTI file {nii_file_path}: {e}")
                 continue
             
-            # Extract study ID and image ID from filename
-            filename_parts = file.split('_')
-            study_id = filename_parts[-2].lstrip('S')
-            image_id = filename_parts[-1].lstrip('I').split('.')[0]
-            
+            # Extract subject ID, modality, study date, and image ID from the file path
+            path_parts = nii_file_path.split(os.sep)
+            subject_id = path_parts[-5]  # e.g., "60036"
+            modality = path_parts[-4]  # e.g., "T2_in_T1-anatomical_space"
+            study_date = path_parts[-3]  # e.g., "2014-03-04_11_26_56.0"
+            image_id = path_parts[-2].lstrip("I")  # e.g., "451800"
+
+            # Extract study ID from the .nii file name
+            study_id = file.split('_S')[-1].split('_I')[0]  # Extract study ID (e.g., "225653")
+
             # Construct the XML file path using glob for robustness
-            xml_pattern = f"ADNI_*_*_S{study_id}_I{image_id}.xml"
+            xml_pattern = f"PPMI_{subject_id}_{modality}_S{study_id}_I{image_id}.xml"
             xml_file_path = glob.glob(os.path.join(meta_data_path, xml_pattern))
             
             if xml_file_path:
@@ -158,7 +162,7 @@ with open(output_csv, mode="w", newline="") as csvfile:
 
 
 # Log file to write summary information
-log_file_path = "adni_dataset_summary.log"
+log_file_path = "ppmi_dataset_summary.log"
 
 # Write summary information to the log file
 with open(log_file_path, mode="w") as log_file:

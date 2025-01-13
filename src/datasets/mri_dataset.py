@@ -270,37 +270,6 @@ class MRIDataset(torch.utils.data.Dataset):
             warnings.warn(f'Error loading {file_path}: {e}')
             return None
 
-    def center_crop(self, volume, crop_sizes):
-        """
-        Center crop the volume along specified axes to the desired sizes.
-
-        Parameters:
-            - volume (np.ndarray): The 3D MRI volume to be cropped.
-            - crop_sizes (dict): A dictionary where keys are axis indices (0, 1, 2)
-                         and values are the desired sizes along those axes.
-
-        Returns:
-            - volume (np.ndarray): The cropped volume.
-        """
-        shape = volume.shape  # Original shape after transpose
-        slices = []
-        for i in range(len(shape)):
-            if i in crop_sizes:
-                desired_size = crop_sizes[i]
-                original_size = shape[i]
-                if original_size < desired_size:
-                    warnings.warn(f"Cannot crop axis {i} to size {desired_size} because it's smaller ({original_size}).")
-                    start = 0
-                    end = original_size
-                else:
-                    start = (original_size - desired_size) // 2
-                    end = start + desired_size
-                slices.append(slice(start, end))
-            else:
-                slices.append(slice(0, shape[i]))  # Use the full range for axes not being cropped
-        volume = volume[tuple(slices)]
-        return volume
-
     def preprocess_volume(self, volume,in_chans=3):
        
         # Convert to float32
@@ -310,10 +279,9 @@ class MRIDataset(torch.utils.data.Dataset):
         volume = np.expand_dims(volume, -1)  #-1: increase last dim by 1
 
         # Replicate the volume along the last dimension to create 3 channels: [T, H, W, 3]
-
         if (in_chans > 1):
             volume = np.repeat(volume, in_chans, axis=-1)
-    
+        
         # Should output (T, H, W, 3)
         #print(f"Volume shape after preprocessing: {volume.shape}")  
         

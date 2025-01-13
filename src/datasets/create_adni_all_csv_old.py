@@ -17,8 +17,8 @@ label_mapping = {
     "MCI": 1,
     "AD": 2,
     "EMCI": 3,
-    "LMCI": 4,
-    "Other": 5
+    'LMCI': 4,
+    'Other': 5
 }
 
 def extract_info_from_xml(xml_path):
@@ -29,12 +29,6 @@ def extract_info_from_xml(xml_path):
 
         # Define the namespace (if needed, depending on your XML structure)
         ns = {'ns': 'http://ida.loni.usc.edu'}
-
-        # Extract <subjectIdentifier> (subject ID)
-        subject_id_elem = root.find(".//ns:subject/ns:subjectIdentifier", ns)
-        if subject_id_elem is None:  # Try without namespace if the above fails
-            subject_id_elem = root.find(".//subject/subjectIdentifier")
-        subject_id = subject_id_elem.text.strip() if subject_id_elem is not None else "Unknown"
 
         # Extract <researchGroup> (label)
         label = None
@@ -54,7 +48,7 @@ def extract_info_from_xml(xml_path):
                 contrast = protocol.text.strip()
                 break
 
-        # Extract <dateAcquired>, <subjectSex>, <subjectAge>, and <weightKg>
+        # Extract <dateAcquired>, <subjectSex>, and <subjectAge> and <subjectWeight>
         date_acquired = root.find(".//ns:series/ns:dateAcquired", ns)
         if date_acquired is None:
             date_acquired = root.find(".//series/dateAcquired")
@@ -75,11 +69,11 @@ def extract_info_from_xml(xml_path):
             subject_weight = root.find(".//study/weightKg")
         subject_weight = subject_weight.text.strip() if subject_weight is not None else "Unknown"
 
-        return label, subject_id, contrast, date_acquired, subject_sex, subject_age, subject_weight
+        return label, contrast, date_acquired, subject_sex, subject_age, subject_weight
 
     except Exception as e:
         print(f"Error reading XML {xml_path}: {e}")
-        return None, "Unknown", "Unknown", "Unknown", "Unknown", "Unknown", "Unknown"
+        return None, None, "Unknown", "Unknown", "Unknown"
 
 
 # Function to filter NIfTI files based on FOV and spacing
@@ -103,7 +97,6 @@ csv_data = []
 cntr = 0
 cntr_size_filtered = 0
 cntr_filtered = 0
-unique_subject_ids = set()  # Initialize a set to store unique subject IDs
 
 # Walk through the dataset folders
 for root, dirs, files in os.walk(base_data_path):
@@ -120,10 +113,10 @@ for root, dirs, files in os.walk(base_data_path):
                 cntr_size_filtered += 1
                 continue
             
-            # Load the NIfTI image and apply dimension, FOV and spacing filter
+            # Load the NIfTI image and apply FOV and spacing filter
             try:
                 img = nib.load(nii_file_path)
-                if not filter_nifti(img, nii_file_path):
+                if not filter_nifti(img,nii_file_path):
                     print(f"Excluded based on FOV/spacing and non3D volume: {nii_file_path}")
                     cntr_filtered += 1
                     continue
@@ -131,21 +124,21 @@ for root, dirs, files in os.walk(base_data_path):
                 print(f"Error loading NIfTI file {nii_file_path}: {e}")
                 continue
             
-            # Extract study ID and image ID from filename
+            # Extract subject ID, study ID, and image ID from filename
             filename_parts = file.split('_')
+            subject_id = filename_parts[1] + '_' + filename_parts[2]
             study_id = filename_parts[-2].lstrip('S')
             image_id = filename_parts[-1].lstrip('I').split('.')[0]
             
             # Construct the XML file path using glob for robustness
-            xml_pattern = f"ADNI_*_*_S{study_id}_I{image_id}.xml"
+            xml_pattern = f"ADNI_{subject_id}_*_S{study_id}_I{image_id}.xml"
             xml_file_path = glob.glob(os.path.join(meta_data_path, xml_pattern))
             
             if xml_file_path:
                 xml_file_path = xml_file_path[0]  # Take the first match
-                label, subject_id, contrast, date_acquired, subject_sex, subject_age, subject_weight = extract_info_from_xml(xml_file_path)
+                label, contrast, date_acquired, subject_sex, subject_age, subject_weight = extract_info_from_xml(xml_file_path)
                 if label is not None and contrast:  # Include all contrasts
                     csv_data.append([label, subject_id, contrast, date_acquired, subject_sex, subject_age, subject_weight, nii_file_path])
-                    unique_subject_ids.add(subject_id)  # Add subject_id to the set
             else:
                 print(f"Warning: XML file not found for {nii_file_path}")
                 print(f"Expected XML pattern: {xml_pattern}")
@@ -156,17 +149,9 @@ with open(output_csv, mode="w", newline="") as csvfile:
     writer.writerow(["label", "subject_id", "contrast", "date_acquired", "subject_sex", "subject_age", "subject_weight", "nii_file_path"])
     writer.writerows(csv_data)
 
-
-# Log file to write summary information
-log_file_path = "adni_dataset_summary.log"
-
-# Write summary information to the log file
-with open(log_file_path, mode="w") as log_file:
-    log_file.write(f"Total number of distinct subjects in the dataset: {len(unique_subject_ids)}\n")
-    log_file.write(f"Label mapping: {label_mapping}\n")
-    log_file.write(f"CSV file created with all contrasts excluding masks: {output_csv}\n")
-    log_file.write(f"Total NIfTI files processed: {len(csv_data)}\n")
-    log_file.write(f"Total NIfTI files size filtered: {cntr_size_filtered}\n")
-    log_file.write(f"Total NIfTI files FOV/spacing filtered: {cntr_filtered}\n")
-
-print(f"Summary information written to {log_file_path}")
+# Print the label mapping for reference
+print("Label mapping:", label_mapping)
+print(f"CSV file created with all contrasts excluding masks: {output_csv}")
+print(f"Total NIfTI files processed: {len(csv_data)}")
+print(f"Total NIfTI files size filtered: {cntr_size_filtered}")
+print(f"Total NIfTI files fov/spacing filtered: {cntr_filtered}")

@@ -92,6 +92,10 @@ class MRITransform(object):
             # Permute to shape C H W T for TorchIO compatibility
             buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
             
+            # Define the rescale transform to clip intensities to the 1st and 99th percentiles
+            rescale_transform = tio.RescaleIntensity(percentiles=(1, 99))
+            buffer = rescale_transform(buffer)
+
             # Define the MRI spatial transformation list
             spatial_transforms = {
                 tio.RandomAffine(
@@ -106,9 +110,9 @@ class MRITransform(object):
 
             # Define the MRI intensity transformation list
             intensity_transforms = {
-                # tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
+                tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
 
-                # tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
+                tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
 
                 tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
             }
@@ -118,11 +122,11 @@ class MRITransform(object):
 
             # Combine spatial and intensity transforms using OneOf
             spatial_transform = tio.OneOf(spatial_transforms)
-            # intensity_transform = tio.OneOf(intensity_transforms)
+            intensity_transform = tio.OneOf(intensity_transforms)
 
             # Apply the transforms
             buffer = spatial_transform(buffer)
-            # buffer = intensity_transform(buffer)
+            buffer = intensity_transform(buffer)
     
             # Permute back to original shape T H W C
             buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
