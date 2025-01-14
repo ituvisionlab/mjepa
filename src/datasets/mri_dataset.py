@@ -182,9 +182,9 @@ class MRIDataset(torch.utils.data.Dataset):
         volume = self.intensity_normalize(volume)
 
         #GU_ debug
-        affine = np.eye(4)
-        nifti_image = nib.Nifti1Image(volume.numpy(), affine)
-        nib.save(nifti_image, 'output_volume.nii')
+        # affine = np.eye(4)
+        # nifti_image = nib.Nifti1Image(volume.numpy(), affine)
+        # nib.save(nifti_image, 'output_volume.nii')
 
         if not isinstance(volume, list):
             buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
@@ -254,6 +254,13 @@ class MRIDataset(torch.utils.data.Dataset):
                     volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
                 elif selected_orientation == 'coronal':
                     volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+
+            # Center crop each slice to a square (min dimension of in-plane axes)
+            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
+            min_dim = min(h, w)
+            start_h = (h - min_dim) // 2
+            start_w = (w - min_dim) // 2
+            volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
 
             # Resize the in-plane dimensions to crop_size (default: 224x224)
             volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size})

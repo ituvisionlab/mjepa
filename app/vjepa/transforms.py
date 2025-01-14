@@ -92,9 +92,9 @@ class MRITransform(object):
             # Permute to shape C H W T for TorchIO compatibility
             buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
             
-            # Define the rescale transform to clip intensities to the 1st and 99th percentiles
-            rescale_transform = tio.RescaleIntensity(percentiles=(1, 99))
-            buffer = rescale_transform(buffer)
+            # Define the rescale transform to clip intensities to the 1st and 99th percentiles without scaling
+            rescale_transform = tio.RescaleIntensity(percentiles=(1, 99), in_min_max=(None, None))
+            buffer = rescale_transform(buffer)      
 
             # Define the MRI spatial transformation list
             spatial_transforms = {

@@ -1,5 +1,5 @@
 app: vjepa
-nodes: 2
+nodes: 4
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
@@ -82,12 +82,12 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: true
 optimization:
-  ipe: 200
+  ipe: 300
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.04
   final_weight_decay: 0.1
-  epochs: 1500
+  epochs: 1000
   warmup: 20
   start_lr: 0.001 # 0.0001 #
   lr: 0.001 #0.0001 #
