@@ -8,8 +8,8 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/adni_all_valtrain_split.csv
-  dataset_val: src/datasets/adni_all_valtest_split.csv
+  dataset_train: src/datasets/debug_nii_list.csv #ppmi_all_valtrain_split.csv
+  dataset_val: src/datasets/debug_nii_list.csv #ppmi_all_valtest_split.csv
   dataset_type: MRIDataset
   num_classes: 3
   frames_per_clip: 16

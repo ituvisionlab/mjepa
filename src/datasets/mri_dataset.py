@@ -179,14 +179,13 @@ class MRIDataset(torch.utils.data.Dataset):
         if self.transform is not None:  #even if auto_augment is false, converts the volume to a tensor
             volume = self.transform(volume)
             
-        volume = self.intensity_normalize(volume)
-
         #GU_ debug
         # affine = np.eye(4)
         # nifti_image = nib.Nifti1Image(volume.numpy(), affine)
         # nib.save(nifti_image, 'output_volume.nii')
 
-        if not isinstance(volume, list):
+        if not isinstance(volume, list): #for pretrain, volume is a tensor
+            volume = self.intensity_normalize(volume)
             buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
@@ -196,10 +195,11 @@ class MRIDataset(torch.utils.data.Dataset):
             #     volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
             #     nifti_image = nib.Nifti1Image(volume.numpy(), affine)
             #     nib.save(nifti_image, f'buffer{i}_volume.nii')
-
             return buffer, label, clip_indices
-        else:
-            buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
+        else: # for eval, volume is a list, this has to return a list of clips for clip aggregation in encoder to input to attentive pooler.
+            volume = self.intensity_normalize(volume[0])
+            buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
+            # buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
             return [[clip] for clip in buffer], label, clip_indices

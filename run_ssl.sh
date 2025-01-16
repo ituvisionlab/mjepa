@@ -2,6 +2,7 @@
 #SBATCH --partition=a100_short
 #SBATCH --gres=gpu:4
 #SBATCH --mem=256GB
+#SBATCH --nodes=1
 #SBATCH --job-name=sslgoz
 #SBATCH --mail-type=END
 #SBATCH --mail-user=gozde.unal@nyulangone.org

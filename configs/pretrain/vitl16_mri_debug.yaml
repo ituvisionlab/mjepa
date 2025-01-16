@@ -8,12 +8,12 @@ data:
   # - src/datasets/oasis3_all_train_split.csv # Relative path instead of abs path
   - src/datasets/ppmi_all_train_split.csv
   decode_one_clip: true  # unused
-  batch_size: 8 #12 works
-  num_clips: 8  #12 works!
-  num_frames: 16 # 24 works! 50% increase ok
+  batch_size: 8 
+  num_clips: 6 
+  num_frames: 16 
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 224 #256 works!
+  crop_size: 224 
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
@@ -74,8 +74,8 @@ meta:
   use_sdpa: true
   dtype: bfloat16
 model:
-  model_name: vit_base
-  pred_depth: 6
+  model_name: vit_large
+  pred_depth: 8
   pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true

@@ -93,7 +93,10 @@ class MRITransform(object):
             buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
             
             # Define the rescale transform to clip intensities to the 1st and 99th percentiles without scaling
-            rescale_transform = tio.RescaleIntensity(percentiles=(1, 99), in_min_max=(None, None))
+            volume_min, volume_max = buffer.min().item(), buffer.max().item()
+            # Define RescaleIntensity transform with explicit out_min_max matching the input range
+            rescale_transform = tio.RescaleIntensity(percentiles=(1, 99), out_min_max=(volume_min, volume_max))
+
             buffer = rescale_transform(buffer)      
 
             # Define the MRI spatial transformation list

@@ -68,6 +68,9 @@ parser.add_argument(
     '--time', type=int, default= 4300,
     help='time in minutes to run job')
 parser.add_argument(
+    '--nodes', type=int, default=1,
+    help='number of nodes')
+parser.add_argument(
     '--log_dir', type=str, default="./logs",
     help='folder to save experiment logs')
 
@@ -103,7 +106,7 @@ def launch_evals_with_parsed_args(
     args_for_evals,
     submitit_folder,
     partition='a100_short', #'learnlab,learnfair',
-    reservation='sodicksonlab_reservation',
+    reservation=None,
     timeout= 4300,
     nodes=1,
     tasks_per_node=4,
@@ -120,32 +123,31 @@ def launch_evals_with_parsed_args(
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
         slurm_max_num_timeout=1) #20)
-    # Update parameters conditionally based on reservation
-    slurm_params = {
-         'partition': partition,
-         'mem': '192G',  # Adjust memory per your needs
-         'time': timeout,
-         'nodes': nodes,
-         'tasks_per_node': tasks_per_node,
-         'cpus_per_task': 6,
-         'gpus_per_node': tasks_per_node,
-     }
     if reservation:  # Add reservation only if provided
-        #slurm_params['reservation'] = reservation
-        slurm_params['slurm_additional_parameters'] = {'reservation': reservation}
-    executor.update_parameters(**slurm_params)
-    
-    # executor.update_parameters(
-    #     slurm_partition=partition,
-    #     slurm_mem='192G',
-    #     timeout_min=timeout,
-    #     nodes=nodes,
-    #     tasks_per_node=tasks_per_node,
-    #     cpus_per_task= 6, #1,
-    #     gpus_per_node=tasks_per_node,
-    #     slurm_additional_parameters={
-    #     'reservation': reservation,
-    #     } )
+        executor.update_parameters(
+           slurm_partition=partition,
+           # slurm_reservation=reservation,
+           # slurm_mem_per_gpu='128G', 
+           slurm_mem='192G',  #'192G',
+           timeout_min=timeout,
+           nodes=nodes,
+           tasks_per_node=tasks_per_node,
+           cpus_per_task=6, #for num_workers=4  
+           gpus_per_node=tasks_per_node,
+           slurm_additional_parameters={
+           'reservation': reservation,
+           } )
+    else:
+        slurm_params = {
+            'partition': partition,
+            'mem': '192G',  # Adjust memory per your needs
+            'time': timeout,
+            'nodes': nodes,
+            'tasks_per_node': tasks_per_node,
+            'cpus_per_task': 6,
+            'gpus_per_node': tasks_per_node,
+            }   
+        executor.update_parameters(**slurm_params)
 
     if exclude_nodes is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)
@@ -220,7 +222,7 @@ def launch_evals():
         partition=args.partition,
         reservation=args.reservation,
         timeout=args.time,
-        nodes=nodes,
+        nodes=args.nodes,
         tasks_per_node=tasks_per_node,
         exclude_nodes=args.exclude,
         args_fname=args.fname)
