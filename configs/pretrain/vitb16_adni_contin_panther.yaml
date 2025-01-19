@@ -5,7 +5,7 @@ data:
   dataset_type: MRIDataset
   datasets: 
   # - src/datasets/brats_file_paths.csv
-  - src/datasets/updated_nii_file_paths.csv
+  - src/datasets/nii_paths_train_split.csv
   # - src/datasets/mood_file_paths.csv
   # - src/datasets/oasis_file_paths.csv
   # - src/datasets/ixi_file_paths.csv
@@ -13,7 +13,7 @@ data:
   batch_size: 4
   num_clips: 2
   num_frames: 16
-  tubelet_size: 2
+  tubelet_size: 16
   sampling_rate: 1
   crop_size: 224
   patch_size: 16
@@ -76,7 +76,7 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_small
-  pred_depth: 12
+  pred_depth: 6
   pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
