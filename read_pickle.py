@@ -8,8 +8,8 @@ parser.add_argument("job_id", type=str, help="The job ID to locate the pickle fi
 args = parser.parse_args()
 
 # Construct the file path using the provided job ID
-#file_path = f"/gpfs/home/unalg01/jepa/job_{args.job_id}/{args.job_id}_1_result.pkl"
-file_path = f"/gpfs/home/unalg01/jepa/job_{args.job_id}/{args.job_id}_submitted.pkl"
+file_path = f"/gpfs/home/unalg01/jepa/job_{args.job_id}/{args.job_id}_2_result.pkl"
+#file_path = f"/gpfs/home/unalg01/jepa/job_{args.job_id}/{args.job_id}_submitted.pkl"
 # Check if the file exists
 if not os.path.exists(file_path):
     print(f"Error: File not found at {file_path}")

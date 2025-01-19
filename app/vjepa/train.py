@@ -137,8 +137,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     ar_range = cfgs_data_aug.get('random_resize_aspect_ratio', [1, 1])
     rr_scale = cfgs_data_aug.get('random_resize_scale', [0.9, 1.0])
     rot_degree = cfgs_data_aug.get('rotation_degree', 0.0)
-    motion_shift = cfgs_data_aug.get('motion_shift', False)
-    reprob = cfgs_data_aug.get('reprob', 0.)
+    random_noise = cfgs_data_aug.get('random_noise', 0.025)
+    random_bias = cfgs_data_aug.get('random_bias', 0.2)
+    intensity_gamma = cfgs_data_aug.get('intensity_gamma', 0.2)
+    motion_shift = cfgs_data_aug.get('motion_shift', False) #unused
+    reprob = cfgs_data_aug.get('reprob', 0.) # unused
     use_aa = cfgs_data_aug.get('auto_augment', False)
 
     # -- LOSS
@@ -346,7 +349,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         reprob=reprob,
         auto_augment=use_aa,
         motion_shift=motion_shift,
-        crop_size=crop_size)
+        crop_size=crop_size,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise)
 
     # -- init data-loaders/samplers
     (unsupervised_loader,

@@ -33,7 +33,7 @@ from torch.nn.parallel import DistributedDataParallel
 
 import torch.utils.tensorboard
 import wandb
-from sklearn.metrics import roc_auc_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, recall_score, f1_score, precision_score, confusion_matrix
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
@@ -99,6 +99,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     tubelet_size = args_pretrain.get('tubelet_size', 2)
     pretrain_frames_per_clip = args_pretrain.get('frames_per_clip', 1)
     in_chans = args_pretrain.get('in_channel_size', 3)
+    frozen = args_pretrain.get('frozen', True)
 
     # -- DATA
     args_data = args_eval.get('data')
@@ -257,11 +258,18 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         encoder = ClipAggregation(
             encoder,
             tubelet_size=tubelet_size,
-            attend_across_segments=attend_across_segments
+            attend_across_segments=attend_across_segments,
+            encoder_frozen=frozen,
         ).to(device)
-    encoder.eval()
-    for p in encoder.parameters():
-        p.requires_grad = False
+   
+    if frozen:
+        encoder.eval()    
+        for p in encoder.parameters():
+            p.requires_grad = False
+    else:
+        encoder.train()    
+        for p in encoder.parameters():
+            p.requires_grad = True
 
     # -- init classifier
     classifier = AttentiveClassifier(
@@ -379,6 +387,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             wd_scheduler=wd_scheduler,
             data_loader=train_loader,
             use_bfloat16=use_bfloat16,
+            frozen=frozen,
             log_writer=log_writer,
             epoch=epoch,
             eval_freq=train_eval_freq,
@@ -400,6 +409,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              wd_scheduler=wd_scheduler,
              data_loader=val_loader,
              use_bfloat16=use_bfloat16,
+             frozen=frozen,
              log_writer=log_writer,
              epoch=epoch,
              eval_freq=val_eval_freq,
@@ -447,6 +457,7 @@ def run_one_epoch(
     wd_scheduler,
     data_loader,
     use_bfloat16,
+    frozen,
     num_spatial_views,
     num_temporal_views,
     attend_across_segments,
@@ -463,11 +474,13 @@ def run_one_epoch(
     top1_meter = AverageMeter()
     #auroc_meter = AverageMeter()
     recall_meter = AverageMeter()
-    specificity_meter = AverageMeter()
+    #specificity_meter = AverageMeter()
     f1_meter = AverageMeter()
+    precision_meter = AverageMeter()
     ipe = len(data_loader)
     if eval_freq > ipe:
         eval_freq = 1
+ 
     for itr, data in enumerate(data_loader):
 
         if training:
@@ -489,9 +502,18 @@ def run_one_epoch(
             # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
             # clips[1][0].shape ""
             # Forward and prediction
+            outputs = None
+            if not frozen:
+                if training:
+                    outputs = encoder(clips, clip_indices)
+                else:
+                    with torch.no_grad():
+                        outputs = encoder(clips, clip_indices)
+
             with torch.no_grad():
-                outputs = encoder(clips, clip_indices)
-                #outputs[0].shape returns torch.Size([4, 3136, 1024])
+                if frozen:
+                    outputs = encoder(clips, clip_indices) #outputs[0].shape= torch.Size([4, 3136, 1024])
+                
                 if not training:
                     if attend_across_segments:
                         outputs = [classifier(o) for o in outputs]
@@ -503,6 +525,36 @@ def run_one_epoch(
                 else:
                     outputs = [[classifier(ost) for ost in os] for os in outputs]
         # outputs tensor shape: Batchsize x num_classes
+            # if not frozen:
+            #     if training:
+            #         outputs = encoder(clips, clip_indices)
+            #         if attend_across_segments:
+            #             outputs = [classifier(o) for o in outputs]
+            #         else:
+            #             outputs = [[classifier(ost) for ost in os] for os in outputs]
+            #     else:
+            #         with torch.no_grad():
+            #             outputs = encoder(clips, clip_indices) 
+            #             if attend_across_segments:
+            #                 outputs = [classifier(o) for o in outputs]
+            #             else:
+            #                 outputs = [[classifier(ost) for ost in os] for os in outputs]
+
+            # else: #frozen
+            #     with torch.no_grad():
+            #         outputs = encoder(clips, clip_indices) #outputs[0].shape= torch.Size([4, 3136, 1024])
+            #     if training:
+            #         if attend_across_segments:
+            #             outputs = [classifier(o) for o in outputs]
+            #         else:
+            #             outputs = [[classifier(ost) for ost in os] for os in outputs]
+            #     else:
+            #         with torch.no_grad():
+            #             if attend_across_segments:
+            #                 outputs = [classifier(o) for o in outputs]
+            #             else:
+            #                 outputs = [[classifier(ost) for ost in os] for os in outputs]
+      
         # Compute loss
         if attend_across_segments:
             loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
@@ -519,11 +571,16 @@ def run_one_epoch(
             
             # Compute additional metrics per batch
             preds = outputs.max(dim=1).indices
-            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy())
-            cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
-            tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
-            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-            f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy())
+           # Use macro average for multiclass classification
+            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro') # average over all classes
+            # recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average=None) # per class average
+            precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+            f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+           
+           # cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
+           # tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+           # specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            
 
             # auroc calculations
             # logits = outputs.max(dim=1).values
@@ -536,13 +593,29 @@ def run_one_epoch(
             # Reduce metrics across GPUs
             # auroc = float(AllReduce.apply(torch.tensor(auroc, device='cuda')))
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
-            specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
+            precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
+            #specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
             f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
 
             # auroc_meter.update(auroc)
             recall_meter.update(recall)
-            specificity_meter.update(specificity)
+            precision_meter.update(precision)
+            # specificity_meter.update(specificity)
             f1_meter.update(f1)
+
+        # GU_debug: Check if the encoder is frozen
+        encoder_frozen = True
+        for name, param in encoder.named_parameters():
+            if param.requires_grad and param.grad is not None:
+                encoder_frozen = False
+                print(f"Gradient found for encoder parameter: {name}, norm: {param.grad.norm().item()}")
+                break
+
+        if encoder_frozen:
+            print("Encoder is fully frozen. No gradients are propagated.")
+        else:
+            print("Encoder is not frozen. Gradients are propagating to some parameters.")
+        #end_debug
 
         if training:
             if use_bfloat16:
@@ -577,7 +650,8 @@ def run_one_epoch(
                         'train/loss': loss,
                #         'train/auroc': auroc_meter.avg,
                         'train/recall': recall_meter.avg,
-                        'train/specificity': specificity_meter.avg,
+                        'train/precision': precision_meter.avg,
+                        # 'train/specificity': specificity_meter.avg,
                         'train/f1': f1_meter.avg,
                         'train/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
@@ -588,7 +662,8 @@ def run_one_epoch(
                         'val/loss': loss,
                #         'val/auroc': auroc_meter.avg,
                         'val/recall': recall_meter.avg,
-                        'val/specificity': specificity_meter.avg,
+                        'val/precision': precision_meter.avg,
+                       # 'val/specificity': specificity_meter.avg,
                         'val/f1': f1_meter.avg,
                         'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
