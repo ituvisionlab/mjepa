@@ -130,6 +130,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     use_bfloat16 = args_opt.get('use_bfloat16')
     train_eval_freq = args_opt.get('train_log_iter_freq')
     val_eval_freq = args_opt.get('val_log_iter_freq')
+    clip_grad_encoder = args_pretrain.get('clip_grad_encoder')
 
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
@@ -258,8 +259,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         encoder = ClipAggregation(
             encoder,
             tubelet_size=tubelet_size,
-            attend_across_segments=attend_across_segments,
-            encoder_frozen=frozen,
+            attend_across_segments=attend_across_segments
         ).to(device)
    
     if frozen:
@@ -327,6 +327,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # -- optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         classifier=classifier,
+        encoder=encoder,
         wd=wd,
         start_lr=start_lr,
         ref_lr=lr,
@@ -334,7 +335,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         iterations_per_epoch=ipe,
         warmup=warmup,
         num_epochs=num_epochs,
-        use_bfloat16=use_bfloat16)
+        use_bfloat16=use_bfloat16,
+        frozen=frozen)
     classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
     # -- load training checkpoint
@@ -393,7 +395,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             eval_freq=train_eval_freq,
             rank=rank,
             run=run,
-            num_classes=num_classes)
+            num_classes=num_classes,
+            clip_grad_encoder=clip_grad_encoder)
 
         val_acc, val_loss = run_one_epoch(
              device=device,
@@ -415,7 +418,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              eval_freq=val_eval_freq,
              rank=rank,
              run=run,
-             num_classes=num_classes)
+             num_classes=num_classes,
+             clip_grad_encoder=clip_grad_encoder)
 
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
@@ -466,10 +470,13 @@ def run_one_epoch(
     eval_freq,
     rank,
     run,
-    num_classes
+    num_classes,
+    clip_grad_encoder
 ):
 
     classifier.train(mode=training)
+    encoder.train(mode=training) # added 1/19/2025
+    
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
     #auroc_meter = AverageMeter()
@@ -487,7 +494,7 @@ def run_one_epoch(
             scheduler.step()
             wd_scheduler.step()
 
-        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
+        with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
 
             # Load data and put on GPU: move frames to GPU
             clips = [
@@ -604,17 +611,17 @@ def run_one_epoch(
             f1_meter.update(f1)
 
         # GU_debug: Check if the encoder is frozen
-        encoder_frozen = True
-        for name, param in encoder.named_parameters():
-            if param.requires_grad and param.grad is not None:
-                encoder_frozen = False
-                print(f"Gradient found for encoder parameter: {name}, norm: {param.grad.norm().item()}")
-                break
+        # encoder_frozen = True
+        # for name, param in encoder.named_parameters():
+        #     if param.requires_grad and param.grad is not None:
+        #         encoder_frozen = False
+        #         print(f"Gradient found for encoder parameter: {name}, norm: {param.grad.norm().item()}")
+        #         break
 
-        if encoder_frozen:
-            print("Encoder is fully frozen. No gradients are propagated.")
-        else:
-            print("Encoder is not frozen. Gradients are propagating to some parameters.")
+        # if encoder_frozen:
+        #     print("Encoder is fully frozen. No gradients are propagated.")
+        # else:
+        #     print("Encoder is not frozen. Gradients are propagating to some parameters.")
         #end_debug
 
         if training:
@@ -622,11 +629,15 @@ def run_one_epoch(
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(classifier.parameters(), 1.0)
+                if not frozen:
+                    torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(classifier.parameters(), 1.0)
+                if not frozen:
+                    torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 optimizer.step()
             optimizer.zero_grad()
 
@@ -831,6 +842,7 @@ def init_model(
 
 def init_opt(
     classifier,
+    encoder,
     iterations_per_epoch,
     start_lr,
     ref_lr,
@@ -839,19 +851,38 @@ def init_opt(
     wd=1e-6,
     final_wd=1e-6,
     final_lr=0.0,
-    use_bfloat16=False
+    use_bfloat16=False,
+    frozen=True
 ):
     param_groups = [
         {
             'params': (p for n, p in classifier.named_parameters()
                        if ('bias' not in n) and (len(p.shape) != 1))
-        }, {
+        }, 
+        {
             'params': (p for n, p in classifier.named_parameters()
                        if ('bias' in n) or (len(p.shape) == 1)),
             'WD_exclude': True,
             'weight_decay': 0
         }
     ]
+    
+    if not frozen:
+        param_groups.extend(
+                [
+                    {
+                        'params': (p for n, p in encoder.named_parameters()
+                                if ('bias' not in n) and (len(p.shape) != 1))
+                    },
+                    {
+                        'params': (p for n, p in encoder.named_parameters()
+                                if ('bias' in n) or (len(p.shape) == 1)),
+                        'WD_exclude': True,
+                        'weight_decay': 0,
+                    }
+                ]
+            )
+        
 
     logger.info('Using AdamW')
     optimizer = torch.optim.AdamW(param_groups)
@@ -867,5 +898,8 @@ def init_opt(
         ref_wd=wd,
         final_wd=final_wd,
         T_max=int(num_epochs*iterations_per_epoch))
-    scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None
+    
+    scaler = torch.GradScaler("cuda") if use_bfloat16 else None
+    # scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None  # 1/19/2025
+    
     return optimizer, scaler, scheduler, wd_scheduler
