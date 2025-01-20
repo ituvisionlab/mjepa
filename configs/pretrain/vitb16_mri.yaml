@@ -1,5 +1,5 @@
 app: vjepa
-nodes: 4
+nodes: 1
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
@@ -8,7 +8,7 @@ data:
   - src/datasets/ppmi_all_train_split.csv
   - src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
-  batch_size: 8
+  batch_size: 12
   num_clips: 8
   num_frames: 16
   tubelet_size: 8
