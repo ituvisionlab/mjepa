@@ -16,7 +16,7 @@ data:
   num_segments: 16 # 4
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 4
+  num_workers: 2
   random_clip_sampling: false
   auto_augment: true
 optimization:
@@ -43,10 +43,12 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #default: true
+  frozen: true #default: true
+  clip_grad_encoder: 1.0
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ 
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa

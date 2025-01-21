@@ -218,9 +218,7 @@ def make_transforms(
         print('Making EvalMRITransform, multi-view')
         _frames_augmentation = EvalMRITransform(
             num_views_per_clip=num_views_per_clip,
-            short_side_size=crop_size,
-            normalize=normalize,
-            in_chans=in_chans
+            short_side_size=crop_size
         )
 
     else:
@@ -231,9 +229,7 @@ def make_transforms(
             random_resize_scale=random_resize_scale,
             rot_degree = rot_degree,
             auto_augment=auto_augment,
-            crop_size=crop_size,
-            normalize=normalize,
-            in_chans=in_chans
+            crop_size=crop_size
         )
     return _frames_augmentation
 
@@ -248,8 +244,9 @@ class MRITransform(object):
         rot_degree = 0.0, 
         auto_augment=False,
         crop_size=224,
-        normalize=((0.0),(1)), # GU_COMMENT
-        in_chans=3
+        intensity_gamma=0.2,
+        random_bias=0.2,
+        random_noise=0.025,
     ):
 
         self.training = training
@@ -261,7 +258,9 @@ class MRITransform(object):
         self.auto_augment = auto_augment
         self.crop_size = crop_size
         self.crop_retention=random_resize_scale[0]
-        self.normalize = torch.tensor(normalize)
+        self.intensity_gamma=intensity_gamma
+        self.random_bias=random_bias
+        self.random_noise=random_noise
 
     def __call__(self, buffer):
 
@@ -270,23 +269,37 @@ class MRITransform(object):
         if self.auto_augment:
             buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
             
-            # Define the MRI transformation list 
-            transforms_dict = {
+            # Define the MRI spatial transformation list
+            spatial_transforms = {
                 tio.RandomAffine(
                     scales=self.random_resize_aspect_ratio,
                     degrees=self.rot_degree,
-                ),  # No weight specified
+                ),  # Random affine transformation
 
                 tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
 
-                # self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
-
-                tio.RandomElasticDeformation(num_control_points=9),
+                tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
             }
-            # Combine MRI transforms using OneOf
-            transform = tio.OneOf(transforms_dict)
 
-            buffer = transform(buffer)
+            # Define the MRI intensity transformation list
+            intensity_transforms = {
+                tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
+
+                tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
+
+                tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
+            }
+            # Combine MRI spatial transforms using OneOf
+            # transform = tio.OneOf(transforms_dict)
+            # buffer = transform(buffer)
+
+            # Combine spatial and intensity transforms using OneOf
+            spatial_transform = tio.OneOf(spatial_transforms)
+            intensity_transform = tio.OneOf(intensity_transforms)
+            # Apply the transforms
+            buffer = spatial_transform(buffer)
+            buffer = intensity_transform(buffer)
+
             buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
 
         # buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
@@ -299,8 +312,6 @@ class EvalMRITransform(object):
         self,
         num_views_per_clip=1,
         short_side_size=224,
-        normalize=((0.0),(1)), #GU_COMMENT,
-        in_chans=3
     ):
         self.views_per_clip = num_views_per_clip
         self.short_side_size = short_side_size

@@ -8,15 +8,15 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/debug_nii_list.csv #ppmi_all_valtrain_split.csv
-  dataset_val: src/datasets/debug_nii_list.csv #ppmi_all_valtest_split.csv
+  dataset_train: src/datasets/adni_all_valtrain_split.csv #
+  dataset_val: src/datasets/adni_all_valtest_split.csv #
   dataset_type: MRIDataset
   num_classes: 3
   frames_per_clip: 16
   num_segments: 16 # 4
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 4
+  num_workers: 0
   random_clip_sampling: false
   auto_augment: true
 optimization:
@@ -44,6 +44,7 @@ pretrain:
   use_sdpa: true
   patch_size: 8
   frozen: false #default: true
+  clip_grad_encoder: 10.0
   in_channel_size: 1
   frame_step: 1 # added
   folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
