@@ -268,8 +268,12 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             p.requires_grad = False
     else:
         encoder.train()    
-        for p in encoder.parameters():
-            p.requires_grad = True
+        for name, param in encoder.named_parameters():
+            if "pos_embed" in name:
+                param.requires_grad = False  # Keep pos_embed frozen even when training
+            else:
+                param.requires_grad = True
+    
 
     # -- init classifier
     classifier = AttentiveClassifier(
@@ -475,7 +479,10 @@ def run_one_epoch(
 ):
 
     classifier.train(mode=training)
-    encoder.train(mode=training) # added 1/19/2025
+    if frozen: # added 1/21/2025
+        encoder.eval()
+    else:
+        encoder.train(mode=training) 
     
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
@@ -494,7 +501,8 @@ def run_one_epoch(
             scheduler.step()
             wd_scheduler.step()
 
-        with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
+        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
+        #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
 
             # Load data and put on GPU: move frames to GPU
             clips = [
@@ -899,7 +907,7 @@ def init_opt(
         final_wd=final_wd,
         T_max=int(num_epochs*iterations_per_epoch))
     
-    scaler = torch.GradScaler("cuda") if use_bfloat16 else None
-    # scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None  # 1/19/2025
+    # scaler = torch.GradScaler("cuda") if use_bfloat16 else None
+    scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None  # 1/19/2025
     
     return optimizer, scaler, scheduler, wd_scheduler

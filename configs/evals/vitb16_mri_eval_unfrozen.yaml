@@ -43,7 +43,7 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: true #default: true
+  frozen: false #default: true
   clip_grad_encoder: 1.0
   in_channel_size: 1
   frame_step: 1 # added
