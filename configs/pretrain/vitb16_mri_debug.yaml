@@ -5,8 +5,9 @@ data:
   dataset_type: MRIDataset
   datasets: 
   #- src/datasets/debug_nii_list.csv
-  # - src/datasets/oasis3_all_train_split.csv # Relative path instead of abs path
-  - src/datasets/ppmi_all_train_split.csv
+  - src/datasets/oasis3_all_nii.csv # Relative path instead of abs path
+  #- src/datasets/ppmi_all_train_split.csv
+  #- src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8 #12 works
   num_clips: 8  #12 works!
