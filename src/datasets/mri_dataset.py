@@ -327,6 +327,73 @@ class MRIDataset(torch.utils.data.Dataset):
 
     import numpy as np
 
+    # https://github.com/lunastra26/wmh-segmentation/blob/main/utils.py
+    # following 3 functions are based on this git repo.
+    def permuteOrientation(self, nii):
+        target_dim = (256,256)
+        img_dim = nii.header.get_data_shape()
+        if img_dim[1] == target_dim[0] and img_dim[2] == target_dim[1]:
+            img = np.fliplr(np.rot90(nii.get_data()))
+        elif img_dim[0] == target_dim[0] and img_dim[0] == target_dim[1]:
+            img = np.transpose(nii.get_data(),(2,0,1))
+            img = np.rot90(img,-1)
+        else:
+            print('Permutation not supported: ', img_dim)
+        return img
+
+    def reformat_inputOrientation(self, ipImg,ipType,opShape):
+        '''Creates axial, sagittal, and coronal reformatting of 3D FLAIR
+        and crop 3D volume to size compatible with Orthogonal Nets
+        These operations can be customized based on data orientation. 
+        The following script assumes ipImg is oriented axially
+        '''
+        if ipType is 'Axial':
+            opImg = ipImg    
+        elif ipType is 'Sagittal':
+            opImg = np.transpose(ipImg,(2,0,1))
+        elif ipType is 'Coronal':
+            opImg = np.transpose(ipImg,(2,1,0))         
+        else:
+            print('Data orientation not supported')
+        print("Creating {} test volume for Orthogonal Net".format(ipType))
+        origShape = opImg.shape 
+        opImg = self.myCrop3D(opImg,opShape)
+        return opImg, origShape 
+
+    def myCrop3D(self, ipImg,opShape,padval=0):
+        '''  Creates a 3D cropped volume from ipImg based on opShape (xDim,yDim)
+        ipImg is a 3D volume    
+        '''
+        xDim,yDim = opShape
+        zDim = ipImg.shape[2]
+        if padval == 0:
+            opImg = np.zeros((xDim,yDim,zDim))
+        else:
+            opImg = np.ones((xDim,yDim,zDim)) * np.min(ipImg)
+        
+        xPad = xDim - ipImg.shape[0]
+        yPad = yDim - ipImg.shape[1]
+        
+        x_lwr = int(np.ceil(np.abs(xPad)/2))
+        x_upr = int(np.floor(np.abs(xPad)/2))
+        y_lwr = int(np.ceil(np.abs(yPad)/2))
+        y_upr = int(np.floor(np.abs(yPad)/2))
+        if xPad >= 0 and yPad >= 0:
+            opImg[x_lwr:xDim - x_upr ,y_lwr:yDim - y_upr,:] = ipImg
+        elif xPad < 0 and yPad < 0:
+            xPad = np.abs(xPad)
+            yPad = np.abs(yPad)
+            opImg = ipImg[x_lwr: -x_upr ,y_lwr:- y_upr,:]
+        elif xPad < 0 and yPad >= 0:
+            xPad = np.abs(xPad)
+            temp_opImg = ipImg[x_lwr: -x_upr,:,:]
+            opImg[:,y_lwr:yDim - y_upr,:] = temp_opImg
+        else:
+            yPad = np.abs(yPad)
+            temp_opImg = ipImg[:,y_lwr: -y_upr,:]
+            opImg[x_lwr:xDim - x_upr,:,:] = temp_opImg
+        return opImg
+
     def determine_native_orientation(self,header): #unused
         """
         Determine the native acquisition orientation based on voxel spacing.

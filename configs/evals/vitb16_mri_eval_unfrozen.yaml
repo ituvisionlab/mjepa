@@ -25,8 +25,8 @@ optimization:
   resolution: 224
   batch_size: 8
   weight_decay: 0.01
-  lr: 0.001
-  start_lr: 0.001
+  lr: 0.0001
+  start_lr: 0.0001
   final_lr: 0.0
   warmup: 0.
   use_bfloat16: true
@@ -45,10 +45,10 @@ pretrain:
   patch_size: 8
   frozen: false #default: true
   clip_grad_encoder: 1.0
+  encoder_warmup: 2
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ 
-  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_15_33/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa
