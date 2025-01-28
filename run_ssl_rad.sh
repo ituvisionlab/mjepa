@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=radiology
-#SBATCH --gres=gpu:a100:2
+#SBATCH --gres=gpu:a100:4
 #SBATCH --mem=256GB
 #SBATCH --nodes=1
 #SBATCH --job-name=sslgoz
@@ -12,4 +12,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main_distributed --fname configs/pretrain/vitb16_mri_eval.yaml --time 4300 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition radiology
+python -m app.main_distributed --fname configs/pretrain/vitb16_mri_explore.yaml --time 4300 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition radiology
