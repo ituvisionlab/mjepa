@@ -269,19 +269,6 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             attend_across_segments=attend_across_segments,
             use_pos_embed=use_pos_embed
         ).to(device)
-   
-    if frozen:
-        encoder.eval()    
-        for p in encoder.parameters():
-            p.requires_grad = False
-    else:
-        encoder.train()    
-        for name, param in encoder.named_parameters():
-            if "pos_embed" in name:
-                param.requires_grad = False  # Keep pos_embed frozen even when training
-            else:
-                param.requires_grad = True
-    
 
     # -- init classifier
     classifier = AttentiveClassifier(
@@ -336,6 +323,18 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     ipe = len(train_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
 
+    if frozen:
+        encoder.eval()    
+        for p in encoder.parameters():
+            p.requires_grad = False
+    else:
+        encoder.train()    
+        for name, param in encoder.named_parameters():
+            if "pos_embed" in name:
+                param.requires_grad = False  # Keep pos_embed frozen even when training
+            else:
+                param.requires_grad = True
+    
     # -- optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         classifier=classifier,
@@ -350,6 +349,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         use_bfloat16=use_bfloat16,
         frozen=frozen)
     classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
+
+    if not frozen:
+        encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True) #GU_Debug
 
     # -- load training checkpoint
     start_epoch = 0
@@ -508,8 +510,20 @@ def run_one_epoch(
     if eval_freq > ipe:
         eval_freq = 1
  
-    for itr, data in enumerate(data_loader):
+    loader = iter(data_loader)
 
+    # for itr, data in enumerate(data_loader):
+    for itr in range(ipe):
+
+        try:
+            data = next(loader)
+        except Exception:
+            logger.info('Exhausted data loaders. Refreshing...')
+            torch.cuda.empty_cache()
+                
+            loader = iter(data_loader) #resets the loader iterator again
+            data = next(loader)
+   
         if training:
             scheduler.step()
             wd_scheduler.step()

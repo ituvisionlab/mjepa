@@ -5,8 +5,8 @@ data:
   dataset_type: MRIDataset
   datasets: 
   #- src/datasets/debug_nii_list.csv
-  - src/datasets/oasis3_all_nii.csv # Relative path instead of abs path
-  #- src/datasets/ppmi_all_train_split.csv
+  #- src/datasets/oasis3_all_nii.csv # Relative path instead of abs path
+  - src/datasets/ppmi_all_nii_with_bbox.csv
   #- src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8 #12 works
@@ -14,7 +14,7 @@ data:
   num_frames: 16 # 24 works! 50% increase ok
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 224 #256 works!
+  crop_size: 192 #224 #256 works!
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
