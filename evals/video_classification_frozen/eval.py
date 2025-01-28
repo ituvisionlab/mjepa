@@ -63,6 +63,7 @@ from evals.video_classification_frozen.utils import (
     ClipAggregation,
     FrameAggregation
 )
+from src.utils.tensors import trunc_normal_
 
 # logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
@@ -94,12 +95,17 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     use_SiLU = args_pretrain.get('use_silu', False)
     tight_SiLU = args_pretrain.get('tight_silu', True)
     uniform_power = args_pretrain.get('uniform_power', False)
-    pretrained_path = os.path.join(pretrain_folder, ckp_fname)
+    if ckp_fname is not None:
+        pretrained_path = os.path.join(pretrain_folder, ckp_fname)
+    else:
+        pretrained_path = None
     # Optional [for Video model]:
     tubelet_size = args_pretrain.get('tubelet_size', 2)
     pretrain_frames_per_clip = args_pretrain.get('frames_per_clip', 1)
     in_chans = args_pretrain.get('in_channel_size', 3)
     frozen = args_pretrain.get('frozen', True)
+    encoder_warmup = args_pretrain.get('encoder_warmup', 1)
+    use_pos_embed = args_pretrain.get('use_pos_embed', False)
 
     # -- DATA
     args_data = args_eval.get('data')
@@ -131,6 +137,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     train_eval_freq = args_opt.get('train_log_iter_freq')
     val_eval_freq = args_opt.get('val_log_iter_freq')
     clip_grad_encoder = args_pretrain.get('clip_grad_encoder')
+
 
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
@@ -259,7 +266,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         encoder = ClipAggregation(
             encoder,
             tubelet_size=tubelet_size,
-            attend_across_segments=attend_across_segments
+            attend_across_segments=attend_across_segments,
+            use_pos_embed=use_pos_embed
         ).to(device)
    
     if frozen:
@@ -373,11 +381,16 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 
     epoch_accs = []
     epoch_val_accs = []
+    encoder_frozen = True
+
     # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
 
+        if not frozen:
+            if encoder_warmup >= epoch:
+                encoder_frozen = False
 
         train_acc, train_loss = run_one_epoch(
             device=device,
@@ -393,7 +406,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             wd_scheduler=wd_scheduler,
             data_loader=train_loader,
             use_bfloat16=use_bfloat16,
-            frozen=frozen,
+            frozen=encoder_frozen,
             log_writer=log_writer,
             epoch=epoch,
             eval_freq=train_eval_freq,
@@ -416,7 +429,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              wd_scheduler=wd_scheduler,
              data_loader=val_loader,
              use_bfloat16=use_bfloat16,
-             frozen=frozen,
+             frozen=encoder_frozen,
              log_writer=log_writer,
              epoch=epoch,
              eval_freq=val_eval_freq,
@@ -844,9 +857,22 @@ def init_model(
     )
 
     encoder.to(device)
-    encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
+    if pretrained is not None:
+        encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
+    else:    
+        for m in encoder.modules():
+            init_weights(m)
+
     return encoder
 
+def init_weights(m):
+    if isinstance(m, torch.nn.Linear):
+        trunc_normal_(m.weight, std=0.02)
+        if m.bias is not None:
+            torch.nn.init.constant_(m.bias, 0)
+    elif isinstance(m, torch.nn.LayerNorm):
+        torch.nn.init.constant_(m.bias, 0)
+        torch.nn.init.constant_(m.weight, 1.0)
 
 def init_opt(
     classifier,

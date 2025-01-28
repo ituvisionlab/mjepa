@@ -8,15 +8,15 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/adni_all_valtrain_split.csv #src/datasets/adni_new_valtrain_split.csv
-  dataset_val: src/datasets/adni_all_valtest_split.csv #src/datasets/adni_new_valtest_split.csv 
+  dataset_train: src/datasets/adni_all_valtrain_split.csv
+  dataset_val: src/datasets/adni_all_valtest_split.csv
   dataset_type: MRIDataset
   num_classes: 3
   frames_per_clip: 16
   num_segments: 16 # 4
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 0
+  num_workers: 2
   random_clip_sampling: false
   auto_augment: true
 optimization:
@@ -24,14 +24,14 @@ optimization:
   num_epochs: 400
   resolution: 224
   batch_size: 8
-  weight_decay: 0.01
-  lr: 0.001
-  start_lr: 0.001
+  weight_decay: 0.04
+  lr: 1.0e-5
+  start_lr: 0.5e-5
   final_lr: 0.0
-  warmup: 0.
+  warmup: 2
   use_bfloat16: true
   train_log_iter_freq: 1
-  val_log_iter_freq: 10
+  val_log_iter_freq: 1
 pretrain:
   model_name: vit_base
   checkpoint_key: target_encoder
@@ -44,13 +44,13 @@ pretrain:
   use_sdpa: true
   patch_size: 8
   frozen: false #default: true
-  clip_grad_encoder: 10.0
-  encoder_warmup: 2
+  clip_grad_encoder: 1.0
+  encoder_warmup: 3
   in_channel_size: 1
   frame_step: 1 # added
-  folder:  /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/periodic-model/ #all checkpoints are corrupted too
-  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/  #Corrupt model
-  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-101.pth.tar # name of pretrained encoder model file inside folder
+  checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa

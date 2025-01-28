@@ -128,7 +128,7 @@ def launch_evals_with_parsed_args(
            slurm_partition=partition,
            # slurm_reservation=reservation,
            # slurm_mem_per_gpu='128G', 
-           slurm_mem='192G',  #'192G',
+           slurm_mem='256G',  #'192G',
            timeout_min=timeout,
            nodes=nodes,
            tasks_per_node=tasks_per_node,
@@ -140,7 +140,7 @@ def launch_evals_with_parsed_args(
     else:
         slurm_params = {
             'partition': partition,
-            'mem': '192G',  # Adjust memory per your needs
+            'mem': '256G',  # Adjust memory per your needs
             'time': timeout,
             'nodes': nodes,
             'tasks_per_node': tasks_per_node,
