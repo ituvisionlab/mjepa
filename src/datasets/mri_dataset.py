@@ -8,6 +8,7 @@
 import os
 import pathlib
 import warnings
+import math
 
 from logging import getLogger
 
@@ -148,12 +149,14 @@ class MRIDataset(torch.utils.data.Dataset):
                 samples += data['nii_file_path'].tolist()
                 labels += data['label'].tolist()
                 
+                                
                 # Check for bounding box fields and add them if they exist
                 if {'xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'}.issubset(data.columns):
-                    bbox += data[['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']].values.tolist()
+                    # Replace NaN values with a placeholder (e.g., -1) and convert to integers
+                    bbox += data[['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']].fillna(-1).astype(int).values.tolist()
                 else:
-                # If bounding box fields are missing, add placeholder values
-                    bbox += [[None, None, None, None, None, None]] * len(data)
+                    # If bounding box fields are missing, add placeholder values
+                    bbox += [[-1, -1, -1, -1, -1, -1]] * len(data)
 
                 # Count the number of samples in this dataset
                 num_samples = len(data)
@@ -246,8 +249,7 @@ class MRIDataset(torch.utils.data.Dataset):
             # native = self.determine_native_orientation(header)
             #print(f"Native orientation wrt smallest spacings: {native}")
 
-            if not bbox or not all(bbox): #safety check
-                print(f"[DEBUG] No bounding box for: {file_path}")
+            if -1 in bbox: #check NaN or missing values
                 bbox = [0, volume.shape[0], 0, volume.shape[1], 0, volume.shape[2]]  # Full volume bbox
 
             # crop the volume to the bounding box around the extracted brain bbox coordinates

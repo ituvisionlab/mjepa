@@ -109,8 +109,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # -- DATA
     args_data = args_eval.get('data')
-    train_data_path = [args_data.get('dataset_train')]
-    val_data_path = [args_data.get('dataset_val')]
+    # train_data_path = [args_data.get('dataset_train')]
+    train_data_path = args_data.get('dataset_train', [])
+    val_data_path = args_data.get('dataset_val', []) #[args_data.get('dataset_val')]
     dataset_type = args_data.get('dataset_type', 'VideoDataset')
     num_classes = args_data.get('num_classes')
     eval_num_segments = args_data.get('num_segments', 1)
@@ -128,7 +129,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     batch_size = args_opt.get('batch_size')
     attend_across_segments = args_opt.get('attend_across_segments', False)
     num_epochs = args_opt.get('num_epochs')
-    wd = args_opt.get('weight_decay')
+    wd = float(args_opt.get('weight_decay'))
+    final_wd = float(args_opt.get('final_weight_decay'))
     start_lr = args_opt.get('start_lr')
     lr = args_opt.get('lr')
     final_lr = args_opt.get('final_lr')
@@ -340,6 +342,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         classifier=classifier,
         encoder=encoder,
         wd=wd,
+        final_wd=final_wd,
         start_lr=start_lr,
         ref_lr=lr,
         final_lr=final_lr,
@@ -514,7 +517,6 @@ def run_one_epoch(
 
     # for itr, data in enumerate(data_loader):
     for itr in range(ipe):
-
         try:
             data = next(loader)
         except Exception:

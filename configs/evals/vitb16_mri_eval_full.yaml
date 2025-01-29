@@ -8,12 +8,15 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/adni_all_valtrain_split.csv #src/datasets/adni_all_train_split.csv
-  dataset_val: src/datasets/adni_all_valtest_split.csv
+  dataset_train: 
+  - src/datasets/ppmi_all_train_split_bbox.csv 
+  # - src/datasets/oasis3_all_nii_with_bbox.csv
+  dataset_val: 
+  - src/datasets/ppmi_all_val_split_bbox.csv
   dataset_type: MRIDataset
-  num_classes: 3
+  num_classes: 4
   frames_per_clip: 16
-  num_segments: 16 # 4 #rename to num_clips
+  num_segments: 8 #16 #rename to num_clips
   num_views_per_segment: 3
   frame_step: 1
   num_workers: 2
@@ -21,14 +24,15 @@ data:
   auto_augment: true
 optimization:
   attend_across_segments: true
-  num_epochs: 400
-  resolution: 224
+  num_epochs: 500
+  resolution: 192
   batch_size: 8 #8
   weight_decay: 0.04
+  final_weight_decay: 1.0e-3 #0.1
   lr: 1.0e-4
-  start_lr: 1.0e-5
+  start_lr: 0.5e-4
   final_lr: 1.0e-6
-  warmup: 2
+  warmup: 10
   use_bfloat16: true
   train_log_iter_freq: 1
   val_log_iter_freq: 1

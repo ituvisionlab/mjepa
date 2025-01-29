@@ -3,9 +3,9 @@ nodes: 1
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
-  datasets: 
-  #- src/datasets/oasis3_all_nii.csv # Relative path instead of abs path
-  - src/datasets/ppmi_all_train_split_bbox.csv #- src/datasets/ppmi_all_train_split.csv
+  datasets: # Relative path instead of abs path
+  - src/datasets/oasis3_all_nii_with_bbox.csv #oasis3_all_nii.csv 
+  - src/datasets/ppmi_all_train_split_bbox.csv #ppmi_all_train_split.csv
   #- src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
