@@ -8,11 +8,8 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: #src/datasets/adni_all_valtrain_split.csv
-  - src/datasets/ppmi_all_train_split_bbox.csv 
-  - src/datasets/oasis3_all_nii_with_bbox.csv
-  dataset_val: #src/datasets/adni_all_valtest_split.csv
-  - src/datasets/ppmi_all_val_split_bbox.csv
+  dataset_train: src/datasets/adni_all_valtrain_split.csv
+  dataset_val: src/datasets/adni_all_valtest_split.csv
   dataset_type: MRIDataset
   num_classes: 3
   frames_per_clip: 16
@@ -28,15 +25,15 @@ optimization:
   resolution: 224
   batch_size: 8
   weight_decay: 0.04
-  lr: 1.0e-5
-  start_lr: 0.5e-5
-  final_lr: 0.0
+  lr: 1.0e-4
+  start_lr: 1.0e-5
+  final_lr: 1.0e-6
   warmup: 2
   use_bfloat16: true
   train_log_iter_freq: 1
   val_log_iter_freq: 1
 pretrain:
-  model_name: vit_base
+  model_name: vit_small
   checkpoint_key: target_encoder
   clip_duration: null
   frames_per_clip: 16
@@ -46,13 +43,13 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #default: true
+  frozen: true #default: true
   clip_grad_encoder: 1.0
   encoder_warmup: 3
-  use_pos_embed: true
+  use_pos_embed: false #default: false
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_24__09_26_23/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/

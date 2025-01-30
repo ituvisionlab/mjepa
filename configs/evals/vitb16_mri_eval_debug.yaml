@@ -8,10 +8,13 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: src/datasets/adni_all_valtrain_split.csv #src/datasets/adni_new_valtrain_split.csv
-  dataset_val: src/datasets/adni_all_valtest_split.csv #src/datasets/adni_new_valtest_split.csv 
+  dataset_train: #src/datasets/adni_all_valtrain_split.csv #src/datasets/adni_new_valtrain_split.csv
+  - src/datasets/ppmi_all_train_split_bbox.csv 
+  # - src/datasets/oasis3_all_nii_with_bbox.csv
+  dataset_val: #src/datasets/adni_all_valtest_split.csv #src/datasets/adni_new_valtest_split.csv 
+  - src/datasets/ppmi_all_val_split_bbox.csv
   dataset_type: MRIDataset
-  num_classes: 3
+  num_classes: 4
   frames_per_clip: 16
   num_segments: 16 # 4
   num_views_per_segment: 3
@@ -52,5 +55,5 @@ pretrain:
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/  #Corrupt model
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-101.pth.tar # name of pretrained encoder model file inside folder
+  checkpoint: null #jepa-latest.pth.tar #jepa-periodic-epoch-101.pth.tar # name of pretrained encoder model file inside folder
   write_tag: jepa

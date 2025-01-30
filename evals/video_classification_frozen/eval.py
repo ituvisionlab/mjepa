@@ -109,8 +109,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # -- DATA
     args_data = args_eval.get('data')
-    train_data_path = [args_data.get('dataset_train')]
-    val_data_path = [args_data.get('dataset_val')]
+    # train_data_path = [args_data.get('dataset_train')]
+    train_data_path = args_data.get('dataset_train', [])
+    val_data_path = args_data.get('dataset_val', []) #[args_data.get('dataset_val')]
     dataset_type = args_data.get('dataset_type', 'VideoDataset')
     num_classes = args_data.get('num_classes')
     eval_num_segments = args_data.get('num_segments', 1)
@@ -128,7 +129,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     batch_size = args_opt.get('batch_size')
     attend_across_segments = args_opt.get('attend_across_segments', False)
     num_epochs = args_opt.get('num_epochs')
-    wd = args_opt.get('weight_decay')
+    wd = float(args_opt.get('weight_decay'))
+    final_wd = float(args_opt.get('final_weight_decay'))
     start_lr = args_opt.get('start_lr')
     lr = args_opt.get('lr')
     final_lr = args_opt.get('final_lr')
@@ -269,19 +271,6 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             attend_across_segments=attend_across_segments,
             use_pos_embed=use_pos_embed
         ).to(device)
-   
-    if frozen:
-        encoder.eval()    
-        for p in encoder.parameters():
-            p.requires_grad = False
-    else:
-        encoder.train()    
-        for name, param in encoder.named_parameters():
-            if "pos_embed" in name:
-                param.requires_grad = False  # Keep pos_embed frozen even when training
-            else:
-                param.requires_grad = True
-    
 
     # -- init classifier
     classifier = AttentiveClassifier(
@@ -336,11 +325,24 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     ipe = len(train_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
 
+    if frozen:
+        encoder.eval()    
+        for p in encoder.parameters():
+            p.requires_grad = False
+    else:
+        encoder.train()    
+        for name, param in encoder.named_parameters():
+            if "pos_embed" in name:
+                param.requires_grad = False  # Keep pos_embed frozen even when training
+            else:
+                param.requires_grad = True
+    
     # -- optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         classifier=classifier,
         encoder=encoder,
         wd=wd,
+        final_wd=final_wd,
         start_lr=start_lr,
         ref_lr=lr,
         final_lr=final_lr,
@@ -350,6 +352,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         use_bfloat16=use_bfloat16,
         frozen=frozen)
     classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
+
+    if not frozen:
+        encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True) #GU_Debug
 
     # -- load training checkpoint
     start_epoch = 0
@@ -508,8 +513,19 @@ def run_one_epoch(
     if eval_freq > ipe:
         eval_freq = 1
  
-    for itr, data in enumerate(data_loader):
+    loader = iter(data_loader)
 
+    # for itr, data in enumerate(data_loader):
+    for itr in range(ipe):
+        try:
+            data = next(loader)
+        except Exception:
+            logger.info('Exhausted data loaders. Refreshing...')
+            torch.cuda.empty_cache()
+                
+            loader = iter(data_loader) #resets the loader iterator again
+            data = next(loader)
+   
         if training:
             scheduler.step()
             wd_scheduler.step()
