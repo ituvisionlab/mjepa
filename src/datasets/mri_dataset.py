@@ -8,6 +8,7 @@
 import os
 import pathlib
 import warnings
+import math
 
 from logging import getLogger
 
@@ -139,6 +140,7 @@ class MRIDataset(torch.utils.data.Dataset):
 
         # Load data from CSV
         samples, labels = [], []
+        bbox = []
         self.num_samples_per_dataset = []
         for data_path in self.data_paths:
 
@@ -146,7 +148,17 @@ class MRIDataset(torch.utils.data.Dataset):
                 data = pd.read_csv(data_path)
                 samples += data['nii_file_path'].tolist()
                 labels += data['label'].tolist()
-    
+                
+                                
+                # Check for bounding box fields and add them if they exist
+                if {'xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'}.issubset(data.columns):
+                    # Replace NaN values with a placeholder (e.g., -1) and convert to integers
+                    bbox += data[['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']].fillna(-1).astype(int).values.tolist()
+                else:
+                    # If bounding box fields are missing, add placeholder values
+                    bbox += [[-1, -1, -1, -1, -1, -1]] * len(data)
+
+                # Count the number of samples in this dataset
                 num_samples = len(data)
                 self.num_samples_per_dataset.append(num_samples)
 
@@ -158,16 +170,19 @@ class MRIDataset(torch.utils.data.Dataset):
             for dw, ns in zip(self.datasets_weights, self.num_samples_per_dataset):
                 self.sample_weights += [dw / ns] * ns
     
+        # Store the loaded data
         self.samples = samples
         self.labels = labels
+        self.bbox = bbox  # Store bounding boxes
 
     def __getitem__(self, index):
         sample = self.samples[index]
         # Label/annotations for video
         label = self.labels[index]
+        bbox = self.bbox[index]  # Bounding box for this sample
 
         # Load MRI volume
-        volume = self.load_nifti_file(sample,self.in_chans)
+        volume = self.load_nifti_file(sample, bbox, self.in_chans)
          # debug_print
         # print(f'File name at {index}: ',sample)
 
@@ -216,7 +231,7 @@ class MRIDataset(torch.utils.data.Dataset):
         nc = self.num_clips
         return [video[:, i*fpc:(i+1)*fpc] for i in range(nc)]
 
-    def load_nifti_file(self, file_path, in_chans=3):
+    def load_nifti_file(self, file_path, bbox, in_chans=3):
         if not os.path.exists(file_path):
             warnings.warn(f'File not found: {file_path}')
             return None
@@ -224,98 +239,104 @@ class MRIDataset(torch.utils.data.Dataset):
         try:
             # Load the NIfTI file
             img = nib.load(file_path)
-            
+         
             # Convert to RAS+ orientation (ensures consistent L:R, A:P, B:U axes)
             img = nib.as_closest_canonical(img)
             volume = img.get_fdata()
+
+            header = img.header
+            # determine native orientation wrt smallest two spacing sizes
+            # native = self.determine_native_orientation(header)
+            #print(f"Native orientation wrt smallest spacings: {native}")
+
+            if -1 in bbox: #check NaN or missing values
+                bbox = [0, volume.shape[0], 0, volume.shape[1], 0, volume.shape[2]]  # Full volume bbox
+
+            # crop the volume to the bounding box around the extracted brain bbox coordinates
+            volume = self.crop_volume_bbox(volume, bbox, delta_box=12) #expand the bbox 
+            
             xsize, ysize, zsize = volume.shape
-            # header = img.header
 
             #GU_ debug
             # affine = np.eye(4)
             # nifti_image = nib.Nifti1Image(volume, affine)
-            # nib.save(nifti_image, 'input_volume.nii')
-             
-            #print(f"Volume shape before transpose: {volume.shape}")
+            # nib.save(nifti_image, 'Sinput_volume.nii')
 
-            # Determine the native orientation from the affine matrix
-            #orientation = self.determine_native_orientation(header)
-            #print(orientation)
-            # # Apply permutation based on the native orientation
-            # if orientation == 'axial':
-            #     volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
-            # elif orientation == 'sagittal':
-            #     volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
-            # elif orientation == 'coronal':
-            #     volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+            # GU_Debug: 
+            # plt.imsave('slicemidAxial.png', volume[:,:,volume.shape[2]//2], cmap='gray')
+            # plt.imsave('slicemidCoronal.png', volume[:,volume.shape[1]//2,:], cmap='gray')
+            # plt.imsave('slicemidSagittal.png', volume[volume.shape[0]//2,:,:], cmap='gray') 
+            # print(f"Volume shape before transpose: {volume.shape}")           
 
-        
             # Determine native in-plane orientation
             dimensions = np.array([xsize, ysize, zsize])
             sorted_indices = np.argsort(dimensions)  # Sort dimensions (ascending)
             temporal_axis = sorted_indices[0]        # Smallest dimension -> temporal axis
             #inplane_axes = sorted_indices[1:]        # Two largest dimensions -> in-plane axes
-
-            # GU_Debug: save one png file for debugging
-            # mid_slice_index = volume.shape[temporal_axis]//2
   
-            # Determine the native orientation
-            if temporal_axis == 0:  # Sagittal
-                #plt.imsave('slicemidInput.png', volume[mid_slice_index,:,:], cmap='gray')
-                volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
-                #plt.imsave('slicemidInputAfterxpose.png', volume[mid_slice_index,:,:], cmap='gray')
-            elif temporal_axis == 1:  # Coronal
-                #plt.imsave('slicemidInput.png', volume[:,mid_slice_index,:], cmap='gray')
-                volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
-                #plt.imsave('slicemidInputAfterxpose.png', volume[mid_slice_index,:,:], cmap='gray')
-            elif temporal_axis == 2:  # Axial
-                #plt.imsave('slicemidInput.png', volume[:,:,mid_slice_index], cmap='gray')
-                volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
-                #plt.imsave('slicemidInputAfterxpose.png', volume[mid_slice_index,:,:], cmap='gray')
+            # # Determine the native orientation
+            # if temporal_axis == 0:  # Sagittal
+            #     plt.imsave('slicemidInput.png', volume[volume.shape[0]//2,:,:], cmap='gray')
+            #     volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
+            #     plt.imsave('slicemidInputAfterxpose.png', volume[volume.shape[0]//2,:,:], cmap='gray')
+            # elif temporal_axis == 1:  # Coronal
+            #     plt.imsave('slicemidInput.png', volume[:,volume.shape[1]//2,:], cmap='gray')
+            #     volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+            #     plt.imsave('slicemidInputAfterxpose.png', volume[volume.shape[0]//2,:,:], cmap='gray')
+            # elif temporal_axis == 2:  # Axial
+            #     plt.imsave('slicemidInput.png', volume[:,:,volume.shape[2]//2], cmap='gray')
+            #     volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
+            #     plt.imsave('slicemidInputAfterxpose.png', volume[volume.shape[0]//2,:,:], cmap='gray')
             
-            #print(f"Volume shape after transpose: {volume.shape}")
-                  
-           
+            threshold_isotropy = 1.4 
             # For approximately isotropic volumes (where all dimensions are close), choose a random orientation
-            # if np.max(dimensions) / np.min(dimensions) < 1.2:  # Threshold for isotropy
-            #     orientations = ['axial', 'sagittal', 'coronal']
-            #     selected_orientation = random.choice(orientations)
-            #     if selected_orientation == 'axial':
-            #         volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
-            #     elif selected_orientation == 'sagittal':
-            #         volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
-            #     elif selected_orientation == 'coronal':
-            #         volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+            if np.max(dimensions) / np.min(dimensions) < threshold_isotropy:  # Threshold for isotropy
+                orientations = ['axial', 'sagittal', 'coronal']
+                selected_orientation = random.choice(orientations)
+                if selected_orientation == 'axial':
+                    volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
+                elif selected_orientation == 'sagittal':
+                    volume = volume.transpose(0, 1, 2)  # X, Y, Z -> Sagittal: (Slices, H, W)
+                elif selected_orientation == 'coronal':
+                    volume = volume.transpose(1, 0, 2)  # Y, X, Z -> Coronal: (Slices, H, W)
+            else: # assume axial orientation
+                volume = volume.transpose(2, 0, 1)  # Z, X, Y -> Axial: (Slices, H, W)
+
+            # print(f"Volume shape after transpose: {volume.shape}")
 
             # # Center crop each slice to a square (min dimension of in-plane axes)
-            # h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
-            # min_dim = min(h, w)
-            # start_h = (h - min_dim) // 2
-            # start_w = (w - min_dim) // 2
-            # volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
+            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
+            min_dim = min(h, w)
+            start_h = (h - min_dim) // 2
+            start_w = (w - min_dim) // 2
+            volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
 
             # Center crop each slice to a square with random offset for the larger dimension
-            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
-            if h != w:
-                min_dim = min(h, w)
-                if h > w:  # Height is larger
-                    start_h = random.randint(0, h - min_dim)  # Random offset for height
-                    start_w = 0  # Centered for width
-                else:  # Width is larger
-                    start_h = 0  # Centered for height
-                    start_w = random.randint(0, w - min_dim)  # Random offset for width
-                volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
+            # h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
+            # if h != w:
+            #     min_dim = min(h, w)
+            #     if h > w:  # Height is larger
+            #         start_h = random.randint(0, h - min_dim)  # Random offset for height
+            #         start_w = 0  # Centered for width
+            #     else:  # Width is larger
+            #         start_h = 0  # Centered for height
+            #         start_w = random.randint(0, w - min_dim)  # Random offset for width
+            #     volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
 
             # Clip intensities to a percentile range 
             volume = self.clip_intensity_percentile(volume, lower_percentile=1, upper_percentile=99)
 
-            # Resize the in-plane dimensions to crop_size (default: 224x224)
+            # Resize the in-plane dimensions to crop_size
             volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size})
 
             # GU_Debug: save one png file for debugging
             # mid_slice_index = volume.shape[0]//2
             # plt.imsave('slicemid.png', volume[mid_slice_index], cmap='gray')
-
+            # # GU_Debug: 
+            # affine = np.eye(4)
+            # nifti_image = nib.Nifti1Image(volume, affine)
+            # nib.save(nifti_image, 'Soutput_volume.nii')
+            
             # Preprocess the volume: intensity normalization
             volume = self.preprocess_volume(volume, in_chans)
 
@@ -326,6 +347,101 @@ class MRIDataset(torch.utils.data.Dataset):
             return None
 
     import numpy as np
+
+    def crop_volume_bbox(self, volume, bbox, delta_box=12, affine=None):
+        """
+        Crop the volume to the bounding box of the brain with a margin.
+
+        Parameters:
+        - volume: The 3D MRI volume (numpy array).
+        - bbox: A list or tuple of bounding box coordinates [xmin, xmax, ymin, ymax, zmin, zmax].
+        - delta_box: Optional margin to expand the bounding box (default: 12).
+        - affine: Optional affine matrix to determine orientation (default: None).
+
+        Returns:
+        - Cropped volume as a numpy array.
+        """
+        # Extract bbox coordinates
+        xmin, xmax, ymin, ymax, zmin, zmax = bbox
+
+        # Adjust bounding box with delta_box margin
+        xmin = max(0, xmin - delta_box)
+        ymin = max(0, ymin - delta_box)
+        zmin = max(0, zmin - delta_box)
+        xmax = min(volume.shape[0], xmax + delta_box)
+        ymax = min(volume.shape[1], ymax + delta_box)
+        zmax = min(volume.shape[2], zmax + delta_box)
+
+        # # If affine is provided, determine slice axis and adjust cropping
+        # if affine is not None:
+        #     slice_axis, in_plane_axes = self.determine_axes(affine)
+
+        #     if slice_axis == 0:  # Slices along the first axis
+        #         cropped_volume = volume[zmin:zmax, ymin:ymax, xmin:xmax]
+        #     elif slice_axis == 1:  # Slices along the second axis
+        #         cropped_volume = volume[ymin:ymax, zmin:zmax, xmin:xmax]
+        #     elif slice_axis == 2:  # Slices along the third axis
+        #         cropped_volume = volume[xmin:xmax, ymin:ymax, zmin:zmax]
+        #     else:
+        #         raise ValueError("Unexpected slice axis.")
+        # else:
+            # Default cropping assumes zmin:zmax corresponds to slices
+            # cropped_volume = volume[xmin:xmax, ymin:ymax, zmin:zmax]
+        
+        cropped_volume = volume[xmin:xmax, ymin:ymax, zmin:zmax]
+        return cropped_volume
+
+
+    def determine_axes(affine):
+        """
+        Determine the native orientation of the volume using the affine matrix.
+
+        Parameters:
+        - affine: Affine matrix from the NIfTI header.
+
+        Returns:
+        - slice_axis: The axis along which slices are acquired.
+        - in_plane_axes: The remaining two axes that represent the in-plane orientation.
+        """
+        direction_cosines = affine[:3, :3]
+        abs_cosines = np.abs(direction_cosines)
+        axis_contributions = np.sum(abs_cosines, axis=0)
+        sorted_axes = np.argsort(axis_contributions)
+        slice_axis = sorted_axes[0]
+        in_plane_axes = sorted_axes[1:]
+        return slice_axis, in_plane_axes
+
+    
+    def determine_native_orientation(self,header): 
+        """
+        Determine the native acquisition orientation based on voxel spacing.
+
+        Args:
+            header: The NIfTI header containing voxel spacing information.
+
+        Returns:
+            str: The native orientation ('axial', 'sagittal', 'coronal').
+        """
+        # Extract voxel spacing (assumes pixdim[1:4] corresponds to x, y, z spacing)
+        spacings = header.get_zooms()[:3]  # x, y, z spacing
+
+        # Sort the spacings to identify in-plane and through-plane axes
+        sorted_indices = sorted(range(len(spacings)), key=lambda i: spacings[i])
+
+        # Identify the through-plane axis (largest spacing)
+        slice_axis = sorted_indices[-1]
+
+        # Determine the orientation based on in-plane axes
+        in_plane_axes = sorted_indices[:2]  # Smallest two spacings
+
+        if set(in_plane_axes) == {0, 1}:  # X and Y are in-plane
+            return 'axial'
+        elif set(in_plane_axes) == {1, 2}:  # Y and Z are in-plane
+            return 'sagittal'
+        elif set(in_plane_axes) == {0, 2}:  # X and Z are in-plane
+            return 'coronal'
+        else:
+            raise ValueError("Unable to determine orientation based on spacing.")
 
     # https://github.com/lunastra26/wmh-segmentation/blob/main/utils.py
     # following 3 functions are based on this git repo.
@@ -347,11 +463,11 @@ class MRIDataset(torch.utils.data.Dataset):
         These operations can be customized based on data orientation. 
         The following script assumes ipImg is oriented axially
         '''
-        if ipType is 'Axial':
+        if ipType == 'Axial':
             opImg = ipImg    
-        elif ipType is 'Sagittal':
+        elif ipType == 'Sagittal':
             opImg = np.transpose(ipImg,(2,0,1))
-        elif ipType is 'Coronal':
+        elif ipType == 'Coronal':
             opImg = np.transpose(ipImg,(2,1,0))         
         else:
             print('Data orientation not supported')
@@ -394,37 +510,7 @@ class MRIDataset(torch.utils.data.Dataset):
             opImg[x_lwr:xDim - x_upr,:,:] = temp_opImg
         return opImg
 
-    def determine_native_orientation(self,header): #unused
-        """
-        Determine the native acquisition orientation based on voxel spacing.
-
-        Args:
-            header: The NIfTI header containing voxel spacing information.
-
-        Returns:
-            str: The native orientation ('axial', 'sagittal', 'coronal').
-        """
-        # Extract voxel spacing (assumes pixdim[1:4] corresponds to x, y, z spacing)
-        spacings = header.get_zooms()[:3]  # x, y, z spacing
-
-        # Sort the spacings to identify in-plane and through-plane axes
-        sorted_indices = sorted(range(len(spacings)), key=lambda i: spacings[i])
-
-        # Identify the through-plane axis (largest spacing)
-        slice_axis = sorted_indices[-1]
-
-        # Determine the orientation based on in-plane axes
-        in_plane_axes = sorted_indices[:2]  # Smallest two spacings
-
-        if set(in_plane_axes) == {0, 1}:  # X and Y are in-plane
-            return 'axial'
-        elif set(in_plane_axes) == {1, 2}:  # Y and Z are in-plane
-            return 'sagittal'
-        elif set(in_plane_axes) == {0, 2}:  # X and Z are in-plane
-            return 'coronal'
-        else:
-            raise ValueError("Unable to determine orientation based on spacing.")
-
+    
     def preprocess_volume(self, volume,in_chans=3):
        
         # Convert to float32

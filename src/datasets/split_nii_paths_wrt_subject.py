@@ -2,14 +2,14 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 # Load the CSV file
-file_path = '/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii.csv' 
-# file_path = '/gpfs/home/unalg01/jepa/src/datasets/ppmi_all_nii.csv' 
+# file_path = '/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii.csv' 
+file_path = '/gpfs/home/unalg01/jepa/src/datasets/ppmi_all_nii_with_bbox.csv' 
 # file_path = '/gpfs/home/unalg01/jepa/src/datasets/oasis3_all_nii.csv' 
 data = pd.read_csv(file_path)
 
 # Specify the split ratio
-train_ratio = 0.85  # % training
-val_ratio = 0.15    # % validation
+train_ratio = 0.80  # % training
+val_ratio = 0.20    # % validation
 
 # Ensure there is a 'subject_id' column in the data
 group_col = 'subject_id'  # Correct column name for subject IDs
@@ -27,7 +27,7 @@ train_data = data[data[group_col].isin(train_subjects)]
 val_data = data[data[group_col].isin(val_subjects)]
 
 # Save the splits to new CSV files
-train_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_all_train_split.csv', index=False)
-val_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_all_val_split.csv', index=False)
+train_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/ppmi_all_train_split_bbox.csv', index=False)
+val_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/ppmi_all_val_split_bbox.csv', index=False)
 
 print("Data has been split by subject_id and saved to 'train_split.csv' and 'val_split.csv'.")

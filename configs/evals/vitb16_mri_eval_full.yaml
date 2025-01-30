@@ -8,15 +8,15 @@ logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
-  dataset_train: #src/datasets/adni_all_valtrain_split.csv
+  dataset_train: 
   - src/datasets/ppmi_all_train_split_bbox.csv 
-  - src/datasets/oasis3_all_nii_with_bbox.csv
-  dataset_val: #src/datasets/adni_all_valtest_split.csv
+  # - src/datasets/oasis3_all_nii_with_bbox.csv
+  dataset_val: 
   - src/datasets/ppmi_all_val_split_bbox.csv
   dataset_type: MRIDataset
-  num_classes: 3
+  num_classes: 4
   frames_per_clip: 16
-  num_segments: 16 # 4
+  num_segments: 8 #16 #rename to num_clips
   num_views_per_segment: 3
   frame_step: 1
   num_workers: 2
@@ -24,14 +24,15 @@ data:
   auto_augment: true
 optimization:
   attend_across_segments: true
-  num_epochs: 400
-  resolution: 224
-  batch_size: 8
+  num_epochs: 500
+  resolution: 192
+  batch_size: 8 #8
   weight_decay: 0.04
-  lr: 1.0e-5
-  start_lr: 0.5e-5
-  final_lr: 0.0
-  warmup: 2
+  final_weight_decay: 1.0e-3 #0.1
+  lr: 1.0e-4
+  start_lr: 0.5e-4
+  final_lr: 1.0e-6
+  warmup: 10
   use_bfloat16: true
   train_log_iter_freq: 1
   val_log_iter_freq: 1
@@ -48,13 +49,13 @@ pretrain:
   patch_size: 8
   frozen: false #default: true
   clip_grad_encoder: 1.0
-  encoder_warmup: 3
-  use_pos_embed: true
+  encoder_warmup: 0
+  use_pos_embed: false #default: false
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_24__09_26_23/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
+  checkpoint: null #jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
   write_tag: jepa
