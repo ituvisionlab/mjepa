@@ -43,7 +43,7 @@ def make_mridataset(
     in_chans=3,
     crop_size=224,
     random_clip_sampling=True,
-    allow_clip_overlap=False,
+    allow_clip_overlap=True, #False,
     filter_short_videos=False,
     filter_long_videos=int(10**9),
     transform=None,
@@ -117,7 +117,7 @@ class MRIDataset(torch.utils.data.Dataset):
         transform=None,
         shared_transform=None,
         random_clip_sampling=True,
-        allow_clip_overlap=False,
+        allow_clip_overlap=True,
         filter_short_videos=False,
         filter_long_videos=int(10**9),
         duration=None,  # duration in seconds
@@ -253,7 +253,7 @@ class MRIDataset(torch.utils.data.Dataset):
                 bbox = [0, volume.shape[0], 0, volume.shape[1], 0, volume.shape[2]]  # Full volume bbox
 
             # crop the volume to the bounding box around the extracted brain bbox coordinates
-            volume = self.crop_volume_bbox(volume, bbox, delta_box=12) #expand the bbox 
+            volume = self.crop_volume_bbox(volume, bbox, delta_box=3) #expand the bbox 
             
             xsize, ysize, zsize = volume.shape
 
@@ -305,23 +305,23 @@ class MRIDataset(torch.utils.data.Dataset):
             # print(f"Volume shape after transpose: {volume.shape}")
 
             # # Center crop each slice to a square (min dimension of in-plane axes)
-            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
-            min_dim = min(h, w)
-            start_h = (h - min_dim) // 2
-            start_w = (w - min_dim) // 2
-            volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
+            # h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
+            # min_dim = min(h, w)
+            # start_h = (h - min_dim) // 2
+            # start_w = (w - min_dim) // 2
+            # volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
 
             # Center crop each slice to a square with random offset for the larger dimension
-            # h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
-            # if h != w:
-            #     min_dim = min(h, w)
-            #     if h > w:  # Height is larger
-            #         start_h = random.randint(0, h - min_dim)  # Random offset for height
-            #         start_w = 0  # Centered for width
-            #     else:  # Width is larger
-            #         start_h = 0  # Centered for height
-            #         start_w = random.randint(0, w - min_dim)  # Random offset for width
-            #     volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
+            h, w = volume.shape[1:3]  # Get in-plane dimensions (H, W)
+            if h != w:
+                min_dim = min(h, w)
+                if h > w:  # Height is larger
+                    start_h = random.randint(0, h - min_dim)  # Random offset for height
+                    start_w = 0  # Centered for width
+                else:  # Width is larger
+                    start_h = 0  # Centered for height
+                    start_w = random.randint(0, w - min_dim)  # Random offset for width
+                volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]  # Crop to [Slices, min_dim, min_dim]
 
             # Clip intensities to a percentile range 
             volume = self.clip_intensity_percentile(volume, lower_percentile=1, upper_percentile=99)
@@ -348,16 +348,15 @@ class MRIDataset(torch.utils.data.Dataset):
 
     import numpy as np
 
-    def crop_volume_bbox(self, volume, bbox, delta_box=12, affine=None):
+    def crop_volume_bbox(self, volume, bbox, delta_box=5):
         """
         Crop the volume to the bounding box of the brain with a margin.
 
         Parameters:
         - volume: The 3D MRI volume (numpy array).
         - bbox: A list or tuple of bounding box coordinates [xmin, xmax, ymin, ymax, zmin, zmax].
-        - delta_box: Optional margin to expand the bounding box (default: 12).
-        - affine: Optional affine matrix to determine orientation (default: None).
-
+        - delta_box: Optional margin to expand the bounding box (default: 5).
+    
         Returns:
         - Cropped volume as a numpy array.
         """
@@ -371,22 +370,6 @@ class MRIDataset(torch.utils.data.Dataset):
         xmax = min(volume.shape[0], xmax + delta_box)
         ymax = min(volume.shape[1], ymax + delta_box)
         zmax = min(volume.shape[2], zmax + delta_box)
-
-        # # If affine is provided, determine slice axis and adjust cropping
-        # if affine is not None:
-        #     slice_axis, in_plane_axes = self.determine_axes(affine)
-
-        #     if slice_axis == 0:  # Slices along the first axis
-        #         cropped_volume = volume[zmin:zmax, ymin:ymax, xmin:xmax]
-        #     elif slice_axis == 1:  # Slices along the second axis
-        #         cropped_volume = volume[ymin:ymax, zmin:zmax, xmin:xmax]
-        #     elif slice_axis == 2:  # Slices along the third axis
-        #         cropped_volume = volume[xmin:xmax, ymin:ymax, zmin:zmax]
-        #     else:
-        #         raise ValueError("Unexpected slice axis.")
-        # else:
-            # Default cropping assumes zmin:zmax corresponds to slices
-            # cropped_volume = volume[xmin:xmax, ymin:ymax, zmin:zmax]
         
         cropped_volume = volume[xmin:xmax, ymin:ymax, zmin:zmax]
         return cropped_volume
@@ -732,7 +715,7 @@ if __name__ == "__main__":
         frame_step=1,
         num_clips=1,
         random_clip_sampling=True,
-        allow_clip_overlap=False,
+        allow_clip_overlap=True,
         filter_short_videos=False,
         filter_long_videos=int(10**9),
         transform=None,

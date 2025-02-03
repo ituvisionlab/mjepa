@@ -4,16 +4,19 @@ tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  - src/datasets/oasis3_all_nii_with_bbox.csv #oasis3_all_nii.csv 
-  - src/datasets/ppmi_all_train_split_bbox.csv #ppmi_all_train_split.csv
+  - src/datasets/oasis3_all_bet_nii_with_bbox.csv
+  - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  - src/datasets/brats24_all_nii.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/mood_all_nii_with_bbox.csv
   #- src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 8
-  num_clips: 12
+  num_clips: 16
   num_frames: 16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 192 #224
+  crop_size: 128 #192 #224
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
@@ -86,12 +89,12 @@ optimization:
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.04
-  final_weight_decay: 0.1
+  final_weight_decay: 0.01 #0.1 #for large dataset
   epochs: 1000
   warmup: 20
-  start_lr: 0.5e-04
-  lr: 1.0e-04
-  final_lr: 1.0e-06
+  start_lr: 3.0e-5 #5e-05
+  lr: 2.0e-4 #1.0e-4
+  final_lr: 5.0e-6 #1.0e-6
   ema:
   - 0.998
   - 1.0

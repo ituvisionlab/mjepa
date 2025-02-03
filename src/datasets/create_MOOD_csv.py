@@ -1,7 +1,7 @@
 import os
 import csv
 
-train_data_path = "src/datasets/MOOD/brain_train"
+train_data_path = "/gpfs/data/sodicksonlab/gozde/MOOD/brain_train"
 
 train_folder_list = sorted(os.listdir(train_data_path))
 train_folder_list = [os.path.join(train_data_path, i) for i in train_folder_list]

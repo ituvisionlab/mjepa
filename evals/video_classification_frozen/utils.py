@@ -207,6 +207,9 @@ def make_transforms(
     auto_augment=False,
     motion_shift=False,
     crop_size=224,
+    intensity_gamma=0.2,
+    random_bias=0.2,
+    random_noise=0.025,
     num_views_per_clip=1,
     in_chans=3,
     #normalize=((0.485, 0.456, 0.406),
@@ -229,7 +232,10 @@ def make_transforms(
             random_resize_scale=random_resize_scale,
             rot_degree = rot_degree,
             auto_augment=auto_augment,
-            crop_size=crop_size
+            crop_size=crop_size,
+            intensity_gamma=intensity_gamma,
+            random_bias=random_bias,
+            random_noise=random_noise
         )
     return _frames_augmentation
 
@@ -239,7 +245,7 @@ class MRITransform(object):
         self,
         training=True,
         random_horizontal_flip=True,
-         random_resize_aspect_ratio=(1.0,1.0), #(0.9, 1.1),
+        random_resize_aspect_ratio=(1.0,1.0), #(0.9, 1.1),
         random_resize_scale=(0.8,1.0), # use for crop_retention ratio
         rot_degree = 0.0, 
         auto_augment=False,
