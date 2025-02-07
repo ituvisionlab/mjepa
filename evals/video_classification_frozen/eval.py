@@ -69,10 +69,11 @@ from src.utils.tensors import trunc_normal_
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+
 _GLOBAL_SEED = 0
-np.random.seed(_GLOBAL_SEED)
-torch.manual_seed(_GLOBAL_SEED)
-torch.backends.cudnn.benchmark = True
+#np.random.seed(_GLOBAL_SEED)
+#torch.manual_seed(_GLOBAL_SEED)
+#torch.backends.cudnn.benchmark = True
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -106,6 +107,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     frozen = args_pretrain.get('frozen', True)
     encoder_warmup = args_pretrain.get('encoder_warmup', 1)
     use_pos_embed = args_pretrain.get('use_pos_embed', False)
+    clip_grad_encoder = args_pretrain.get('clip_grad_encoder',1.0)
 
     # -- DATA
     args_data = args_eval.get('data')
@@ -121,8 +123,17 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
     num_workers=args_data.get('num_workers',1)
     random_clip_sampling = args_data.get('random_clip_sampling', False)
-    auto_augment = args_data.get('auto_augment', False)
-
+    # -- DATA Augmentation
+    args_data_aug = args_eval.get('data_aug')
+    auto_augment = args_data_aug.get('auto_augment', False)
+    random_noise = args_data_aug.get('random_noise', 0.025)
+    random_bias = args_data_aug.get('random_bias', 0.2)
+    intensity_gamma = args_data_aug.get('intensity_gamma', 0.2)
+    rot_degree = args_data_aug.get('rotation_degree', 0.0)
+    random_resize_aspect_ratio = args_data_aug.get('random_resize_aspect_ratio', [1, 1])
+    random_resize_scale = args_data_aug.get('random_resize_scale', [0.9, 1.0])
+    random_horizontal_flip = args_data_aug.get('random_horizontal_flip', True)
+    
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
     resolution = args_opt.get('resolution', 224)
@@ -136,11 +147,14 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     final_lr = args_opt.get('final_lr')
     warmup = args_opt.get('warmup')
     use_bfloat16 = args_opt.get('use_bfloat16')
+    seed = args_opt.get('seed', _GLOBAL_SEED)
     train_eval_freq = args_opt.get('train_log_iter_freq')
     val_eval_freq = args_opt.get('val_log_iter_freq')
-    clip_grad_encoder = args_pretrain.get('clip_grad_encoder')
+    clip_grad_classifier = args_opt.get('clip_grad_classifier',1.0)
+    betas = args_opt.get('betas', (0.9, 0.999))
+    eps = args_opt.get('eps', 1.e-6)
 
-
+   
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
     eval_tag = args_eval.get('tag', None) # tag: k400-16x8x3
@@ -243,9 +257,19 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         log_writer = None
         csv_logger = None
         run = None
-        
+
+    # ----------------------------------------------------------------------- #
+    # ----------------------------------------------------------------------- #
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # Ensures seed consistency across GPUs
+
+    # Use deterministic mode if full reproducibility is required
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     # Initialize model
-    # -- pretrained encoder (frozen)
+    # -- pretrained encoder (frozen) or unfrozen
     encoder = init_model(
         crop_size=resolution,
         device=device,
@@ -287,7 +311,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     print(f'Classifier number of parameters: {count_parameters(classifier)}')
     
-    train_loader = make_dataloader(
+    train_loader, train_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=train_data_path,
         resolution=resolution,
@@ -301,11 +325,18 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         auto_augment=auto_augment,
         allow_segment_overlap=True,
         batch_size=batch_size,
+        random_horizontal_flip=random_horizontal_flip,
+        random_resize_aspect_ratio=random_resize_aspect_ratio,
+        random_resize_scale=random_resize_scale,
+        rot_degree=rot_degree,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise,
         num_workers=num_workers,
         world_size=world_size,
         rank=rank,
         training=True)
-    val_loader = make_dataloader(
+    val_loader, val_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=val_data_path,
         resolution=resolution,
@@ -318,24 +349,19 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         num_views_per_segment=eval_num_views_per_segment,
         allow_segment_overlap=True,
         batch_size=batch_size,
+        random_horizontal_flip=random_horizontal_flip,
+        random_resize_aspect_ratio=random_resize_aspect_ratio,
+        random_resize_scale=random_resize_scale,
+        rot_degree=rot_degree,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise,
         num_workers=num_workers,
         world_size=world_size,
         rank=rank,
         training=False)
     ipe = len(train_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
-
-    if frozen:
-        encoder.eval()    
-        for p in encoder.parameters():
-            p.requires_grad = False
-    else:
-        encoder.train()    
-        for name, param in encoder.named_parameters():
-            if "pos_embed" in name:
-                param.requires_grad = False  # Keep pos_embed frozen even when training
-            else:
-                param.requires_grad = True
     
     # -- optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
@@ -350,11 +376,25 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         warmup=warmup,
         num_epochs=num_epochs,
         use_bfloat16=use_bfloat16,
-        frozen=frozen)
+        frozen=frozen,
+        betas=betas,
+        eps=eps)
     classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
     if not frozen:
         encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True) #GU_Debug
+
+    if frozen:
+        encoder.eval()    
+        for p in encoder.parameters():
+            p.requires_grad = False
+    else:
+        encoder.train()    
+        for name, param in encoder.named_parameters():
+            if "pos_embed" in name:
+                param.requires_grad = False  # Keep pos_embed frozen even when training
+            else:
+                param.requires_grad = True
 
     # -- load training checkpoint
     start_epoch = 0
@@ -387,6 +427,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     epoch_accs = []
     epoch_val_accs = []
     encoder_frozen = True
+    
+    if pretrained_path == None:
+        encoder_warmup = 0
 
     # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -394,7 +437,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             logger.info('Epoch %d' % (epoch + 1))
 
         if not frozen:
-            if encoder_warmup >= epoch:
+            if epoch >= encoder_warmup:
                 encoder_frozen = False
 
         train_acc, train_loss = run_one_epoch(
@@ -410,6 +453,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             scheduler=scheduler,
             wd_scheduler=wd_scheduler,
             data_loader=train_loader,
+            data_sampler=train_sampler,
             use_bfloat16=use_bfloat16,
             frozen=encoder_frozen,
             log_writer=log_writer,
@@ -418,7 +462,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             rank=rank,
             run=run,
             num_classes=num_classes,
-            clip_grad_encoder=clip_grad_encoder)
+            warmup=warmup,
+            clip_grad_encoder=clip_grad_encoder,
+            clip_grad_classifier=clip_grad_classifier)
 
         val_acc, val_loss = run_one_epoch(
              device=device,
@@ -433,6 +479,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              scheduler=scheduler,
              wd_scheduler=wd_scheduler,
              data_loader=val_loader,
+             data_sampler=val_sampler,
              use_bfloat16=use_bfloat16,
              frozen=encoder_frozen,
              log_writer=log_writer,
@@ -441,7 +488,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              rank=rank,
              run=run,
              num_classes=num_classes,
-             clip_grad_encoder=clip_grad_encoder)
+             warmup=warmup,
+             clip_grad_encoder=clip_grad_encoder,
+             clip_grad_classifier=clip_grad_classifier)
 
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
@@ -482,6 +531,7 @@ def run_one_epoch(
     scheduler,
     wd_scheduler,
     data_loader,
+    data_sampler,
     use_bfloat16,
     frozen,
     num_spatial_views,
@@ -493,11 +543,13 @@ def run_one_epoch(
     rank,
     run,
     num_classes,
-    clip_grad_encoder
+    warmup,
+    clip_grad_encoder,
+    clip_grad_classifier
 ):
 
     classifier.train(mode=training)
-    if frozen: # added 1/21/2025
+    if frozen: 
         encoder.eval()
     else:
         encoder.train(mode=training) 
@@ -514,6 +566,7 @@ def run_one_epoch(
         eval_freq = 1
  
     loader = iter(data_loader)
+    data_sampler.set_epoch(epoch)
 
     # for itr, data in enumerate(data_loader):
     for itr in range(ipe):
@@ -569,35 +622,6 @@ def run_one_epoch(
                 else:
                     outputs = [[classifier(ost) for ost in os] for os in outputs]
         # outputs tensor shape: Batchsize x num_classes
-            # if not frozen:
-            #     if training:
-            #         outputs = encoder(clips, clip_indices)
-            #         if attend_across_segments:
-            #             outputs = [classifier(o) for o in outputs]
-            #         else:
-            #             outputs = [[classifier(ost) for ost in os] for os in outputs]
-            #     else:
-            #         with torch.no_grad():
-            #             outputs = encoder(clips, clip_indices) 
-            #             if attend_across_segments:
-            #                 outputs = [classifier(o) for o in outputs]
-            #             else:
-            #                 outputs = [[classifier(ost) for ost in os] for os in outputs]
-
-            # else: #frozen
-            #     with torch.no_grad():
-            #         outputs = encoder(clips, clip_indices) #outputs[0].shape= torch.Size([4, 3136, 1024])
-            #     if training:
-            #         if attend_across_segments:
-            #             outputs = [classifier(o) for o in outputs]
-            #         else:
-            #             outputs = [[classifier(ost) for ost in os] for os in outputs]
-            #     else:
-            #         with torch.no_grad():
-            #             if attend_across_segments:
-            #                 outputs = [classifier(o) for o in outputs]
-            #             else:
-            #                 outputs = [[classifier(ost) for ost in os] for os in outputs]
       
         # Compute loss
         if attend_across_segments:
@@ -665,16 +689,18 @@ def run_one_epoch(
             if use_bfloat16:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(classifier.parameters(), 1.0)
-                if not frozen:
-                    torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
+                if epoch > warmup:
+                    torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
+                    if not frozen:
+                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(classifier.parameters(), 1.0)
-                if not frozen:
-                    torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
+                if epoch > warmup:
+                    torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
+                    if not frozen:
+                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 optimizer.step()
             optimizer.zero_grad()
 
@@ -704,6 +730,7 @@ def run_one_epoch(
                         'train/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
             
+            # Wandb logging
             if not training and itr % eval_freq == 0:
                 run.log({
                         'val/acc': top1_meter.avg,
@@ -805,6 +832,13 @@ def make_dataloader(
     num_views_per_segment=1,
     allow_segment_overlap=True,
     training=False,
+    random_horizontal_flip=True,
+    random_resize_aspect_ratio=(1.0,1.0), #(0.75, 4/3),
+    random_resize_scale=(0.9, 1.0),
+    rot_degree=10,
+    intensity_gamma=0.2,
+    random_bias=0.2,
+    random_noise=0.025,
     num_workers=4,
     subset_file=None
 ):
@@ -812,17 +846,21 @@ def make_dataloader(
     transform = make_transforms(
         training=training,
         num_views_per_clip=num_views_per_segment,
-        random_horizontal_flip=False,
-        random_resize_aspect_ratio=(0.75, 4/3),
-        random_resize_scale=(0.08, 1.0),
+        random_horizontal_flip=True,
+        random_resize_aspect_ratio=(1.0,1.0),
+        random_resize_scale=(0.9, 1.0),
+        rot_degree=10,
         reprob=0,
         auto_augment=auto_augment,
         motion_shift=False,
         crop_size=resolution,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise,
         in_chans=in_chans
     )
 
-    data_loader, _ = init_data(
+    data_loader, data_sampler = init_data(
         data=dataset_type,
         root_path=root_path,
         transform=transform,
@@ -841,7 +879,7 @@ def make_dataloader(
         copy_data=False,
         drop_last=False,
         subset_file=subset_file)
-    return data_loader
+    return data_loader, data_sampler
 
 
 def init_model(
@@ -872,23 +910,15 @@ def init_model(
         in_chans= in_chans,
     )
 
-    encoder.to(device)
     if pretrained is not None:
         encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
-    else:    
-        for m in encoder.modules():
-            init_weights(m)
+    encoder.to(device)
+
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'Encoder number of parameters: {count_parameters(encoder)}')
 
     return encoder
-
-def init_weights(m):
-    if isinstance(m, torch.nn.Linear):
-        trunc_normal_(m.weight, std=0.02)
-        if m.bias is not None:
-            torch.nn.init.constant_(m.bias, 0)
-    elif isinstance(m, torch.nn.LayerNorm):
-        torch.nn.init.constant_(m.bias, 0)
-        torch.nn.init.constant_(m.weight, 1.0)
 
 def init_opt(
     classifier,
@@ -902,7 +932,9 @@ def init_opt(
     final_wd=1e-6,
     final_lr=0.0,
     use_bfloat16=False,
-    frozen=True
+    frozen=True,
+    betas=(0.9, 0.999),
+    eps=1e-8,
 ):
     param_groups = [
         {
@@ -935,7 +967,7 @@ def init_opt(
         
 
     logger.info('Using AdamW')
-    optimizer = torch.optim.AdamW(param_groups)
+    optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
     scheduler = WarmupCosineSchedule(
         optimizer,
         warmup_steps=int(warmup*iterations_per_epoch),
@@ -950,6 +982,6 @@ def init_opt(
         T_max=int(num_epochs*iterations_per_epoch))
     
     # scaler = torch.GradScaler("cuda") if use_bfloat16 else None
-    scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None  # 1/19/2025
+    scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None 
     
     return optimizer, scaler, scheduler, wd_scheduler

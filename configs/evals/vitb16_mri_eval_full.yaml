@@ -1,5 +1,5 @@
-nodes: 1
-tasks_per_node: 2
+nodes: 2
+tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
 eval_name: video_classification_frozen
 resume_checkpoint: false #true 
@@ -9,31 +9,42 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/ppmi_all_train_split_bbox.csv 
-  # - src/datasets/oasis3_all_nii_with_bbox.csv
+  - src/datasets/adni_all_3class_bet_train.csv 
   dataset_val: 
-  - src/datasets/ppmi_all_val_split_bbox.csv
+  - src/datasets/adni_all_3class_bet_val.csv 
   dataset_type: MRIDataset
-  num_classes: 4
+  num_classes: 3
   frames_per_clip: 16
   num_segments: 8 #16 #rename to num_clips
   num_views_per_segment: 3
   frame_step: 1
-  num_workers: 2
+  num_workers: 8
   random_clip_sampling: false
+data_aug:
   auto_augment: true
+  random_noise: 0.01
+  random_bias: 0.1
+  intensity_gamma: 0.1
+  random_resize_aspect_ratio:
+  - 0.9 
+  - 1.1 
+  random_resize_scale:
+  - 0.9
+  - 1.0
+  rotation_degree: 10  
 optimization:
   attend_across_segments: true
   num_epochs: 500
-  resolution: 192
-  batch_size: 8 #8
+  resolution: 128 #192
+  batch_size: 16 #8
   weight_decay: 0.04
-  final_weight_decay: 1.0e-3 #0.1
-  lr: 1.0e-4
-  start_lr: 0.5e-4
-  final_lr: 1.0e-6
-  warmup: 10
+  final_weight_decay: 1.0e-3 #0.1 #for large datasets
+  start_lr: 3.0e-5 #5e-05
+  lr: 2.0e-4 #1.0e-4
+  final_lr: 5.0e-6 #1.0e-6
+  warmup: 20
   use_bfloat16: true
+  clip_grad_classifier: 1.0
   train_log_iter_freq: 1
   val_log_iter_freq: 1
 pretrain:

@@ -122,7 +122,7 @@ def launch_evals_with_parsed_args(
     logger.info('Launching evaluations in separate jobs...')
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
-        slurm_max_num_timeout=1) #20)
+        slurm_max_num_timeout=0) #20)
     if reservation:  # Add reservation only if provided
         executor.update_parameters(
            slurm_partition=partition,
@@ -132,7 +132,7 @@ def launch_evals_with_parsed_args(
            timeout_min=timeout,
            nodes=nodes,
            tasks_per_node=tasks_per_node,
-           cpus_per_task=6, #for num_workers=4  
+           cpus_per_task= 10, #6, #for num_workers=4  
            gpus_per_node=tasks_per_node,
            slurm_additional_parameters={
            'reservation': reservation,
@@ -144,7 +144,7 @@ def launch_evals_with_parsed_args(
             'time': timeout,
             'nodes': nodes,
             'tasks_per_node': tasks_per_node,
-            'cpus_per_task': 6,
+            'cpus_per_task': 10, #6,
             'gpus_per_node': tasks_per_node,
             }   
         executor.update_parameters(**slurm_params)

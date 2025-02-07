@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 
 # Input and output CSV files
-input_csv = "/gpfs/home/unalg01/jepa/src/datasets/ppmi_all_nii.csv"
-output_csv = "/gpfs/home/unalg01/jepa/src/datasets/ppmi_all_nii_with_bbox.csv"
+input_csv = "/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii.csv"
+output_csv = "/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii_with_bbox.csv"
 
 # Function to calculate the bounding box of the brain mask
 def calculate_bbox(mask_file):
@@ -55,6 +55,7 @@ bbox_columns = ["xmin", "xmax", "ymin", "ymax", "zmin", "zmax"]
 for col in bbox_columns:
     data[col] = None
 
+processed_count = 0
 # Process each NIfTI file in the CSV
 for idx, row in data.iterrows():
     nii_file_path = row["nii_file_path"]
@@ -63,26 +64,41 @@ for idx, row in data.iterrows():
     if not os.path.exists(nii_file_path):
         print(f"File not found: {nii_file_path}")
         continue
+    processed_count += 1
+    print(f"Processing file {processed_count}: {nii_file_path}")
 
-    # Create the output brain mask file path
+    # Extract directory and filename information
     nii_dir, nii_filename = os.path.split(nii_file_path)
     base_name, ext = os.path.splitext(nii_filename)
     if ext == ".gz":  # Handle .nii.gz files
         base_name = os.path.splitext(base_name)[0]
-    bet_output_path = os.path.join(nii_dir, f"{base_name}_betmask.nii.gz")
 
-    # Perform brain extraction
-    run_bet(nii_file_path, bet_output_path)
+    # Construct expected brain mask file paths
+    bet_output_path = os.path.join(nii_dir, f"{base_name}_betmask.nii.gz")
+    bet_mask_path = os.path.join(nii_dir, f"{base_name}_betmask_mask.nii.gz")
+
+    # Check if the betmask files donot exist, run_bet extraction
+    if not (os.path.exists(bet_output_path) and os.path.exists(bet_mask_path)):
+        run_bet(nii_file_path, bet_output_path)
 
     # Calculate the bounding box
-    bbox = calculate_bbox(bet_output_path)
+    bbox = calculate_bbox(bet_mask_path)
 
-    # Add bounding box information to the row
+   # Add bounding box information to the row
     if bbox:
         for col in bbox_columns:
             data.at[idx, col] = bbox[col]
     else:
-        print(f"No brain mask found for {nii_file_path}")
+        # Load the NIfTI file to get volume dimensions
+        img = nib.load(nii_file_path)
+        xsize, ysize, zsize = img.shape[:3]  # Get volume dimensions
+        # Assign full volume dimensions as bbox (xmin=0, xmax=xsize, etc.)
+        bbox_full = [0, xsize, 0, ysize, 0, zsize]      
+        # Store the values in the dataframe
+        for i, col in enumerate(bbox_columns):
+            data.at[idx, col] = bbox_full[i]      
+        print(f"No brain mask found for {nii_file_path}, using full volume as bounding box.")
+
 
 # Save the updated data to a new CSV file
 data.to_csv(output_csv, index=False)

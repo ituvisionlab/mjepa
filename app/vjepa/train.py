@@ -61,9 +61,9 @@ checkpoint_freq = 1
 # --
 
 _GLOBAL_SEED = 0
-np.random.seed(_GLOBAL_SEED)
-torch.manual_seed(_GLOBAL_SEED)
-torch.backends.cudnn.benchmark = True
+#np.random.seed(_GLOBAL_SEED)
+#torch.manual_seed(_GLOBAL_SEED)
+#torch.backends.cudnn.benchmark = True
 
 
 logger = get_logger(__name__)
@@ -214,10 +214,14 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
-
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.backends.cudnn.benchmark = True
+    torch.cuda.manual_seed_all(seed)  # Ensures seed consistency across GPUs
+
+    # Use deterministic mode if full reproducibility is required
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     try:
         mp.set_start_method('spawn')
     except Exception:
@@ -464,7 +468,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     logger.info('Initializing loader...')
     loader = iter(unsupervised_loader)
 
-    # print(f'Number of samples in dataset: {len(loader.dataset)}')
+    print(f'Number of samples in dataset: {len(loader.dataset)}')
 
     if skip_batches > 0:
         logger.info(f'Skip {skip_batches} batches')
@@ -482,7 +486,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
-        logger.info('Epoch %d' % (epoch + 1))
+        if rank == 0:
+            logger.info('Epoch %d' % (epoch + 1))
 
         # -- update distributed-data-loader epoch
         unsupervised_sampler.set_epoch(epoch)
@@ -639,7 +644,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             wall_time_meter.update(iter_elapsed_time_ms)
             
             # Release memory
-            
             del clips
             torch.cuda.empty_cache()
 
