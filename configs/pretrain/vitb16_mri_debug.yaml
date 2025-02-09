@@ -1,10 +1,11 @@
 app: vjepa
 nodes: 1
-tasks_per_node: 4  #1
+tasks_per_node: 1
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/debug_nii_list.csv
+  - src/datasets/adni_all_bet_train.csv
+  #- src/datasets/debug_nii_list.csv
   #- src/datasets/oasis3_all_nii.csv # Relative path instead of abs path
   #- src/datasets/ppmi_all_nii_with_bbox.csv
   #- src/datasets/adni_all_train_split.csv

@@ -124,12 +124,12 @@ class ClipAggregation(nn.Module):
         x = [torch.cat(xi, dim=0) for xi in x]
         x = torch.cat(x, dim=0)
         outputs = self.model(x)
-        _, N, D = outputs.size()
+        _, N, D = outputs.size() #num_clips, B
 
         T = T // self.tubelet_size  # Num temporal tokens
         N = N // T  # Num spatial tokens
 
-        # Unroll outputs into a 2D array [spatial_views x temporal_views]
+        # Unroll outputs into a 2D array [spatial_views x temporal_views]: num_views_per_clip, num_clips, B, temporal patch#, spatical patch#, dim d
         eff_B = B * num_views_per_clip
         all_outputs = [[] for _ in range(num_views_per_clip)]
         for i in range(num_clips):
