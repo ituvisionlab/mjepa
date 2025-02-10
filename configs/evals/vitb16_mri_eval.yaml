@@ -9,16 +9,16 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/adni_all_3class_bet_train.csv 
+  - src/datasets/adni_all_2class_bet_train.csv 
   dataset_val: 
-  - src/datasets/adni_all_3class_bet_val.csv 
+  - src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
-  num_classes: 3
+  num_classes: 2
   frames_per_clip: 16
-  num_segments: 8 #16 #for larger cropsize #rename to num_clips
-  num_views_per_segment: 3
+  num_segments: 8 #8 #for larger cropsize #rename to num_clips
+  num_views_per_segment: 1
   frame_step: 1
-  num_workers: 2
+  num_workers: 4
   random_clip_sampling: false
 data_aug:
   auto_augment: true
@@ -35,23 +35,24 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 128
+  resolution: 192
   batch_size: 16
-  weight_decay: 0.04
-  final_weight_decay: 1.0e-3 #0.1
-  lr: 2.0e-4
-  start_lr: 3.0e-5
-  final_lr: 5.0e-6 #1.0e-6
-  warmup: 3
+  weight_decay: 1.0e-3
+  final_weight_decay: 1.0e-4 #0.1
+  lr: 1.0e-5
+  start_lr: 1.0e-5
+  final_lr: 1.0e-7 #1.0e-6
+  warmup: 0
   use_bfloat16: true
+  clip_grad_classifier: 1.0
   seed: 234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
 pretrain:
   model_name: vit_base
-  checkpoint_key: target_encoder
+  checkpoint_key: encoder #target_encoder
   clip_duration: null
-  frames_per_clip: 16
+  frames_per_clip: 128
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -64,7 +65,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_31__09_44_34/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights

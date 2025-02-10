@@ -68,8 +68,6 @@ _GLOBAL_SEED = 0
 
 logger = get_logger(__name__)
 
-
-# def main(args, resume_preempt=False, log_writer=None):
 def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
@@ -163,7 +161,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     final_lr = cfgs_opt.get('final_lr')
     ema = cfgs_opt.get('ema')
     betas = cfgs_opt.get('betas', (0.9, 0.999))
-    eps = cfgs_opt.get('eps', 1.e-8)
+    eps = cfgs_opt.get('eps', 1.e-8) #1e-7
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -283,9 +281,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             run = None
         
         # Tensorboard logging
-        tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
-        os.makedirs(tb_rank_folder, exist_ok=True)
-        log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+        #tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
+        #os.makedirs(tb_rank_folder, exist_ok=True)
+        log_writer = None # torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
         
         # -- make csv_logger
         log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
@@ -467,8 +465,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
     logger.info('Initializing loader...')
     loader = iter(unsupervised_loader)
-
-    print(f'Number of samples in dataset: {len(loader.dataset)}')
 
     if skip_batches > 0:
         logger.info(f'Skip {skip_batches} batches')
@@ -661,15 +657,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     iter_elapsed_time_ms)
                 
                 # Tensorboard logging
-                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
-                log_writer.flush()
+                # log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
+                # log_writer.flush()
                 
                 
                 # Wandb logging

@@ -44,7 +44,7 @@ def init_data(
     persistent_workers=False,
     repeat_wds=False,
     ipe=300,
-    log_dir=None,
+    log_dir=None
 ):
 
     if (data.lower() == 'imagenet') \
@@ -113,6 +113,7 @@ def init_data(
             world_size=world_size,
             rank=rank,
             drop_last=drop_last,
-            log_dir=log_dir)
+            log_dir=log_dir,
+            training=training)
         
     return (data_loader, dist_sampler)
