@@ -44,7 +44,13 @@ class VisionTransformer(nn.Module):
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
         self.num_heads = num_heads
-        self.out_layers = out_layers
+        if isinstance(out_layers, int):
+            if depth-out_layers >= 0:
+                self.out_layers = list(range(depth-out_layers, depth))
+            else:
+                self.out_layers = list(range(depth))
+        else:
+            self.out_layers = out_layers
 
         self.input_size = img_size
         self.patch_size = patch_size

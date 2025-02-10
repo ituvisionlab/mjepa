@@ -160,6 +160,112 @@ class ClipAggregation(nn.Module):
 
         return all_outputs
 
+class LayerAggregation(nn.Module):
+    """
+    Process each clip independently and concatenate all tokens
+    """
+
+    def __init__(
+        self,
+        model,
+        tubelet_size=2,
+        max_frames=10000,
+        use_pos_embed=False,
+        attend_across_segments=False
+    ):
+        super().__init__()
+        self.model = model
+        self.tubelet_size = tubelet_size
+        self.embed_dim = embed_dim = model.embed_dim
+        self.num_heads = model.num_heads
+        self.attend_across_segments = attend_across_segments
+        # 1D-temporal pos-embedding
+        self.pos_embed = None
+        if use_pos_embed:
+            max_T = max_frames // tubelet_size
+            self.pos_embed = nn.Parameter(
+                torch.zeros(1, max_T, embed_dim),
+                requires_grad=False)
+            sincos = get_1d_sincos_pos_embed(embed_dim, max_T)
+            self.pos_embed.copy_(torch.from_numpy(sincos).float().unsqueeze(0))
+
+    def forward(self, x, clip_indices=None):
+        
+        num_clips = len(x)
+        num_views_per_clip = len(x[0])
+        B, C, T, H, W = x[0][0].size()
+
+        # Concatenate all spatial and temporal views along batch dimension
+        x = [torch.cat(xi, dim=0) for xi in x]
+        x = torch.cat(x, dim=0)
+        outputs = self.model(x)
+        
+        layer_outputs = outputs
+        all_layer_outputs = []
+        
+        for outputs in layer_outputs:
+        
+            _, N, D = outputs.size()
+
+            new_T = T // self.tubelet_size  # Num temporal tokens
+            N = N // new_T  # Num spatial tokens
+
+            # Unroll outputs into a 2D array [spatial_views x temporal_views]
+            eff_B = B * num_views_per_clip
+            all_outputs = [[] for _ in range(num_views_per_clip)]
+            for i in range(num_clips):
+                o = outputs[i*eff_B:(i+1)*eff_B]
+                for j in range(num_views_per_clip):
+                    all_outputs[j].append(o[j*B:(j+1)*B])
+
+            if not self.attend_across_segments:
+                return all_outputs
+
+            for i, outputs in enumerate(all_outputs):
+
+                # Concatenate along temporal dimension
+                outputs = [o.reshape(B, new_T, N, D) for o in outputs]
+                outputs = torch.cat(outputs, dim=1).flatten(1, 2)
+                
+                all_layer_outputs.append(outputs)
+        
+        
+        pooled_outs = []
+        for layer in all_layer_outputs:
+            out = torch.mean(layer, dim=1)
+            out = out.squeeze(1)
+            pooled_outs.append(out)
+        
+        outputs = torch.cat(pooled_outs, dim=-1)
+        
+        return outputs
+        
+        # num_clips = len(x)
+        # num_views_per_clip = len(x[0])
+        # B, C, T, H, W = x[0][0].size()
+        
+        # x = [torch.cat(xi, dim=0) for xi in x]
+        # x = torch.cat(x, dim=0)
+        # outputs = self.model(x)
+        
+        # eff_B = B
+        # all_outputs = []
+        # for i in range(num_clips):
+        #     o = outputs[i*eff_B:(i+1)*eff_B]
+        #     for j in range(num_views_per_clip):
+        #         all_outputs[j].append(o[j*B:(j+1)*B])
+                
+        # layer_outs = []
+        
+        # for layer in outputs:
+        #     out = torch.mean(layer, dim=1)
+        #     out = out.squeeze(1)
+        #     layer_outs.append(out)
+        
+        # outputs = torch.cat(layer_outs, dim=-1)
+        
+        # return outputs
+
 def make_video_transforms(
     training=True,
     random_horizontal_flip=True,
