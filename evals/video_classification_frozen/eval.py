@@ -116,7 +116,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     val_data_path = args_data.get('dataset_val', []) #[args_data.get('dataset_val')]
     dataset_type = args_data.get('dataset_type', 'VideoDataset')
     num_classes = args_data.get('num_classes')
-    eval_num_segments = args_data.get('num_segments', 1)
+    eval_num_clips = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
     eval_frame_step = args_pretrain.get('frame_step', 4)
     eval_duration = args_pretrain.get('clip_duration', None)
@@ -152,7 +152,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     val_eval_freq = args_opt.get('val_log_iter_freq')
     clip_grad_classifier = args_opt.get('clip_grad_classifier',1.0)
     betas = args_opt.get('betas', (0.9, 0.999))
-    eps = args_opt.get('eps', 1.e-6)
+    eps = args_opt.get('eps', 1.e-6) #1e-8 or 1e-7?
 
    
     # -- EXPERIMENT-ID/TAG (optional)
@@ -210,9 +210,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         
         
         # Tensorboard logging
-        tb_rank_folder = os.path.join(tb_folder, f"{eval_tag}_rank_{rank}")
-        os.makedirs(tb_rank_folder, exist_ok=True)
-        log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+        #tb_rank_folder = os.path.join(tb_folder, f"{eval_tag}_rank_{rank}")
+        # os.makedirs(tb_rank_folder, exist_ok=True)
+        log_writer = None #torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
         
         # -- make csv_logger
         csv_logger = CSVLogger(csv_log_file,
@@ -318,7 +318,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         frames_per_clip=eval_frames_per_clip,
         frame_step=eval_frame_step,
         eval_duration=eval_duration,
-        num_segments=eval_num_segments if attend_across_segments else 1,
+        num_clips=eval_num_clips, #if attend_across_segments else 1,
         num_views_per_segment=1,
         in_chans=in_chans,
         random_clip_sampling=random_clip_sampling,
@@ -342,7 +342,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         resolution=resolution,
         frames_per_clip=eval_frames_per_clip,
         frame_step=eval_frame_step,
-        num_segments=eval_num_segments,
+        num_clips=eval_num_clips,
         in_chans=in_chans,
         random_clip_sampling=random_clip_sampling,
         eval_duration=eval_duration,
@@ -443,7 +443,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         train_acc, train_loss = run_one_epoch(
             device=device,
             training=True,
-            num_temporal_views=eval_num_segments if attend_across_segments else 1,
+            num_temporal_views=eval_num_clips, #if attend_across_segments else 1,
             attend_across_segments=attend_across_segments,
             num_spatial_views=1,
             encoder=encoder,
@@ -469,7 +469,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         val_acc, val_loss = run_one_epoch(
              device=device,
              training=False,
-             num_temporal_views=eval_num_segments,
+             num_temporal_views=eval_num_clips,
              attend_across_segments=attend_across_segments,
              num_spatial_views=eval_num_views_per_segment,
              encoder=encoder,
@@ -579,9 +579,11 @@ def run_one_epoch(
             loader = iter(data_loader) #resets the loader iterator again
             data = next(loader)
    
+        new_lr = None
+        new_wd = None
         if training:
-            scheduler.step()
-            wd_scheduler.step()
+            new_lr = scheduler.step()
+            new_wd = wd_scheduler.step()
 
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
         #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
@@ -595,7 +597,7 @@ def run_one_epoch(
             labels = data[1].to(device)
             batch_size = len(labels)
 
-            # clips list: len = no_of_clips (num_segments)
+            # clips list: len = no_of_clips 
             # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
             # clips[1][0].shape ""
             # Forward and prediction
@@ -617,12 +619,17 @@ def run_one_epoch(
                     else:
                         outputs = [[classifier(ost) for ost in os] for os in outputs]
             if training:
+                
+                # print(f"Outputs = Clip embeddings require grad: {outputs[0].requires_grad}")
+                # print(f"Outputs = Clip embeddings require grad: {outputs[0][0].requires_grad}") #for not attend_across_segments
                 if attend_across_segments:
                     outputs = [classifier(o) for o in outputs]
                 else:
                     outputs = [[classifier(ost) for ost in os] for os in outputs]
         # outputs tensor shape: Batchsize x num_classes
-      
+        #GU_Debug
+        # print(f"Classifier Outputs require grad: {outputs[0].requires_grad}")
+
         # Compute loss
         if attend_across_segments:
             loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
@@ -702,8 +709,22 @@ def run_one_epoch(
                     if not frozen:
                         torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 optimizer.step()
-            optimizer.zero_grad()
+            # # GU_Debug
+            # for name, param in encoder.named_parameters():
+            #     if param.grad is None:
+            #         print(f"No gradient for: {name}")
+            #     else:
+            #         print(f"Gradient exists for: {name} | Norm: {param.grad.norm().item()}")
+            # # GU_Debug
+            # for name, param in classifier.named_parameters():
+            #     if param.grad is None:
+            #         print(f"Classifier: No gradient for: {name}")
+            #     else:
+            #         print(f"Classifier Gradient exists for: {name} | Norm: {param.grad.norm().item()}")
 
+            optimizer.zero_grad(set_to_none=True)
+
+        # Tensorboard logging. log_writer set to None
         if log_writer != None:
             if training and itr % eval_freq == 0:
                 log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
@@ -716,7 +737,8 @@ def run_one_epoch(
                 log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
             
             log_writer.flush()
-            
+        
+        # Wandb logging
         if run != None and rank == 0:
             if training and itr % eval_freq == 0:
                 run.log({
@@ -727,7 +749,9 @@ def run_one_epoch(
                         'train/precision': precision_meter.avg,
                         # 'train/specificity': specificity_meter.avg,
                         'train/f1': f1_meter.avg,
-                        'train/mem': torch.cuda.max_memory_allocated() / 1024.**2
+                        'train/mem': torch.cuda.max_memory_allocated() / 1024.**2,
+                        'train/lr': new_lr,
+                        'train/wd': new_wd
                     })
             
             # Wandb logging
@@ -824,7 +848,7 @@ def make_dataloader(
     resolution=224,
     frames_per_clip=16,
     frame_step=4,
-    num_segments=8,
+    num_clips=8,
     in_chans=3,
     random_clip_sampling=False,
     auto_augment=False,
@@ -870,7 +894,7 @@ def make_dataloader(
         clip_len=frames_per_clip,
         frame_sample_rate=frame_step,
         duration=eval_duration,
-        num_clips=num_segments,
+        num_clips=num_clips,
         in_chans=in_chans,
         crop_size=resolution,
         random_clip_sampling=random_clip_sampling, 
@@ -878,7 +902,8 @@ def make_dataloader(
         num_workers=num_workers,
         copy_data=False,
         drop_last=False,
-        subset_file=subset_file)
+        subset_file=subset_file,
+        training=training)
     return data_loader, data_sampler
 
 
@@ -896,7 +921,7 @@ def init_model(
     use_SiLU=False,
     tight_SiLU=True,
     uniform_power=False,
-    checkpoint_key='target_encoder'
+    checkpoint_key='encoder' #'target_encoder'
 ):
     encoder = vit.__dict__[model_name](
         img_size=crop_size,
@@ -938,33 +963,38 @@ def init_opt(
 ):
     param_groups = [
         {
-            'params': (p for n, p in classifier.named_parameters()
-                       if ('bias' not in n) and (len(p.shape) != 1))
+            'params': [p for n, p in classifier.named_parameters()
+                       if ('bias' not in n) and (len(p.shape) != 1)],
+            'names': [n for n, p in classifier.named_parameters()
+                      if ('bias' not in n) and (len(p.shape) != 1)],
         }, 
         {
-            'params': (p for n, p in classifier.named_parameters()
-                       if ('bias' in n) or (len(p.shape) == 1)),
+            'params': [p for n, p in classifier.named_parameters()
+                       if ('bias' in n) or (len(p.shape) == 1)],
+            'names': [n for n, p in classifier.named_parameters()
+                      if ('bias' in n) or (len(p.shape) == 1)],
             'WD_exclude': True,
             'weight_decay': 0
         }
     ]
     
     if not frozen:
-        param_groups.extend(
-                [
-                    {
-                        'params': (p for n, p in encoder.named_parameters()
-                                if ('bias' not in n) and (len(p.shape) != 1))
-                    },
-                    {
-                        'params': (p for n, p in encoder.named_parameters()
-                                if ('bias' in n) or (len(p.shape) == 1)),
-                        'WD_exclude': True,
-                        'weight_decay': 0,
-                    }
-                ]
-            )
-        
+        param_groups.extend([
+            {
+                'params': [p for n, p in encoder.named_parameters()
+                           if ('bias' not in n) and (len(p.shape) != 1)],
+                'names': [n for n, p in encoder.named_parameters()
+                          if ('bias' not in n) and (len(p.shape) != 1)],
+            },
+            {
+                'params': [p for n, p in encoder.named_parameters()
+                           if ('bias' in n) or (len(p.shape) == 1)],
+                'names': [n for n, p in encoder.named_parameters()
+                          if ('bias' in n) or (len(p.shape) == 1)],
+                'WD_exclude': True,
+                'weight_decay': 0,
+            }
+        ])
 
     logger.info('Using AdamW')
     optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
@@ -981,7 +1011,84 @@ def init_opt(
         final_wd=final_wd,
         T_max=int(num_epochs*iterations_per_epoch))
     
-    # scaler = torch.GradScaler("cuda") if use_bfloat16 else None
     scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None 
     
+    # **Debugging: Print parameter names, shapes, and requires_grad**
+    # print("\nOptimizer Parameter Groups Debug Info:")
+    # for group_idx, group in enumerate(optimizer.param_groups):
+    #     print(f"\n--- Parameter Group {group_idx + 1} ---")
+    #     for name, param in zip(group.get('names', []), group['params']):
+    #         print(f"Name: {name} | Shape: {param.shape} | Requires Grad: {param.requires_grad}")
+
     return optimizer, scaler, scheduler, wd_scheduler
+
+# def init_opt(
+#     classifier,
+#     encoder,
+#     iterations_per_epoch,
+#     start_lr,
+#     ref_lr,
+#     warmup,
+#     num_epochs,
+#     wd=1e-6,
+#     final_wd=1e-6,
+#     final_lr=0.0,
+#     use_bfloat16=False,
+#     frozen=True,
+#     betas=(0.9, 0.999),
+#     eps=1e-8,
+# ):
+#     param_groups = [
+#         {
+#             'params': (p for n, p in classifier.named_parameters()
+#                        if ('bias' not in n) and (len(p.shape) != 1))
+#         }, 
+#         {
+#             'params': (p for n, p in classifier.named_parameters()
+#                        if ('bias' in n) or (len(p.shape) == 1)),
+#             'WD_exclude': True,
+#             'weight_decay': 0
+#         }
+#     ]
+    
+#     if not frozen:
+#         param_groups.extend(
+#                 [
+#                     {
+#                         'params': (p for n, p in encoder.named_parameters()
+#                                 if ('bias' not in n) and (len(p.shape) != 1))
+#                     },
+#                     {
+#                         'params': (p for n, p in encoder.named_parameters()
+#                                 if ('bias' in n) or (len(p.shape) == 1)),
+#                         'WD_exclude': True,
+#                         'weight_decay': 0,
+#                     }
+#                 ]
+#             )
+        
+
+#     logger.info('Using AdamW')
+#     optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
+#     scheduler = WarmupCosineSchedule(
+#         optimizer,
+#         warmup_steps=int(warmup*iterations_per_epoch),
+#         start_lr=start_lr,
+#         ref_lr=ref_lr,
+#         final_lr=final_lr,
+#         T_max=int(num_epochs*iterations_per_epoch))
+#     wd_scheduler = CosineWDSchedule(
+#         optimizer,
+#         ref_wd=wd,
+#         final_wd=final_wd,
+#         T_max=int(num_epochs*iterations_per_epoch))
+    
+#     # scaler = torch.GradScaler("cuda") if use_bfloat16 else None
+#     scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None 
+    
+#     #GU_Debug
+#     for group in optimizer.param_groups:
+#         for param in group['params']:
+#             print(f"Param: {param.shape}, Requires Grad: {param.requires_grad}")
+
+#     return optimizer, scaler, scheduler, wd_scheduler

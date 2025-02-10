@@ -1,5 +1,5 @@
 app: vjepa
-nodes: 7
+nodes: 4
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
@@ -11,12 +11,12 @@ data:
   - src/datasets/mood_all_nii_with_bbox.csv
   #- src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
-  batch_size: 16
+  batch_size: 8
   num_clips: 8
   num_frames: 16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 128 #192 #224
+  crop_size: 192 #128 #224
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
@@ -89,7 +89,7 @@ optimization:
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.04
-  final_weight_decay: 0.01 #0.1 #for large dataset
+  final_weight_decay: 0.01 # or 0.005 #0.1 #for large dataset
   epochs: 1000
   warmup: 20
   start_lr: 3.0e-5 #5e-05
