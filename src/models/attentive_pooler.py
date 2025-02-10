@@ -145,3 +145,46 @@ class AttentiveClassifier(nn.Module):
         x = self.linear3(x)
 
         return x
+
+class LinearClassifier(nn.Module):
+    def __init__(
+        self,
+        embed_dim=768,
+        num_classes=2,
+        n_layers=1,
+        init_std=0.02):
+        
+        super().__init__()
+        
+        if n_layers > 1:
+            self.linear1 = nn.Linear(embed_dim*n_layers, embed_dim, bias=True)
+            self.linear2 = nn.Linear(embed_dim, embed_dim//4, bias=True)
+            self.linear3 = nn.Linear(embed_dim//4, num_classes, bias=True)
+        else:
+            self.linear1 = nn.Linear(embed_dim, embed_dim//4, bias=True)
+            self.linear2 = nn.Linear(embed_dim//4, embed_dim//8, bias=True)
+            self.linear3 = nn.Linear(embed_dim//8, num_classes, bias=True)
+
+        trunc_normal_(self.linear1.weight, std=init_std)
+        trunc_normal_(self.linear2.weight, std=init_std)
+        trunc_normal_(self.linear3.weight, std=init_std)
+        
+        nn.init.constant_(self.linear1.bias, 0)
+        nn.init.constant_(self.linear2.bias, 0)
+        nn.init.constant_(self.linear3.bias, 0)
+            
+        self.drop_head = nn.Dropout(0.25)
+
+        
+    def forward(self, x):
+        
+        
+        # x = self.drop_head(x)
+        
+        x = self.linear1(x)
+        x = F.relu(x)
+        x = self.linear2(x)
+        x = F.relu(x)
+        x = self.linear3(x)
+
+        return x
