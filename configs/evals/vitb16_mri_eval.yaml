@@ -48,6 +48,7 @@ optimization:
   seed: 234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
+  layer_decay: 0.75
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder

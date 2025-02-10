@@ -19,6 +19,7 @@ except Exception:
 
 import logging
 import pprint
+import platform
 
 import numpy as np
 
@@ -51,6 +52,7 @@ from src.utils.distributed import (
 from src.utils.schedulers import (
     WarmupCosineSchedule,
     CosineWDSchedule,
+    param_groups_lrd
 )
 from src.utils.logging import (
     AverageMeter,
@@ -153,6 +155,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     clip_grad_classifier = args_opt.get('clip_grad_classifier',1.0)
     betas = args_opt.get('betas', (0.9, 0.999))
     eps = args_opt.get('eps', 1.e-6) #1e-8 or 1e-7?
+    layer_decay = args_opt.get('layer_decay', None)
 
    
     # -- EXPERIMENT-ID/TAG (optional)
@@ -224,11 +227,14 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         
         if rank == 0:
             # wandb init
+            hostname = platform.node()
+            entity_name = "mgulsen2020-wandb" if hostname == "panther" else "ituvisionlab"
+            
             run = wandb.init(
                 # set the wandb project where this run will be logged
                 project="mjepa-project",
                 
-                entity="ituvisionlab",
+                entity=entity_name,
                 
                 dir=log_dir,
 
@@ -378,7 +384,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         use_bfloat16=use_bfloat16,
         frozen=frozen,
         betas=betas,
-        eps=eps)
+        eps=eps,
+        layer_decay=layer_decay)
     classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
     if not frozen:
@@ -567,6 +574,8 @@ def run_one_epoch(
  
     loader = iter(data_loader)
     data_sampler.set_epoch(epoch)
+    
+    loss = None
 
     # for itr, data in enumerate(data_loader):
     for itr in range(ipe):
@@ -960,6 +969,7 @@ def init_opt(
     frozen=True,
     betas=(0.9, 0.999),
     eps=1e-8,
+    layer_decay=None
 ):
     param_groups = [
         {
@@ -979,22 +989,29 @@ def init_opt(
     ]
     
     if not frozen:
-        param_groups.extend([
-            {
-                'params': [p for n, p in encoder.named_parameters()
-                           if ('bias' not in n) and (len(p.shape) != 1)],
-                'names': [n for n, p in encoder.named_parameters()
-                          if ('bias' not in n) and (len(p.shape) != 1)],
-            },
-            {
-                'params': [p for n, p in encoder.named_parameters()
-                           if ('bias' in n) or (len(p.shape) == 1)],
-                'names': [n for n, p in encoder.named_parameters()
-                          if ('bias' in n) or (len(p.shape) == 1)],
-                'WD_exclude': True,
-                'weight_decay': 0,
-            }
-        ])
+        
+        if layer_decay is None:
+            param_groups.extend([
+                {
+                    'params': [p for n, p in encoder.named_parameters()
+                               if ('bias' not in n) and (len(p.shape) != 1)],
+                    'names': [n for n, p in encoder.named_parameters()
+                              if ('bias' not in n) and (len(p.shape) != 1)],
+                },
+                {
+                    'params': [p for n, p in encoder.named_parameters()
+                               if ('bias' in n) or (len(p.shape) == 1)],
+                    'names': [n for n, p in encoder.named_parameters()
+                              if ('bias' in n) or (len(p.shape) == 1)],
+                    'WD_exclude': True,
+                    'weight_decay': 0,
+                }
+            ])
+        else:
+            encoder_param_groups = param_groups_lrd(encoder.model, wd, 
+                                                    no_weight_decay_list={'pos_embed', 'cls_token', 'dist_token', 'bias'},
+                                                    layer_decay=layer_decay)
+            param_groups.extend(encoder_param_groups)
 
     logger.info('Using AdamW')
     optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
