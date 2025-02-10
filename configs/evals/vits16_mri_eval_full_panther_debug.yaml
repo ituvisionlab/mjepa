@@ -1,7 +1,7 @@
 nodes: 1
 tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
-eval_name: mri_full_supervised_linear
+eval_name: video_classification_frozen
 resume_checkpoint: false #true 
 checkpoint_path: null #/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
 logging:
@@ -39,14 +39,15 @@ optimization:
   batch_size: 8
   weight_decay: 0.004
   final_weight_decay: 1.0e-4 #0.1
-  lr: 2.0e-4
-  start_lr: 3.0e-5
-  final_lr: 5.0e-6 #1.0e-6
-  warmup: 3
+  lr: 1.0e-4
+  start_lr: 1.0e-5
+  final_lr: 5.0e-7 #1.0e-6
+  warmup: 2
   use_bfloat16: true
-  seed: 234
+  seed: 1881
   train_log_iter_freq: 1
   val_log_iter_freq: 1
+  layer_decay: 0.75
 pretrain:
   model_name: vit_small
   checkpoint_key: target_encoder
