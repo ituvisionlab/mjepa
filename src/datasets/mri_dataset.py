@@ -210,6 +210,10 @@ class MRIDataset(torch.utils.data.Dataset):
         if not isinstance(volume, list): #for pretrain, volume is a tensor
             volume = self.intensity_normalize(volume)
             buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
+             #GU_ debug
+            # affine = np.eye(4)
+            # nifti_image = nib.Nifti1Image(buffer.numpy(), affine)
+            # nib.save(nifti_image, 'buffer.nii')
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
             #GU_debug
@@ -570,9 +574,20 @@ class MRIDataset(torch.utils.data.Dataset):
                 warnings.warn(e)
         clip_len = int(fpc * fstp)
 
-        if self.filter_short_videos and len(volume) < clip_len:
-            warnings.warn(f'skipping volume of length {len(volume)}')
-            return [], None
+        # if self.filter_short_videos and len(volume) < clip_len:
+        #     warnings.warn(f'skipping volume of length {len(volume)}')
+        #     return [], None
+        if len(volume) < clip_len:
+            # Convert to 0-based index
+            interpolated_indices = torch.linspace(1, len(volume), steps=clip_len).round().long() - 1  
+
+            # Clamp to ensure indices are within valid range
+            interpolated_indices = interpolated_indices.clamp(0, len(volume)-1)
+
+            # Use indexing to create the new tensor
+            volume = volume[interpolated_indices]
+
+            # print(volume.shape)  # Should be (clip_len, cropsize, cropsize)
 
         # Partition volume into equal sized segments and sample each clip
         # from a different segment

@@ -14,8 +14,8 @@ data:
   - src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 80 #96 #128 #16
-  num_segments: 2 #1 #16 #rename to num_clips
+  frames_per_clip: 16 #96 #128 #16
+  num_segments: 8 #1 #16 #rename to num_clips
   num_views_per_segment: 1
   frame_step: 1
   num_workers: 0
@@ -33,9 +33,9 @@ data_aug:
   - 1.0
   rotation_degree: 10  
 optimization:
-  attend_across_segments: false #true
+  attend_across_segments: true
   num_epochs: 400
-  resolution: 160 #192 #128
+  resolution: 192 #128
   batch_size: 16
   weight_decay: 1.0e-3 #0.01
   final_weight_decay: 1.0e-4 #1e-3#0.1
@@ -50,7 +50,7 @@ pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder
   clip_duration: null
-  frames_per_clip: 80 #128 #16
+  frames_per_clip: 128 #16
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -63,9 +63,10 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder:  /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_15_41/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_15_41/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/  #Corrupt model
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: null #jepa-latest.pth.tar #jepa-periodic-epoch-101.pth.tar # name of pretrained encoder model file inside folder
+  checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-101.pth.tar # name of pretrained encoder model file inside folder
   write_tag: jepa

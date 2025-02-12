@@ -35,12 +35,12 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 192
+  resolution: 160
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  lr: 1.0e-5
-  start_lr: 1.0e-5
+  lr: 5.0e-5
+  start_lr: 5.0e-5
   final_lr: 1.0e-7 #1.0e-6
   warmup: 0
   use_bfloat16: true
@@ -48,6 +48,9 @@ optimization:
   seed: 234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
+  layer_decay: 0.75 #null to turn it off
+  classifier_depth: 1
+  dropout: 0.25 #null to turn off
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder
@@ -61,12 +64,12 @@ pretrain:
   patch_size: 8
   frozen: false #default: true
   clip_grad_encoder: 1.0
-  encoder_warmup: 3
+  encoder_warmup: 2
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights

@@ -22,7 +22,7 @@ import pprint
 import platform
 
 import numpy as np
-
+import random
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
@@ -156,7 +156,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     betas = args_opt.get('betas', (0.9, 0.999))
     eps = args_opt.get('eps', 1.e-6) #1e-8 or 1e-7?
     layer_decay = args_opt.get('layer_decay', None)
-
+    classifier_depth = args_opt.get('classifier_depth', 1) 
+    dropout = args_opt.get('dropout', None) 
    
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
@@ -266,13 +267,18 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # Ensures seed consistency across GPUs
+    def seed_everything(seed=42):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # Only use deterministic algorithms if the function is available
+        #if hasattr(torch, "use_deterministic_algorithms"):
+        #    torch.use_deterministic_algorithms(True)
 
-    # Use deterministic mode if full reproducibility is required
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    seed_everything(seed)
 
     # Initialize model
     # -- pretrained encoder (frozen) or unfrozen
@@ -306,8 +312,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     classifier = AttentiveClassifier(
         embed_dim=encoder.embed_dim,
         num_heads=encoder.num_heads,
-        depth=1,
+        depth=classifier_depth,
         num_classes=num_classes,
+        dropout=dropout
     ).to(device)
     print("Print the classifier")
     print(classifier)
@@ -418,6 +425,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     def save_checkpoint(epoch, train_acc, val_acc, path, info_path):
         save_dict = {
+            'encoder': encoder.state_dict(),  # Save encoder state
             'classifier': classifier.state_dict(),
             'opt': optimizer.state_dict(),
             'scaler': None if scaler is None else scaler.state_dict(),
@@ -820,7 +828,7 @@ def load_checkpoint(
 def load_pretrained(
     encoder,
     pretrained,
-    checkpoint_key='target_encoder'
+    checkpoint_key='encoder' #'target_encoder'
 ):
     logger.info(f'Loading pretrained model from {pretrained}')
     checkpoint = torch.load(pretrained, map_location='cpu')
