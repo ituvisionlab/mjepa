@@ -114,7 +114,8 @@ class AttentiveClassifier(nn.Module):
         norm_layer=nn.LayerNorm,
         init_std=0.02,
         qkv_bias=True,
-        num_classes=1000,
+        num_classes=2, #1000,
+        dropout=None,
         complete_block=True,
     ):
         super().__init__()
@@ -134,9 +135,27 @@ class AttentiveClassifier(nn.Module):
         self.linear2 = nn.Linear(embed_dim//4, embed_dim//8, bias=True)
         self.linear3 = nn.Linear(embed_dim//8, num_classes, bias=True)
 
+        # Initialize linear layers
+        trunc_normal_(self.linear1.weight, std=init_std)
+        trunc_normal_(self.linear2.weight, std=init_std)
+        trunc_normal_(self.linear3.weight, std=init_std)
+        
+        nn.init.constant_(self.linear1.bias, 0)
+        nn.init.constant_(self.linear2.bias, 0)
+        nn.init.constant_(self.linear3.bias, 0)
+
+        self.drop_head = None
+        if dropout is not None:
+            self.drop_head = nn.Dropout(dropout)
+
 
     def forward(self, x):
         x = self.pooler(x).squeeze(1)
+        
+        # if dropout layer is defined
+        if self.drop_head is not None:
+            x = self.drop_head(x)
+
         # x = self.linear(x) #GU_
         x = self.linear1(x)
         x = F.relu(x)

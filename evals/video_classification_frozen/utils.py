@@ -162,7 +162,7 @@ class ClipAggregation(nn.Module):
 
 class LayerAggregation(nn.Module):
     """
-    Process each clip independently and concatenate all tokens
+    Takes last n layers of encoder features and average pools them along patch dimension
     """
 
     def __init__(
