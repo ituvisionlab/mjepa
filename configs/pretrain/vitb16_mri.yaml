@@ -1,5 +1,5 @@
 app: vjepa
-nodes: 1
+nodes: 2
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
@@ -12,14 +12,14 @@ data:
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 16
-  num_clips: 2 #8
-  num_frames: 80 #16
+  num_clips: 1 #8
+  num_frames: 128 #16
   tubelet_size: 8
   sampling_rate: 1
   crop_size: 160 #128 #192 #224
   patch_size: 8
   in_channel_size: 1
-  random_clip_sampling: true
+  random_clip_sampling: true #false
   pin_mem: true
   num_workers: 8 #12
   filter_short_videos: false

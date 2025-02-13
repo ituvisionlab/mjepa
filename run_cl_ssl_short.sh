@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=a100_short
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:a100:4
 #SBATCH --mem=256GB
 #SBATCH --nodes=1
 #SBATCH --job-name=launch
