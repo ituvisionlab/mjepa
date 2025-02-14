@@ -16,8 +16,8 @@ import torch
 import matplotlib.pyplot as plt
 
 import src.models.vision_transformer as video_vit
-import src.models.predictor as vit_pred
-from src.models.utils.multimask import MultiMaskWrapper, PredictorMultiMaskWrapper
+import src.models.decoder as vit_decoder
+from src.models.utils.multimask import MultiMaskWrapper, DecoderMultiMaskWrapper
 from src.utils.schedulers import (
     WarmupCosineSchedule,
     CosineWDSchedule)
@@ -30,8 +30,7 @@ logger = logging.getLogger()
 def load_checkpoint(
     r_path,
     encoder,
-    predictor,
-    target_encoder,
+    decoder,
     opt,
     scaler,
 ):
@@ -50,18 +49,9 @@ def load_checkpoint(
         logger.info(f'loaded pretrained encoder from epoch {epoch} with msg: {msg}')
 
         # -- loading predictor
-        pretrained_dict = checkpoint['predictor']
-        msg = predictor.load_state_dict(pretrained_dict)
+        pretrained_dict = checkpoint['decoder']
+        msg = decoder.load_state_dict(pretrained_dict)
         logger.info(f'loaded pretrained predictor from epoch {epoch} with msg: {msg}')
-
-        # -- loading target_encoder
-        if target_encoder is not None:
-            print(list(checkpoint.keys()))
-            pretrained_dict = checkpoint['target_encoder']
-            msg = target_encoder.load_state_dict(pretrained_dict)
-            logger.info(
-                f'loaded pretrained target encoder from epoch {epoch} with msg: {msg}'
-            )
 
         # -- loading optimizer
         opt.load_state_dict(checkpoint['opt'])
@@ -77,8 +67,7 @@ def load_checkpoint(
 
     return (
         encoder,
-        predictor,
-        target_encoder,
+        decoder,
         opt,
         scaler,
         epoch,
@@ -111,7 +100,7 @@ def init_video_model(
         in_chans=in_chans
     )
     encoder = MultiMaskWrapper(encoder)
-    predictor = vit_pred.__dict__['vit_predictor'](
+    decoder = vit_decoder.__dict__['vit_decoder'](
         img_size=crop_size,
         use_mask_tokens=use_mask_tokens,
         patch_size=patch_size,
@@ -125,41 +114,42 @@ def init_video_model(
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,
         use_sdpa=use_sdpa,
+        in_chans=in_chans,
     )
-    predictor = PredictorMultiMaskWrapper(predictor)
+    decoder = DecoderMultiMaskWrapper(decoder)
 
-    def init_weights(m):
-        if isinstance(m, torch.nn.Linear):
-            trunc_normal_(m.weight, std=0.02)
-            if m.bias is not None:
-                torch.nn.init.constant_(m.bias, 0)
-        elif isinstance(m, torch.nn.LayerNorm):
-            torch.nn.init.constant_(m.bias, 0)
-            torch.nn.init.constant_(m.weight, 1.0)
+    # def init_weights(m):
+    #     if isinstance(m, torch.nn.Linear):
+    #         trunc_normal_(m.weight, std=0.02)
+    #         if m.bias is not None:
+    #             torch.nn.init.constant_(m.bias, 0)
+    #     elif isinstance(m, torch.nn.LayerNorm):
+    #         torch.nn.init.constant_(m.bias, 0)
+    #         torch.nn.init.constant_(m.weight, 1.0)
 
-    for m in encoder.modules():
-        init_weights(m)
+    # for m in encoder.modules():
+    #     init_weights(m)
 
-    for m in predictor.modules():
-        init_weights(m)
+    # for m in predictor.modules():
+    #     init_weights(m)
 
     encoder.to(device)
-    predictor.to(device)
+    decoder.to(device)
     logger.info(encoder)
-    logger.info(predictor)
+    logger.info(decoder)
 
     def count_parameters(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     logger.info(f'Encoder number of parameters: {count_parameters(encoder)}')
-    logger.info(f'Predictor number of parameters: {count_parameters(predictor)}')
+    logger.info(f'Decoder number of parameters: {count_parameters(decoder)}')
 
-    return encoder, predictor
+    return encoder, decoder
 
 
 def init_opt(
     encoder,
-    predictor,
+    decoder,
     iterations_per_epoch,
     start_lr,
     ref_lr,
@@ -179,7 +169,7 @@ def init_opt(
             'params': (p for n, p in encoder.named_parameters()
                        if ('bias' not in n) and (len(p.shape) != 1))
         }, {
-            'params': (p for n, p in predictor.named_parameters()
+            'params': (p for n, p in decoder.named_parameters()
                        if ('bias' not in n) and (len(p.shape) != 1))
         }, {
             'params': (p for n, p in encoder.named_parameters()
@@ -187,7 +177,7 @@ def init_opt(
             'WD_exclude': zero_init_bias_wd,
             'weight_decay': 0,
         }, {
-            'params': (p for n, p in predictor.named_parameters()
+            'params': (p for n, p in decoder.named_parameters()
                        if ('bias' in n) or (len(p.shape) == 1)),
             'WD_exclude': zero_init_bias_wd,
             'weight_decay': 0,
@@ -245,6 +235,27 @@ def save_and_visualize_masks(masks_enc, masks_pred, epoch, itr, no_frames, width
         # Visualize the masks
         visualize_masks(mask_enc_grid, mask_pred_grid, epoch, itr, idx)
 
+def patchify_image(x, patch_size):
+    """
+    ATTENTION!!!!!!!
+    Different from 2D version patchification: The final axis follows the order of [ph, pw, pd, c] instead of [c, ph, pw, pd]
+    """
+    # patchify input, [B,C,D,H,W] --> [B,C,gd,pd,gh,ph,gw,pw] --> [B,gd*gh*gw,pd*ph*pw*C]
+    B, C, D, H, W = x.shape
+    
+    # Handle patch size as tuple or single value
+    if isinstance(patch_size, (tuple, list)):
+        ph, pw, pd = patch_size
+    else:
+        ph = pw = pd = patch_size
+        
+    grid_size = (D // pd, H // ph, W // pw)
+
+    x = x.reshape(B, C, grid_size[0], pd, grid_size[1], ph, grid_size[2], pw) # [B,C,gd,pd,gh,ph,gw,pw]
+    x = x.permute(0, 2, 4, 6, 3, 5, 7, 1).reshape(B, grid_size[0] * grid_size[1] * grid_size[2], pd * ph * pw * C) # [B,gd*gh*gw,pd*ph*pw*C]
+
+    return x
+    
 def reconstruct_mask_grid(mask_indices, width, height, no_slices):
     """
     Reconstructs the mask grid from the mask indices.

@@ -49,6 +49,7 @@ from app.mae.utils import (
     load_checkpoint,
     init_video_model,
     init_opt,
+    patchify_image,
     save_and_visualize_masks,
 )
 from app.mae.transforms import make_transforms
@@ -61,15 +62,13 @@ checkpoint_freq = 1
 # --
 
 _GLOBAL_SEED = 0
-np.random.seed(_GLOBAL_SEED)
-torch.manual_seed(_GLOBAL_SEED)
-torch.backends.cudnn.benchmark = True
+#np.random.seed(_GLOBAL_SEED)
+#torch.manual_seed(_GLOBAL_SEED)
+#torch.backends.cudnn.benchmark = True
 
 
 logger = get_logger(__name__)
 
-
-# def main(args, resume_preempt=False, log_writer=None):
 def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
@@ -137,8 +136,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     ar_range = cfgs_data_aug.get('random_resize_aspect_ratio', [1, 1])
     rr_scale = cfgs_data_aug.get('random_resize_scale', [0.9, 1.0])
     rot_degree = cfgs_data_aug.get('rotation_degree', 0.0)
-    motion_shift = cfgs_data_aug.get('motion_shift', False)
-    reprob = cfgs_data_aug.get('reprob', 0.)
+    random_noise = cfgs_data_aug.get('random_noise', 0.025)
+    random_bias = cfgs_data_aug.get('random_bias', 0.2)
+    intensity_gamma = cfgs_data_aug.get('intensity_gamma', 0.2)
+    motion_shift = cfgs_data_aug.get('motion_shift', False) #unused
+    reprob = cfgs_data_aug.get('reprob', 0.) # unused
     use_aa = cfgs_data_aug.get('auto_augment', False)
 
     # -- LOSS
@@ -160,7 +162,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     final_lr = cfgs_opt.get('final_lr')
     ema = cfgs_opt.get('ema')
     betas = cfgs_opt.get('betas', (0.9, 0.999))
-    eps = cfgs_opt.get('eps', 1.e-8)
+    eps = cfgs_opt.get('eps', 1.e-8) #1e-7
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -211,10 +213,14 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
-
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.backends.cudnn.benchmark = True
+    torch.cuda.manual_seed_all(seed)  # Ensures seed consistency across GPUs
+
+    # Use deterministic mode if full reproducibility is required
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     try:
         mp.set_start_method('spawn')
     except Exception:
@@ -276,9 +282,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             run = None
         
         # Tensorboard logging
-        tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
-        os.makedirs(tb_rank_folder, exist_ok=True)
-        log_writer = torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
+        #tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
+        #os.makedirs(tb_rank_folder, exist_ok=True)
+        log_writer = None # torch.utils.tensorboard.SummaryWriter(tb_rank_folder)
         
         # -- make csv_logger
         log_file = os.path.join(csv_folder, f'{tag}_r{rank}.csv')
@@ -287,10 +293,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             ('%d', 'epoch'),
             ('%d', 'itr'),
             ('%.5f', 'loss'),
-            ('%.5f', 'loss-mae'),
+            ('%.5f', 'loss-jepa'),
             ('%.5f', 'reg-loss'),
             ('%.5f', 'enc-grad-norm'),
-            ('%.5f', 'dec-grad-norm'),
+            ('%.5f', 'pred-grad-norm'),
             ('%d', 'gpu-time(ms)'),
             ('%d', 'wall-time(ms)'),
         )
@@ -319,7 +325,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         in_chans=in_chans,
         use_sdpa=use_sdpa,
     )
-    target_encoder = copy.deepcopy(encoder)
 
     # -- make data transforms
     if mask_type == 'multiblock3d':
@@ -346,7 +351,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         reprob=reprob,
         auto_augment=use_aa,
         motion_shift=motion_shift,
-        crop_size=crop_size)
+        crop_size=crop_size,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise)
 
     # -- init data-loaders/samplers
     (unsupervised_loader,
@@ -385,7 +393,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- init optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         encoder=encoder,
-        predictor=predictor,
+        decoder=decoder,
         wd=wd,
         final_wd=final_wd,
         start_lr=start_lr,
@@ -399,10 +407,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         betas=betas,
         eps=eps)
     encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
-    predictor = DistributedDataParallel(predictor, static_graph=True, gradient_as_bucket_view=True)
-    target_encoder = DistributedDataParallel(target_encoder, gradient_as_bucket_view=True)
-    for p in target_encoder.parameters():
-        p.requires_grad = False
+    decoder = DistributedDataParallel(decoder, static_graph=True, gradient_as_bucket_view=True)
 
     # -- momentum schedule
     momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
@@ -414,16 +419,14 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     if load_model and os.path.exists(load_path):
         (
             encoder,
-            predictor,
-            target_encoder,
+            decoder,
             optimizer,
             scaler,
             start_epoch,
         ) = load_checkpoint(
             r_path=load_path,
             encoder=encoder,
-            predictor=predictor,
-            target_encoder=target_encoder,
+            decoder=decoder,
             opt=optimizer,
             scaler=scaler)
         for _ in range(start_epoch * ipe):
@@ -437,10 +440,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             return
         save_dict = {
             'encoder': encoder.state_dict(),
-            'predictor': predictor.state_dict(),
+            'decoder': decoder.state_dict(),
             'opt': optimizer.state_dict(),
             'scaler': None if scaler is None else scaler.state_dict(),
-            'target_encoder': target_encoder.state_dict(),
             'epoch': epoch,
             'loss': loss_meter.avg,
             'batch_size': batch_size,
@@ -458,8 +460,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     logger.info('Initializing loader...')
     loader = iter(unsupervised_loader)
 
-    # print(f'Number of samples in dataset: {len(loader.dataset)}')
-
     if skip_batches > 0:
         logger.info(f'Skip {skip_batches} batches')
         unsupervised_sampler.set_epoch(start_epoch)
@@ -476,7 +476,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
-        logger.info('Epoch %d' % (epoch + 1))
+        if rank == 0:
+            logger.info('Epoch %d' % (epoch + 1))
 
         # -- update distributed-data-loader epoch
         unsupervised_sampler.set_epoch(epoch)
@@ -540,33 +541,24 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 _new_wd = wd_scheduler.step()
                 # --
 
-                def forward_target(c):
-                    """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
-                    """
-                    with torch.no_grad():
-                        h = target_encoder(c)
-                        h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]
-                        # -- create targets (masked regions of h)
-                        h = apply_masks(h, masks_pred, concat=False)
-                        return h
-
-                def forward_context(c, h):
+                def forward_context(c):
                     """
                     Returns list of tensors of shape [B, N, D], one for each
                     mask-pred.
                     """
                     z = encoder(c, masks_enc)
-                    z = predictor(z, h, masks_enc, masks_pred)
+                    z = decoder(z, masks_enc, masks_pred)
+                    
                     return z
 
-                def loss_fn(z, h):
-                    loss = 0.
-                    # Compute loss and accumulate for each mask-enc/mask-pred pair
-                    for zi, hi in zip(z, h):
-                        loss += torch.mean(torch.abs(zi - hi)**loss_exp) / loss_exp
-                    loss /= len(masks_pred)
+                def loss_fn(z, c):
+                    patches = patchify_image(c, patch_size)
+                    
+                    # get only target patches
+                    target_patches = apply_masks(patches, masks_pred)
+                    
+                    loss = torch.mean(torch.abs(z - target_patches)**loss_exp) / loss_exp
+                    
                     return loss
 
                 def reg_fn(z):
@@ -575,9 +567,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # Step 1. Forward
                 loss_jepa, loss_reg = 0., 0.
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
-                    h = forward_target(clips)
-                    z = forward_context(clips, h)
-                    loss_jepa = loss_fn(z, h)  # jepa prediction loss
+                    z = forward_context(clips)
+                    loss_jepa = loss_fn(z, clips)  # jepa prediction loss
                     pstd_z = reg_fn(z)  # predictor variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
                 loss = loss_jepa + reg_coeff * loss_reg
@@ -591,7 +582,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss.backward()
                 if (epoch > warmup) and (clip_grad is not None):
                     _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
-                    _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
+                    _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
                 if mixed_precision:
                     scaler.step(optimizer)
                     scaler.update()
@@ -599,16 +590,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     optimizer.step()
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
-                grad_stats_pred = grad_logger(predictor.named_parameters())
+                grad_stats_pred = grad_logger(decoder.named_parameters())
                 grad_stats_pred.global_norm = float(_pred_norm)
                 optimizer.zero_grad()
                 optim_stats = adamw_logger(optimizer)
-
-                # Step 3. momentum update of target encoder
-                m = next(momentum_scheduler)
-                with torch.no_grad():
-                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
-                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
                 return (
                     float(loss),
@@ -633,7 +618,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             wall_time_meter.update(iter_elapsed_time_ms)
             
             # Release memory
-            
             del clips
             torch.cuda.empty_cache()
 
@@ -651,15 +635,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     iter_elapsed_time_ms)
                 
                 # Tensorboard logging
-                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
-                log_writer.flush()
+                # log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
+                # log_writer.flush()
                 
                 
                 # Wandb logging
@@ -761,10 +745,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()
-
-        # SUBMIT A Classifier Evaluation Periodically
-        #if epoch % 150 == 0:
-        #    subprocess.call(['sbatch', './test.sh']) 
 
     if run != None:
         run.finish()
