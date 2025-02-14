@@ -1,4 +1,4 @@
-nodes: 1
+nodes: 2
 tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
 eval_name: video_classification_frozen
@@ -35,13 +35,13 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 160 #192
+  resolution: 192 #160 #192
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  lr: 1.0e-4 #5.0e-5 #1.0e-5
-  start_lr: 1.0e-6 #5.0e-5 #1.0e-5
-  final_lr: 1.0e-6 #1.0e-7
+  lr: 5.0e-5 #1.0e-4 #5.0e-5 #1.0e-5
+  start_lr: 1.0e-5 #1.0e-6 #5.0e-5 #1.0e-5
+  final_lr: 1.0e-7 #1.0e-6 
   warmup: 10
   use_bfloat16: true
   clip_grad_classifier: 10.0
@@ -55,7 +55,7 @@ pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder
   clip_duration: null
-  frames_per_clip: 128 #192
+  frames_per_clip: 128
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -68,7 +68,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
