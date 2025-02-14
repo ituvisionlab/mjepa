@@ -7,7 +7,20 @@
 
 import torch
 import torchvision.transforms as transforms
+
 import torchio as tio
+import numpy as np
+import nibabel as nib
+
+# from monai.transforms import (
+#     Compose,
+#     RandAffine,
+#     RandFlip,
+#     Rand3DElastic,
+#     EnsureChannelFirst,
+#     ToTensorD
+# )
+
 import random
 import src.datasets.utils.video.transforms as video_transforms
 from src.datasets.utils.video.randerase import RandomErasing
@@ -23,6 +36,9 @@ def make_transforms(
     auto_augment=False,
     motion_shift=False,
     crop_size= 224,
+    intensity_gamma=0.2,
+    random_bias=0.2,
+    random_noise=0.025,
     #normalize=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     normalize=((0.0),(1))
 ):
@@ -34,7 +50,10 @@ def make_transforms(
         auto_augment=auto_augment,
         crop_size=crop_size,
         random_resize_scale=random_resize_scale,
-        rot_degree = rot_degree
+        rot_degree = rot_degree,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise
     )
     return _frames_augmentation
 
@@ -48,6 +67,9 @@ class MRITransform(object):
         rot_degree = 0.0, 
         auto_augment=False,
         crop_size=224,
+        intensity_gamma=0.2,
+        random_bias=0.2,
+        random_noise=0.025,
     ):
         self.random_horizontal_flip = random_horizontal_flip
         self.random_resize_aspect_ratio = random_resize_aspect_ratio
@@ -56,7 +78,73 @@ class MRITransform(object):
         self.auto_augment = auto_augment
         self.crop_size = crop_size
         self.crop_retention=random_resize_scale[0]
+        self.intensity_gamma=intensity_gamma
+        self.random_bias=random_bias
+        self.random_noise=random_noise
   
+    def __call__(self, buffer):
+
+        buffer = torch.tensor(buffer, dtype=torch.float32)
+        # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
+        
+        if self.auto_augment:
+            # buffer = np.transpose(buffer, (3, 1, 2, 0))  # T H W C -> C H W T
+            # Permute to shape C H W T for TorchIO compatibility
+            buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+            
+            # Define the MRI spatial transformation list
+            spatial_transforms = {
+                tio.RandomAffine(
+                    scales=self.random_resize_aspect_ratio,
+                    degrees=self.rot_degree,
+                ),  # Random affine transformation
+
+                tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
+
+                tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
+            }
+
+            # Define the MRI intensity transformation list
+            intensity_transforms = {
+                tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
+
+                tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
+
+                tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
+            }
+            # Combine MRI spatial transforms using OneOf
+            # transform = tio.OneOf(transforms_dict)
+            # buffer = transform(buffer)
+
+            # Combine spatial and intensity transforms using OneOf
+            spatial_transform = tio.OneOf(spatial_transforms)
+            intensity_transform = tio.OneOf(intensity_transforms)
+
+            # Apply the transforms
+            buffer = spatial_transform(buffer)
+            buffer = intensity_transform(buffer)
+    
+            # Permute back to original shape T H W C
+            buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
+
+
+        # if self.auto_augment:
+        #     buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+        #     # Apply transformations to the buffer
+        #     buffer = transforms(buffer)
+
+        #     buffer = buffer.permute(3, 1, 2, 0)  # C H W T -> T H W C
+            
+        #GU_ debug
+        # mid_slice_index = buffer.shape[0] // 2  # Compute the middle slice index along the temporal axis
+        # plt.imsave('xformedBuffer.png', buffer[mid_slice_index, :, :,0].cpu().numpy(), cmap='gray')
+        #GU_ debug
+        # affine = np.eye(4)
+        # nifti_image = nib.Nifti1Image(buffer.numpy(), affine)
+        # nib.save(nifti_image, 'xformed_volume.nii')
+
+        return buffer
+
     def custom_center_crop(self):
         """
         Creates a custom center crop transform that retains 90-100% of the input size
@@ -90,41 +178,6 @@ class MRITransform(object):
                 return resized_buffer
 
         return CenterCropAndResizeTransform(self.crop_retention)
-
-    def __call__(self, buffer):
-
-        buffer = torch.tensor(buffer, dtype=torch.float32)
-        # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
-        
-        if self.auto_augment:
-            buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
-            
-            # Define the MRI transformation list 
-            transforms_dict = {
-                tio.RandomAffine(
-                    scales=self.random_resize_aspect_ratio,
-                    degrees=self.rot_degree,
-                ),  # No weight specified
-
-                tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
-
-                # self.custom_center_crop(),  # Custom center crop retaining 90-100% of data
-
-                tio.RandomElasticDeformation(num_control_points=9),
-            }
-            # Combine MRI transforms using OneOf
-            transform = tio.OneOf(transforms_dict)
-
-            buffer = transform(buffer)
-       
-            # buffer = buffer.permute(0, 3, 1, 2)  # C H W T ->  C T H W
-            buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
-            
-        #GU_ debug
-        # plt.imsave('xformedBuffer.png', buffer[0][100, :, :], cmap='gray') 
-
-        return buffer
-
 
 class VideoTransform(object):
 
