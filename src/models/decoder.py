@@ -107,7 +107,7 @@ class VisionTransformerDecoder(nn.Module):
 
         # Normalize & project back to input dimension
         self.predictor_norm = norm_layer(predictor_embed_dim)
-        self.predictor_proj = nn.Linear(predictor_embed_dim, patch_size**2 * in_chans, bias=True)
+        self.predictor_proj = nn.Linear(predictor_embed_dim, tubelet_size*(patch_size**2) * in_chans, bias=True)
 
         # ------ initialize weights
         if self.predictor_pos_embed is not None:
@@ -152,26 +152,6 @@ class VisionTransformerDecoder(nn.Module):
             rescale(layer.attn.proj.weight.data, layer_id + 1)
             rescale(layer.mlp.fc2.weight.data, layer_id + 1)
 
-    def diffusion(self, x, noise_beta=(0.5, 1.0), steps=1000):
-
-        # Prepare diffusion noise schedule
-        b1, b2 = noise_beta
-        beta_scheduler = (b1 + i*(b2-b1)/steps for i in range(steps))
-        alpha_scheduler = []
-        _alpha = 1.0
-        for _beta in beta_scheduler:
-            _alpha *= 1.-_beta
-            alpha_scheduler += [_alpha]
-
-        # Sample diffusion time step
-        T = torch.randint(0, steps, (len(x),))
-        alpha = torch.tensor(alpha_scheduler, device=x.device)[T].unsqueeze(-1).unsqueeze(-1)
-
-        # Normalize features and apply noise
-        x = torch.nn.functional.layer_norm(x, (x.size(-1),))
-        x = alpha**0.5 * x + (1.-alpha)**0.5 * torch.randn(x.shape, device=x.device)
-        return x
-
     def forward(self, ctxt, masks_ctxt, masks_tgt, mask_index=1):
         """
         :param ctxt: context tokens
@@ -190,7 +170,7 @@ class VisionTransformerDecoder(nn.Module):
         # Batch Size
         B = len(ctxt) // len(masks_ctxt)
 
-        # Map context tokens to pedictor dimensions
+        # Map context tokens to decoder dimensions
         x = self.predictor_embed(ctxt)
         _, N_ctxt, D = x.shape
 
@@ -199,7 +179,7 @@ class VisionTransformerDecoder(nn.Module):
             ctxt_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
             x += apply_masks(ctxt_pos_embed, masks_ctxt)
 
-        # Map target tokens to predictor dimensions & add noise (fwd diffusion)
+        # Map target tokens to decoder dimensions
         mask_index = mask_index % self.num_mask_tokens
         pred_tokens = self.mask_tokens[mask_index]
         pred_tokens = pred_tokens.repeat(B, self.num_patches, 1)
@@ -214,7 +194,7 @@ class VisionTransformerDecoder(nn.Module):
 
         # Concatenate context & target tokens
         x = x.repeat(len(masks_tgt), 1, 1)
-        x = torch.cat([x, pred_tokens], dim=1)
+        x = torch.cat([x, pred_tokens], dim=1) #x visible embed., pred_token: mask token.
 
         # FIXME: this implementation currently assumes masks_ctxt and masks_tgt
         # are alligned 1:1 (ok with MultiMask wrapper on predictor but

@@ -16,10 +16,10 @@ data:
   num_frames: 128 #16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 160 #128 #192 #224
+  crop_size: 128 #160 #192 #224
   patch_size: 8
   in_channel_size: 1
-  random_clip_sampling: true #false
+  random_clip_sampling: false
   pin_mem: true
   num_workers: 8 #12
   filter_short_videos: false
@@ -40,9 +40,9 @@ data_aug:
   reprob: 0.0
 logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
-  write_tag: jepa
+  write_tag: mae
 loss:
-  loss_exp: 1.0
+  loss_exp: 2.0 #1.0
   reg_coeff: 0.0
 mask:
   - aspect_ratio:
@@ -79,22 +79,19 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_base
-  pred_depth: 8 #6
-  pred_embed_dim: 512
+  pred_depth: 12 #8
+  pred_embed_dim: 768
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
-  zero_init_mask_tokens: true
+  zero_init_mask_tokens: false #true
 optimization:
   ipe: 300
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 1000
+  epochs: 500
   warmup: 20
   start_lr: 3.0e-5 #5e-05
   lr: 2.0e-4 #1.0e-4
   final_lr: 5.0e-6 #1.0e-6
-  ema:
-  - 0.998
-  - 1.0
