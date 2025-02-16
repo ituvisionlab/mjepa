@@ -169,8 +169,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # folder = cfgs_logging.get('folder')
     tag = cfgs_logging.get('write_tag')
     
-    # jepa_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
-    jepa_ckpt_folder = cfgs_meta.get("ckpt_folder", "src/models/pretrained_weights")
+    # mae_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
+    mae_ckpt_folder = cfgs_meta.get("ckpt_folder", "src/models/pretrained_weights")
     
     if log_dir != None:
         model_folder = os.path.join(log_dir, "model_ckpt")
@@ -240,7 +240,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- load pretrained model path
     load_path = None
     if load_model:
-        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None #latest_path
+        load_path = os.path.join(mae_ckpt_folder, r_file) if r_file is not None else None #latest_path
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
@@ -293,7 +293,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             ('%d', 'epoch'),
             ('%d', 'itr'),
             ('%.5f', 'loss'),
-            ('%.5f', 'loss-jepa'),
+            ('%.5f', 'loss-mae'),
             ('%.5f', 'reg-loss'),
             ('%.5f', 'enc-grad-norm'),
             ('%.5f', 'pred-grad-norm'),
@@ -409,10 +409,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
     decoder = DistributedDataParallel(decoder, static_graph=True, gradient_as_bucket_view=True)
 
-    # -- momentum schedule
-    momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
-                          for i in range(int(ipe*num_epochs*ipe_scale)+1))
-
     start_epoch=0
     # -- load training checkpoint
     # if load_model or os.path.exists(load_path):
@@ -432,7 +428,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         for _ in range(start_epoch * ipe):
             scheduler.step()
             wd_scheduler.step()
-            next(momentum_scheduler)
             mask_collator.step()
 
     def save_checkpoint(epoch, path, info_path):
@@ -485,7 +480,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         loss_meter = AverageMeter()
         input_var_meter = AverageMeter()
         input_var_min_meter = AverageMeter()
-        jepa_loss_meter = AverageMeter()
+        mae_loss_meter = AverageMeter()
         reg_loss_meter = AverageMeter()
         mask_meters = [AverageMeter() for _ in range(len(cfgs_mask))]
         gpu_time_meter = AverageMeter()
@@ -553,25 +548,28 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 def loss_fn(z, c):
                     patches = patchify_image(c, patch_size)
-                    
+
                     # get only target patches
-                    target_patches = apply_masks(patches, masks_pred)
-                    
-                    loss = torch.mean(torch.abs(z - target_patches)**loss_exp) / loss_exp
-                    
+                    target_patches = apply_masks(patches, masks_pred, concat=False) #returns a list w/concat false
+                                        
+                    loss = 0.
+                    # Compute loss and accumulate for each mask-enc/mask-pred pair
+                    for zi, ti in zip(z, target_patches):
+                        loss += torch.mean(torch.abs(zi - ti)**loss_exp) / loss_exp
+                    loss /= len(masks_pred)                   
                     return loss
 
                 def reg_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
 
                 # Step 1. Forward
-                loss_jepa, loss_reg = 0., 0.
+                loss_mae, loss_reg = 0., 0.
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
-                    z = forward_context(clips)
-                    loss_jepa = loss_fn(z, clips)  # jepa prediction loss
-                    pstd_z = reg_fn(z)  # predictor variance across patches
+                    c_hat = forward_context(clips)
+                    loss_mae = loss_fn(c_hat, clips)  # mae prediction loss
+                    pstd_z = reg_fn(c_hat)  # output variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
-                loss = loss_jepa + reg_coeff * loss_reg
+                loss = loss_mae + reg_coeff * loss_reg
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -597,7 +595,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 return (
                     float(loss),
-                    float(loss_jepa),
+                    float(loss_mae),
                     float(loss_reg),
                     _new_lr,
                     _new_wd,
@@ -605,14 +603,14 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     grad_stats_pred,
                     optim_stats,
                 )
-            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_mae, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
             input_var_min = float(AllReduce.apply(torch.min(clips.view(clips.shape[0], -1).var(dim=1))))
             input_var_meter.update(input_var)
             input_var_min_meter.update(input_var_min)
-            jepa_loss_meter.update(loss_jepa)
+            mae_loss_meter.update(loss_mae)
             reg_loss_meter.update(loss_reg)
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
@@ -627,7 +625,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     epoch + 1,
                     itr,
                     loss,
-                    loss_jepa,
+                    loss_mae,
                     loss_reg,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
@@ -636,7 +634,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 # Tensorboard logging
                 # log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/loss_jepa', loss_jepa, (epoch * ipe) + itr)
+                # log_writer.add_scalar('train/loss_mae', loss_mae, (epoch * ipe) + itr)
                 # log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
                 # log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
                 # log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
@@ -650,7 +648,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 if run != None and rank == 0:
                     run.log({
                             'train/loss': loss,
-                            'train/loss_jepa': loss_jepa,
+                            'train/loss_mae': loss_mae,
                             'train/loss_reg': loss_reg,
                             'train/global_norm': grad_stats.global_norm,
                             'train/pred_global_norm': grad_stats_pred.global_norm,
@@ -672,7 +670,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         '[wall: %.1f ms]'
                         % (epoch + 1, itr,
                            loss_meter.avg,
-                           jepa_loss_meter.avg,
+                           mae_loss_meter.avg,
                            reg_loss_meter.avg,
                            input_var_meter.avg,
                            input_var_min_meter.avg,

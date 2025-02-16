@@ -175,7 +175,7 @@ def launch_app_with_parsed_args(
     logger.info(f"partition: {partition}")
     
     # Create log folder for the experiment
-    log_dir = get_new_log_dir(args_for_pretrain[0]['logging']['folder'], prefix=f'mjepa_pretrain_distributed_', postfix='')
+    log_dir = get_new_log_dir(args_for_pretrain[0]['logging']['folder'], prefix=f'{args_for_pretrain[0]["app"]}_pretrain_distributed_', postfix='')
 
     if args_fname != None:
         yaml_params = None
