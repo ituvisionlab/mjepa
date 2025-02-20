@@ -6,12 +6,10 @@
 #
 
 import math
-
 from multiprocessing import Value
-
 from logging import getLogger
-
 import torch
+from torch.utils.data import get_worker_info
 
 _GLOBAL_SEED = 0
 logger = getLogger()
@@ -75,11 +73,32 @@ class _MaskGenerator(object):
         spatial_pred_mask_scale=(0.2, 0.8),
         temporal_pred_mask_scale=(1.0, 1.0),
         aspect_ratio=(0.3, 3.0),
-        npred=1,
+        npred=0.5, #1 GU_Debug, changed this to a ratio of masked patches
         max_context_frames_ratio=1.0,
         max_keep=None,
     ):
         super(_MaskGenerator, self).__init__()
+      
+        #seed = self.step() #GU_
+        # seed = torch.initial_seed() # Obtain the initial seed for the current worker
+        # self.g = torch.Generator()
+        # self.g.manual_seed(seed)
+        # Create a shared counter BEFORE seeding.
+        # In distributed settings each DataLoader worker has its own info.
+        worker_info = get_worker_info()
+        worker_id = worker_info.id if worker_info is not None else 0
+
+        # Compute a base seed unique per worker.
+        self.base_seed = (torch.initial_seed() + worker_id) #% (2**32)
+        # A simple Python counter for per-call variation.
+        self.call_count = 0
+        # Create a per-worker counter.
+        # self._itr_counter = Value('i', -1)
+        # # Initialize the generator with the worker's base seed.
+        # self.g = torch.Generator()
+        # self.g.manual_seed(self.base_seed)
+
+
         if not isinstance(crop_size, tuple):
             crop_size = (crop_size, ) * 2
         self.crop_size = crop_size
@@ -92,17 +111,31 @@ class _MaskGenerator(object):
         self.aspect_ratio = aspect_ratio
         self.spatial_pred_mask_scale = spatial_pred_mask_scale
         self.temporal_pred_mask_scale = temporal_pred_mask_scale
-        self.npred = npred
+        self.npred = int(npred * self.height * self.width * self.duration) #GU_DEBUG, use npred as a ratio of masking
         self.max_context_duration = max(1, int(self.duration * max_context_frames_ratio))  # maximum number of time-steps (frames) spanned by context mask
         self.max_keep = max_keep  # maximum number of patches to keep in context
-        self._itr_counter = Value('i', -1)  # collator is shared across worker processes
+    
 
-    def step(self):
-        i = self._itr_counter
-        with i.get_lock():
-            i.value += 1
-            v = i.value
-        return v
+    # def step(self):
+    #     i = self._itr_counter
+    #     with i.get_lock():
+    #         i.value += 1
+    #         v = i.value
+    #     return v
+    # def step(self):
+    #     # Increment the counter so that each call produces a different offset.
+    #     with self._itr_counter.get_lock():
+    #         self._itr_counter.value += 1
+    #         # Return the new seed as base_seed plus the counter offset.
+    #         return self.base_seed + self._itr_counter.value
+    def _create_local_generator(self):
+        """Create a new generator for each call based on the worker-specific base seed and a per-call counter."""
+        self.call_count += 1
+        new_seed = (self.base_seed + self.call_count) #% (2**32)
+        local_g = torch.Generator()
+        local_g.manual_seed(new_seed)
+        return local_g
+
 
     def _sample_block_size(
         self,
@@ -134,6 +167,9 @@ class _MaskGenerator(object):
         h = min(h, self.height)
         w = min(w, self.width)
 
+        #GU_Debug: Override the above
+        h = w = spatial_scale[0]
+        t = temporal_scale[0]
         return (t, h, w)
 
      #GU_
@@ -175,12 +211,15 @@ class _MaskGenerator(object):
         # 2. sample several pred block locations for each image (w/o seed)
         # 3. return pred masks and complement (enc mask)
         """
-        #seed = self.step() #GU_
-        seed = torch.initial_seed() # Obtain the initial seed for the current worker
-        g = torch.Generator()
-        g.manual_seed(seed)
+        # Update generator seed based on the worker's initial seed plus a per-call offset.
+        #new_seed = self.step()
+        #self.g.manual_seed(new_seed)
+
+        # Create a new generator for this call.
+        local_g = self._create_local_generator()
+
         p_size = self._sample_block_size(
-            generator=g,
+            generator=local_g,
             temporal_scale=self.temporal_pred_mask_scale,
             spatial_scale=self.spatial_pred_mask_scale,
             aspect_ratio_scale=self.aspect_ratio,
@@ -195,7 +234,7 @@ class _MaskGenerator(object):
 
             mask_e = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
             for _ in range(self.npred):
-                mask_e *= self._sample_block_mask(p_size, generator=g) #GU_ All random functions will use the same generator g, ensuring consistent and random mask generation within each worker.
+                mask_e *= self._sample_block_mask(p_size, generator=local_g) #GU_ All random functions will use the same generator g, ensuring consistent and random mask generation within each worker.
             mask_e = mask_e.flatten()
 
             mask_p = torch.argwhere(mask_e == 0).squeeze()

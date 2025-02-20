@@ -1,4 +1,4 @@
-app: mae
+app: vjepa
 nodes: 2
 tasks_per_node: 4  #1
 data:
@@ -11,17 +11,17 @@ data:
   - src/datasets/mood_all_nii_with_bbox.csv
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 32
+  batch_size: 32 #16
   num_clips: 1 #8
-  num_frames: 192 #16
+  num_frames: 192 #128 #16
   tubelet_size: 16 #8
   sampling_rate: 1
-  crop_size: 192 #128 #160 #192 #224
+  crop_size: 192 #160 #128 #192 #224
   patch_size: 16 #8
   in_channel_size: 1
-  random_clip_sampling: false
+  random_clip_sampling: true #false
   pin_mem: true
-  num_workers: 8 #8 #12
+  num_workers: 8 #12
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -40,46 +40,61 @@ data_aug:
   reprob: 0.0
 logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
-  write_tag: mae
+  write_tag: jepa
 loss:
-  loss_exp: 2.0 #1.0
+  loss_exp: 1.0
   reg_coeff: 0.0
 mask:
   - aspect_ratio:
-      - 1.0
-      - 1.0
-    num_blocks: 0.7
+      - 0.75
+      - 1.5
+    num_blocks: 8
     spatial_scale:
-      - 1
-      - 1
+      - 0.15
+      - 0.15
     temporal_scale:
-      - 1
-      - 1
+      - 1.0
+      - 1.0
+    max_temporal_keep: 1.0
+    max_keep: null
+  - aspect_ratio:
+      - 0.75
+      - 1.5
+    num_blocks: 2
+    spatial_scale:
+      - 0.7
+      - 0.7
+    temporal_scale:
+      - 1.0
+      - 1.0
     max_temporal_keep: 1.0
     max_keep: null
 meta:
   load_checkpoint: false
   read_checkpoint: null # vitl16.pth.tar # null #r_file
   ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
-  seed: 1881 #234
+  seed: 234
   eval_freq: 100
   use_sdpa: true
   dtype: bfloat16
 model:
   model_name: vit_base
-  pred_depth: 12 #8
-  pred_embed_dim: 768
+  pred_depth: 8 #6
+  pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
-  zero_init_mask_tokens: false #true
+  zero_init_mask_tokens: true
 optimization:
   ipe: 300
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 500
+  epochs: 1000
   warmup: 20
-  start_lr: 3.0e-5 #3e-05
+  start_lr: 3.0e-5 #5e-05
   lr: 2.0e-4 #1.0e-4
   final_lr: 5.0e-6 #1.0e-6
+  ema:
+  - 0.998
+  - 1.0

@@ -153,7 +153,7 @@ def launch_evals_with_parsed_args(
         executor.update_parameters(slurm_exclude=exclude_nodes)
 
      # Create log folder for the experiment
-    log_dir = get_new_log_dir(args_for_evals[0]['logging']['folder'], prefix=f'mjepa_eval_distributed_', postfix='')
+    log_dir = get_new_log_dir(args_for_evals[0]['logging']['folder'], prefix=f'{args_for_evals[0]["write_tag"]}, postfix='')
     
     if args_fname != None:
         yaml_params = None

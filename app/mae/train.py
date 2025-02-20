@@ -30,6 +30,7 @@ from torch.nn.parallel import DistributedDataParallel, DataParallel
 import torch.utils.tensorboard
 import wandb
 import subprocess
+import nibabel as nib
 
 from src.datasets.data_manager import init_data
 from src.masks.random_tube import MaskCollator as TubeMaskCollator
@@ -50,6 +51,7 @@ from app.mae.utils import (
     init_video_model,
     init_opt,
     patchify_image,
+    unpatchify_image,
     save_and_visualize_masks,
 )
 from app.mae.transforms import make_transforms
@@ -163,6 +165,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     ema = cfgs_opt.get('ema')
     betas = cfgs_opt.get('betas', (0.9, 0.999))
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
+    drop_rate = cfgs_opt.get('drop_rate', 0.1)
+    attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -324,6 +328,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         pred_embed_dim=pred_embed_dim,
         in_chans=in_chans,
         use_sdpa=use_sdpa,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
 
     # -- make data transforms
@@ -558,6 +564,90 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         loss += torch.mean(torch.abs(zi - ti)**loss_exp) / loss_exp
                     loss /= len(masks_pred)                   
                     return loss
+                
+                def reconstruct_image(z, c):
+                    # c: original video/image, z: reconstructed patches for each mask level
+                    patches = patchify_image(c, patch_size)
+                    # get only unmasked patches from the image for each mask level.
+                    nonmasked_patches = apply_masks(patches, masks_enc, concat=False)  # returns a list
+                    
+                    imgs = []
+                    # For each mask level, pass the corresponding mask indices.
+                    for level, (recon_tokens, unmask_tokens) in enumerate(zip(z, nonmasked_patches)):
+                        imgs.append(
+                            unpatchify_image(
+                                recon_tokens,
+                                unmask_tokens,
+                                patch_size,
+                                tubelet_size,
+                                num_frames,
+                                in_chans,
+                                crop_size,
+                                masks_enc[level],  # use mask for the current level
+                                masks_pred[level]  # use mask for the current level
+                            )
+                        )
+                    return imgs
+
+                def reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size):
+                    """
+                    Create a binary 3D volume for each mask level, showing the locations of the masked patches.
+                    
+                    Args:
+                        masks_pred (list of torch.Tensor): List of tensors, one per mask level.
+                            Each tensor should have shape (B, L_masked). We use the first sample in the batch.
+                        patch_size (int): Spatial patch size.
+                        tubelet_size (int): Temporal patch (tubelet) size.
+                        num_frames (int): Total number of frames in the video.
+                        crop_size (int): Spatial crop size (assumed square).
+                    
+                    Returns:
+                        volumes (list of torch.Tensor): A list of 3D binary volumes (one per mask level),
+                            each of shape (num_frames, crop_size, crop_size). Masked patches are marked with 1.
+                    """
+                    # Compute grid sizes.
+                    grid_spatial = crop_size // patch_size   # number of patches per spatial dimension
+                    grid_temporal = num_frames // tubelet_size  # number of patch blocks along temporal dimension
+                    
+                    volumes = []
+                    
+                    # For each mask level...
+                    for level in range(len(masks_pred)):
+                        # Select the masked patch indices for the first sample in the batch.
+                        # They should be indices in the range [0, grid_temporal * grid_spatial * grid_spatial).
+                        mask_pred_level = masks_pred[level][0]  # shape: (L_masked,)
+                        
+                        # Create an empty volume: (num_frames, crop_size, crop_size)
+                        vol = torch.zeros(num_frames, crop_size, crop_size, dtype=torch.uint8)
+                        
+                        # For each patch index, compute its grid coordinates and set the corresponding block to 1.
+                        for idx in mask_pred_level:
+                            # Make sure idx is an integer
+                            idx = int(idx.item()) if isinstance(idx, torch.Tensor) else int(idx)
+                            
+                            # Determine which patch block (in the grid) this index corresponds to.
+                            # Total patches per temporal slice is grid_spatial * grid_spatial.
+                            t_idx = idx // (grid_spatial * grid_spatial)  # which temporal patch block
+                            rem = idx % (grid_spatial * grid_spatial)
+                            r_idx = rem // grid_spatial  # row in the patch grid
+                            c_idx = rem % grid_spatial   # column in the patch grid
+                            
+                            # Convert grid indices to pixel indices in the full volume.
+                            t_start = t_idx * tubelet_size
+                            t_end = t_start + tubelet_size
+                            
+                            r_start = r_idx * patch_size
+                            r_end = r_start + patch_size
+                            
+                            c_start = c_idx * patch_size
+                            c_end = c_start + patch_size
+                            
+                            # Set the corresponding block in the volume to 1.
+                            vol[t_start:t_end, r_start:r_end, c_start:c_end] = 1  # or use 255 if desired
+                        
+                        volumes.append(vol)
+                    
+                    return volumes
 
                 def reg_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
@@ -570,6 +660,22 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     pstd_z = reg_fn(c_hat)  # output variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
                 loss = loss_mae + reg_coeff * loss_reg
+
+    
+                # Debug_GU: reconstruct images or masks to visualize
+                #imgs = reconstruct_image(c_hat, clips) 
+                # binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
+               
+                #GU_ debug
+                #affine = np.eye(4)
+                #for i in range(len(imgs)):
+                #    nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
+                #    nib.save(nifti_image, f'zReconstructed_volume{i}.nii')
+                # affine = np.eye(4)
+                # for i, vol in enumerate(binary_volumes):
+                #     # Optionally, convert to float32 if needed (or keep as uint8)
+                #     nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)
+                #     nib.save(nifti_image, f'zMask_volume_{i}.nii')
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
