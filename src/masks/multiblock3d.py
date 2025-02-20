@@ -89,7 +89,7 @@ class _MaskGenerator(object):
         worker_id = worker_info.id if worker_info is not None else 0
 
         # Compute a base seed unique per worker.
-        self.base_seed = (torch.initial_seed() + worker_id) #% (2**32)
+        self.base_seed = (torch.initial_seed() + worker_id) % (2**32)
         # A simple Python counter for per-call variation.
         self.call_count = 0
         # Create a per-worker counter.
@@ -131,7 +131,7 @@ class _MaskGenerator(object):
     def _create_local_generator(self):
         """Create a new generator for each call based on the worker-specific base seed and a per-call counter."""
         self.call_count += 1
-        new_seed = (self.base_seed + self.call_count) #% (2**32)
+        new_seed = (self.base_seed + self.call_count) % (2**32)
         local_g = torch.Generator()
         local_g.manual_seed(new_seed)
         return local_g
@@ -145,27 +145,27 @@ class _MaskGenerator(object):
         aspect_ratio_scale
     ):
         # -- Sample temporal block mask scale
-        _rand = torch.rand(1, generator=generator).item()
-        min_t, max_t = temporal_scale
-        temporal_mask_scale = min_t + _rand * (max_t - min_t)
-        t = max(1, int(self.duration * temporal_mask_scale))
+        # _rand = torch.rand(1, generator=generator).item()
+        # min_t, max_t = temporal_scale
+        # temporal_mask_scale = min_t + _rand * (max_t - min_t)
+        # t = max(1, int(self.duration * temporal_mask_scale))
 
-        # -- Sample spatial block mask scale
-        _rand = torch.rand(1, generator=generator).item()
-        min_s, max_s = spatial_scale
-        spatial_mask_scale = min_s + _rand * (max_s - min_s)
-        spatial_num_keep = int(self.height * self.width * spatial_mask_scale)
+        # # -- Sample spatial block mask scale
+        # _rand = torch.rand(1, generator=generator).item()
+        # min_s, max_s = spatial_scale
+        # spatial_mask_scale = min_s + _rand * (max_s - min_s)
+        # spatial_num_keep = int(self.height * self.width * spatial_mask_scale)
 
-        # -- Sample block aspect-ratio
-        _rand = torch.rand(1, generator=generator).item()
-        min_ar, max_ar = aspect_ratio_scale
-        aspect_ratio = min_ar + _rand * (max_ar - min_ar)
+        # # -- Sample block aspect-ratio
+        # _rand = torch.rand(1, generator=generator).item()
+        # min_ar, max_ar = aspect_ratio_scale
+        # aspect_ratio = min_ar + _rand * (max_ar - min_ar)
 
-        # -- Compute block height and width (given scale and aspect-ratio)
-        h = int(round(math.sqrt(spatial_num_keep * aspect_ratio)))
-        w = int(round(math.sqrt(spatial_num_keep / aspect_ratio)))
-        h = min(h, self.height)
-        w = min(w, self.width)
+        # # -- Compute block height and width (given scale and aspect-ratio)
+        # h = int(round(math.sqrt(spatial_num_keep * aspect_ratio)))
+        # w = int(round(math.sqrt(spatial_num_keep / aspect_ratio)))
+        # h = min(h, self.height)
+        # w = min(w, self.width)
 
         #GU_Debug: Override the above
         h = w = spatial_scale[0]

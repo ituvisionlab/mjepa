@@ -393,7 +393,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         _dlen = unsupervised_loader.num_batches
     if ipe is None:
         ipe = _dlen
-    logger.info(f'iterations per epoch/dataest length: {ipe}/{_dlen}')
+    logger.info(f'iterations per epoch/dataset length: {ipe}/{_dlen}')
 
     logger.info(f'Dataset len: {len(unsupervised_loader.dataset)}, Num of batches: {_dlen}')
     
@@ -450,7 +450,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             scheduler.step()
             wd_scheduler.step()
             next(momentum_scheduler)
-            # mask_collator.step() #20/02/2025
+            # mask_collator.step() #GU_Debug: not needed anymore
 
     def save_checkpoint(epoch, path, info_path):
         if rank != 0:
