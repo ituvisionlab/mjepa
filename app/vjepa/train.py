@@ -77,6 +77,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     cfgs_meta = args.get('meta')
     load_model = cfgs_meta.get('load_checkpoint') or resume_preempt
     r_file = cfgs_meta.get('read_checkpoint', None)
+    discard_stem = cfgs_meta.get('discard_stem', False)
+    reset_schedules = cfgs_meta.get('reset_schedules', False)
     seed = cfgs_meta.get('seed', _GLOBAL_SEED)
     run_ID =  cfgs_meta.get('run_ID', None)
     save_every_freq = cfgs_meta.get('save_every_freq', -1)
@@ -438,12 +440,17 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             predictor=predictor,
             target_encoder=target_encoder,
             opt=optimizer,
-            scaler=scaler)
+            scaler=scaler,
+            discard_stem=discard_stem)
+        
+        if reset_schedules:
+            start_epoch = 0
+        
         for _ in range(start_epoch * ipe):
             scheduler.step()
             wd_scheduler.step()
             next(momentum_scheduler)
-            mask_collator.step()
+            # mask_collator.step() #20/02/2025
 
     def save_checkpoint(epoch, path, info_path):
         if rank != 0:
