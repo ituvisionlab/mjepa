@@ -11,6 +11,7 @@ import warnings
 import yaml
 import os
 import time
+from collections import defaultdict
 
 import torch
 import matplotlib.pyplot as plt
@@ -34,6 +35,7 @@ def load_checkpoint(
     target_encoder,
     opt,
     scaler,
+    discard_stem=False
 ):
     try:
         checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
@@ -46,27 +48,57 @@ def load_checkpoint(
 
         # -- loading encoder
         pretrained_dict = checkpoint['encoder']
-        msg = encoder.load_state_dict(pretrained_dict)
+        
+        if discard_stem:
+            # Remove patch_embed related weights
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if "patch_embed" not in k and "pos_embed" not in k}
+            logger.info("Ignoring patch_embed weights while loading encoder.")
+            msg = encoder.load_state_dict(pretrained_dict, strict=False)
+        else:
+            msg = encoder.load_state_dict(pretrained_dict)
+            
         logger.info(f'loaded pretrained encoder from epoch {epoch} with msg: {msg}')
 
         # -- loading predictor
         pretrained_dict = checkpoint['predictor']
-        msg = predictor.load_state_dict(pretrained_dict)
+        
+        if discard_stem:
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if "pos_embed" not in k}
+            msg = predictor.load_state_dict(pretrained_dict, strict=False)
+        else:
+            msg = predictor.load_state_dict(pretrained_dict)
+        
         logger.info(f'loaded pretrained predictor from epoch {epoch} with msg: {msg}')
 
         # -- loading target_encoder
         if target_encoder is not None:
             print(list(checkpoint.keys()))
             pretrained_dict = checkpoint['target_encoder']
-            msg = target_encoder.load_state_dict(pretrained_dict)
+            
+            if discard_stem:
+                # Remove patch_embed related weights
+                pretrained_dict = {k: v for k, v in pretrained_dict.items() if "patch_embed" not in k and "pos_embed" not in k}
+                logger.info("Ignoring patch_embed weights while loading encoder.")
+                msg = target_encoder.load_state_dict(pretrained_dict, strict=False)
+            else:
+                msg = target_encoder.load_state_dict(pretrained_dict)
+            
             logger.info(
                 f'loaded pretrained target encoder from epoch {epoch} with msg: {msg}'
             )
 
         # -- loading optimizer
         opt.load_state_dict(checkpoint['opt'])
+        
+        if discard_stem:
+            opt.state = defaultdict(dict)
+            
         if scaler is not None:
             scaler.load_state_dict(checkpoint['scaler'])
+            
+            if discard_stem:
+                scaler.state = defaultdict(dict)
+                
         logger.info(f'loaded optimizers from epoch {epoch}')
         logger.info(f'read-path: {r_path}')
         del checkpoint
