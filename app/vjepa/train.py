@@ -162,6 +162,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     ema = cfgs_opt.get('ema')
     betas = cfgs_opt.get('betas', (0.9, 0.999))
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
+    drop_rate = cfgs_opt.get('drop_rate', 0.1)
+    attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
+
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -323,6 +326,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         pred_embed_dim=pred_embed_dim,
         in_chans=in_chans,
         use_sdpa=use_sdpa,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
     target_encoder = copy.deepcopy(encoder)
 

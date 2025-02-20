@@ -100,6 +100,8 @@ def init_video_model(
     num_mask_tokens=2,
     zero_init_mask_tokens=True,
     use_sdpa=False,
+    drop_rate=0.0,
+    attn_drop_rate=0.0
 ):
     encoder = video_vit.__dict__[model_name](
         img_size=crop_size,
@@ -108,7 +110,9 @@ def init_video_model(
         tubelet_size=tubelet_size,
         uniform_power=uniform_power,
         use_sdpa=use_sdpa,
-        in_chans=in_chans
+        in_chans=in_chans,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
     encoder = MultiMaskWrapper(encoder)
     predictor = vit_pred.__dict__['vit_predictor'](
@@ -125,6 +129,8 @@ def init_video_model(
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,
         use_sdpa=use_sdpa,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
     predictor = PredictorMultiMaskWrapper(predictor)
 
