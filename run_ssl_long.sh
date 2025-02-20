@@ -2,7 +2,7 @@
 #SBATCH --partition=a100_long
 #SBATCH --gres=gpu:4
 #SBATCH --mem=256GB
-#SBATCH --nodes=2
+#SBATCH --nodes=1
 #SBATCH --job-name=launch
 #SBATCH --mail-type=END
 #SBATCH --mail-user=gozde.unal@nyulangone.org
@@ -12,4 +12,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main_distributed --fname configs/pretrain_mae/vitb16_mae_mri.yaml --time 5400 --nodes 2 --folder /gpfs/home/unalg01/jepa --partition a100_long
+python -m app.main_distributed --fname configs/pretrain/vitb16_mri_1.yaml --time 4300 --nodes 1 --folder /gpfs/home/unalg01/jepa --partition a100_long

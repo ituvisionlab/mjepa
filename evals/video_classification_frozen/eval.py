@@ -157,7 +157,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     eps = args_opt.get('eps', 1.e-6) #1e-8 or 1e-7?
     layer_decay = args_opt.get('layer_decay', None)
     classifier_depth = args_opt.get('classifier_depth', 1) 
-    dropout = args_opt.get('dropout', None) 
+    dropout = args_opt.get('dropout', None)
+    drop_rate = args_opt.get('drop_rate', 0.1)
+    attn_drop_rate = args_opt.get('attn_drop_rate', 0.1) 
    
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
@@ -295,7 +297,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         checkpoint_key=checkpoint_key,
         use_SiLU=use_SiLU,
         tight_SiLU=tight_SiLU,
-        use_sdpa=use_sdpa)
+        use_sdpa=use_sdpa,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
+        )
     if pretrain_frames_per_clip == 1:
         # Process each frame independently and aggregate
         encoder = FrameAggregation(encoder).to(device)
@@ -938,7 +943,9 @@ def init_model(
     use_SiLU=False,
     tight_SiLU=True,
     uniform_power=False,
-    checkpoint_key='encoder' #'target_encoder'
+    checkpoint_key='encoder', #'target_encoder',
+    drop_rate=0.1,
+    attn_drop_rate=0.1
 ):
     encoder = vit.__dict__[model_name](
         img_size=crop_size,
@@ -950,6 +957,8 @@ def init_model(
         use_SiLU=use_SiLU,
         tight_SiLU=tight_SiLU,
         in_chans= in_chans,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
 
     if pretrained is not None:

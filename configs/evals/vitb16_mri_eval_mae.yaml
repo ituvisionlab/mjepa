@@ -1,4 +1,5 @@
-nodes: 2
+write_tag: mae
+nodes: 1
 tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
 eval_name: video_classification_frozen
@@ -35,14 +36,14 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 160 #192
+  resolution: 128 #192
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  lr: 1.0e-4 #5.0e-5 #1.0e-5
-  start_lr: 1.0e-6 #5.0e-5 #1.0e-5
+  lr: 5.0e-5 #1.0e-5
+  start_lr: 1.0e-5 #1.0e-5
   final_lr: 1.0e-7 #1.0e-6 
-  warmup: 10
+  warmup: 15
   use_bfloat16: true
   clip_grad_classifier: 10.0
   seed: 1881 #234
@@ -55,7 +56,7 @@ optimization:
   attn_drop_rate: 0.1
 pretrain:
   model_name: vit_base
-  checkpoint_key: encoder #target_encoder
+  checkpoint_key: encoder
   clip_duration: null
   frames_per_clip: 128
   tubelet_size: 8
@@ -70,13 +71,7 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_10__11_31_15/model_ckpt/periodic-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
-  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_02_15__08_32_11/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-periodic-epoch-201.pth.tar #jepa-periodic-epoch-501.pth.tar #jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
-  write_tag: jepa
+  checkpoint: mae-latest.pth.tar
+  

@@ -1,4 +1,4 @@
-nodes: 2
+nodes: 1
 tasks_per_node: 4
 tag: mri-probe #k400-16x8x3
 eval_name: video_classification_frozen
@@ -34,7 +34,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 300
   resolution: 192 #160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -42,15 +42,17 @@ optimization:
   lr: 5.0e-5 #1.0e-4 #5.0e-5 #1.0e-5
   start_lr: 1.0e-5 #1.0e-6 #5.0e-5 #1.0e-5
   final_lr: 1.0e-7 #1.0e-6 
-  warmup: 10
+  warmup: 20
   use_bfloat16: true
   clip_grad_classifier: 10.0
-  seed: 1881 #234
+  seed: 1071 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: 0.75 #null to turn it off
+  layer_decay: 0.9 #0.75 #null to turn it off
   classifier_depth: 2
-  dropout: 0.5 #0.25 #null to turn off
+  dropout: 0.2 #0.25 #null to turn off
+  drop_rate: 0.1
+  attn_drop_rate: 0.1
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder

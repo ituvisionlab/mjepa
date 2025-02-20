@@ -89,6 +89,8 @@ def init_video_model(
     num_mask_tokens=2,
     zero_init_mask_tokens=True,
     use_sdpa=False,
+    drop_rate=0.0,
+    attn_drop_rate=0.0
 ):
     encoder = video_vit.__dict__[model_name](
         img_size=crop_size,
@@ -97,7 +99,9 @@ def init_video_model(
         tubelet_size=tubelet_size,
         uniform_power=uniform_power,
         use_sdpa=use_sdpa,
-        in_chans=in_chans
+        in_chans=in_chans,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
     encoder = MultiMaskWrapper(encoder)
     decoder = vit_decoder.__dict__['vit_decoder'](
@@ -115,6 +119,8 @@ def init_video_model(
         zero_init_mask_tokens=zero_init_mask_tokens,
         use_sdpa=use_sdpa,
         in_chans=in_chans,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
     )
     decoder = DecoderMultiMaskWrapper(decoder)
 
@@ -255,7 +261,87 @@ def patchify_image(x, patch_size):
     x = x.permute(0, 2, 4, 6, 3, 5, 7, 1).reshape(B, grid_size[0] * grid_size[1] * grid_size[2], pd * ph * pw * C) # [B,gd*gh*gw,pd*ph*pw*C]
 
     return x
-    
+
+def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_chans, crop_size, mask_enc, mask_pred):
+    """
+    Reconstruct a full video volume from patch tokens for a given mask level.
+
+    Args:
+        recon (torch.Tensor): Reconstructed (masked) tokens,
+            shape (B, L_masked, patch_size**2 * tubelet_size * in_chans).
+        nonmask (torch.Tensor): Original (unmasked) tokens,
+            shape (B, L_unmasked, patch_size**2 * tubelet_size * in_chans).
+        patch_size (int): Spatial patch size.
+        tubelet_size (int): Temporal patch (tubelet) size.
+        num_frames (int): Total number of frames in the video.
+        in_chans (int): Number of channels.
+        crop_size (int): Spatial crop size of the video (assumed square).
+        mask_enc (torch.Tensor): Tensor of indices for unmasked tokens for this level (B, L_unmasked).
+        mask_pred (torch.Tensor): Tensor of indices for masked tokens for this level (B, L_masked).
+
+    Returns:
+        torch.Tensor: Reconstructed video volume of shape
+            (B, in_chans, num_frames, crop_size, crop_size).
+    """
+    B = recon.shape[0]
+    L_masked = recon.shape[1]
+    L_unmasked = nonmask.shape[1]
+    L = L_masked + L_unmasked  # Total number of patches
+
+    # Compute grid sizes
+    grid_spatial = crop_size // patch_size  # number of patches per spatial dimension
+    grid_temporal = num_frames // tubelet_size
+    assert grid_spatial * grid_spatial * grid_temporal == L, (
+        f"Mismatch: Expected {grid_spatial * grid_spatial * grid_temporal} patches, got {L}"
+    )
+
+    # The flattened patch dimension
+    D = patch_size * patch_size * tubelet_size * in_chans
+    device = recon.device
+
+    # Create a full token container with the same dtype as recon.
+    full_tokens = torch.zeros(B, L, D, device=device, dtype=recon.dtype)
+
+    # Ensure mask indices are of type long.
+    mask_enc = mask_enc.long()
+    mask_pred = mask_pred.long()
+
+    # Make sure the token types match
+    nonmask = nonmask.to(recon.dtype)
+
+    # Scatter the unmasked tokens using mask_enc indices.
+    full_tokens.scatter_(1, mask_enc.unsqueeze(-1).expand_as(nonmask), nonmask)
+    # Scatter the reconstructed tokens using mask_pred indices.
+    full_tokens.scatter_(1, mask_pred.unsqueeze(-1).expand_as(recon), recon)
+
+    # Reshape the full tokens into a video volume.
+    full_tokens = full_tokens.view(
+        B,
+        grid_temporal,    # temporal grid
+        grid_spatial,     # spatial grid height
+        grid_spatial,     # spatial grid width
+        tubelet_size,     # temporal patch dimension
+        patch_size,       # patch spatial height
+        patch_size,       # patch spatial width
+        in_chans          # channels
+    )
+
+    # Permute to (B, in_chans, num_frames, crop_size, crop_size)
+    full_tokens = full_tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous()
+    full_tokens = full_tokens.view(
+        B,
+        in_chans,
+        grid_temporal * tubelet_size,   # num_frames
+        grid_spatial * patch_size,        # height
+        grid_spatial * patch_size         # width
+    )
+
+        # Since mRI volumes are 1-channel and we only want the first sample in the batch,
+    # return the first sample and remove the channel dimension.
+    # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
+    return full_tokens[0, 0]
+
+
 def reconstruct_mask_grid(mask_indices, width, height, no_slices):
     """
     Reconstructs the mask grid from the mask indices.
