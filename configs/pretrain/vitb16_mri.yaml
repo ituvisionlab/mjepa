@@ -1,4 +1,4 @@
-app: vjepa
+app: mjepa
 nodes: 2
 tasks_per_node: 4  #1
 data:
