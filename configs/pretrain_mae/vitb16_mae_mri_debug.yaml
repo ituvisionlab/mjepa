@@ -86,7 +86,7 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: false #true
 optimization:
-  ipe: 2
+  ipe: null
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005

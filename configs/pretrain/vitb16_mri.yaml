@@ -73,6 +73,8 @@ meta:
   load_checkpoint: false
   read_checkpoint: null # vitl16.pth.tar # null #r_file
   ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
+  discard_stem: false #default false, to be used when starting from ckpt
+  reset_schedules: false #default: false, to be used when starting from ckpt
   seed: 1881 #234
   eval_freq: 100
   use_sdpa: true
@@ -85,12 +87,12 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: true
 optimization:
-  ipe: 300
+  ipe: null #300
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 1000
+  epochs: 500
   warmup: 20
   start_lr: 3.0e-5 #5e-05
   lr: 2.0e-4 #1.0e-4

@@ -1,5 +1,5 @@
 app: mae
-nodes: 2
+nodes: 1
 tasks_per_node: 4  #1
 data:
   dataset_type: MRIDataset
@@ -73,7 +73,7 @@ model:
   use_mask_tokens: true
   zero_init_mask_tokens: false #true
 optimization:
-  ipe: 300
+  ipe: null #300
   ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005

@@ -565,29 +565,29 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss /= len(masks_pred)                   
                     return loss
                 
-                def reconstruct_image(z, c):
-                    # c: original video/image, z: reconstructed patches for each mask level
-                    patches = patchify_image(c, patch_size)
-                    # get only unmasked patches from the image for each mask level.
-                    nonmasked_patches = apply_masks(patches, masks_enc, concat=False)  # returns a list
+                # def reconstruct_image(z, c):
+                #     # c: original video/image, z: reconstructed patches for each mask level
+                #     patches = patchify_image(c, patch_size)
+                #     # get only unmasked patches from the image for each mask level.
+                #     nonmasked_patches = apply_masks(patches, masks_enc, concat=False)  # returns a list
                     
-                    imgs = []
-                    # For each mask level, pass the corresponding mask indices.
-                    for level, (recon_tokens, unmask_tokens) in enumerate(zip(z, nonmasked_patches)):
-                        imgs.append(
-                            unpatchify_image(
-                                recon_tokens,
-                                unmask_tokens,
-                                patch_size,
-                                tubelet_size,
-                                num_frames,
-                                in_chans,
-                                crop_size,
-                                masks_enc[level],  # use mask for the current level
-                                masks_pred[level]  # use mask for the current level
-                            )
-                        )
-                    return imgs
+                #     imgs = []
+                #     # For each mask level, pass the corresponding mask indices.
+                #     for level, (recon_tokens, unmask_tokens) in enumerate(zip(z, nonmasked_patches)):
+                #         imgs.append(
+                #             unpatchify_image(
+                #                 recon_tokens,
+                #                 unmask_tokens,
+                #                 patch_size,
+                #                 tubelet_size,
+                #                 num_frames,
+                #                 in_chans,
+                #                 crop_size,
+                #                 masks_enc[level],  # use mask for the current level
+                #                 masks_pred[level]  # use mask for the current level
+                #             )
+                #         )
+                #     return imgs
 
                 def reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size):
                     """
@@ -666,11 +666,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 #imgs = reconstruct_image(c_hat, clips) 
                 # binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
                
-                #GU_ debug
-                #affine = np.eye(4)
-                #for i in range(len(imgs)):
-                #    nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
-                #    nib.save(nifti_image, f'zReconstructed_volume{i}.nii')
+                # #GU_ debug
+                # #affine = np.eye(4)
+                # #for i in range(len(imgs)):
+                # #    nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
+                # #    nib.save(nifti_image, f'zReconstructed_volume{i}.nii')
                 # affine = np.eye(4)
                 # for i, vol in enumerate(binary_volumes):
                 #     # Optionally, convert to float32 if needed (or keep as uint8)
