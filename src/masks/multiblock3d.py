@@ -86,21 +86,14 @@ class _MaskGenerator(object):
         # Create a shared counter BEFORE seeding.
         # In distributed settings each DataLoader worker has its own info.
         worker_info = get_worker_info()
-        worker_id = worker_info.id if worker_info is not None else 0
-
-        # Compute a base seed unique per worker.
-        self.base_seed = (torch.initial_seed() + worker_id) % (2**32)
-        # Create a fixed base seed for each worker
-        self.local_g = torch.Generator()
-        self.local_g.manual_seed(self.base_seed)
+        if worker_info is not None:
+            worker_id = worker_info.id
+            self.base_seed = (torch.initial_seed() + worker_id) % (2**32)
+            self.local_g = torch.Generator()
+            self.local_g.manual_seed(self.base_seed)
 
         # A simple Python counter for per-call variation.
-        self.call_count = 0
-        # Create a per-worker counter.
-        # self._itr_counter = Value('i', -1)
-        # # Initialize the generator with the worker's base seed.
-        # self.g = torch.Generator()
-        # self.g.manual_seed(self.base_seed)
+        #self.call_count = 0
 
 
         if not isinstance(crop_size, tuple):
@@ -212,12 +205,12 @@ class _MaskGenerator(object):
         num_masks = self.npred
 
         # Sample top-left corner locations
-        # top = torch.randint(0, self.height - h + 1, (num_masks,))
-        # left = torch.randint(0, self.width - w + 1, (num_masks,))
-        # start = torch.randint(0, self.duration - t + 1, (num_masks,))
-        top = torch.randint(0, self.height - h + 1, (num_masks,), generator=self.local_g)
-        left = torch.randint(0, self.width - w + 1, (num_masks,), generator=self.local_g)
-        start = torch.randint(0, self.duration - t + 1, (num_masks,), generator=self.local_g)
+        top = torch.randint(0, self.height - h + 1, (num_masks,))
+        left = torch.randint(0, self.width - w + 1, (num_masks,))
+        start = torch.randint(0, self.duration - t + 1, (num_masks,))
+        # top = torch.randint(0, self.height - h + 1, (num_masks,), generator=self.local_g)
+        # left = torch.randint(0, self.width - w + 1, (num_masks,), generator=self.local_g)
+        # start = torch.randint(0, self.duration - t + 1, (num_masks,), generator=self.local_g)
 
         # Initialize full mask (1s everywhere)
         mask = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
@@ -304,6 +297,10 @@ class _MaskGenerator(object):
         # --
         collated_masks_enc = [cm[:min_keep_enc] for cm in collated_masks_enc]
         collated_masks_enc = torch.utils.data.default_collate(collated_masks_enc)
+
+        # # GU_Debug Print mask shapes
+        # print(f"Mask Encoder Shape: {collated_masks_enc[0].shape}")
+        # print(f"Mask Predictor Shape: {collated_masks_pred[0].shape}")
 
         return collated_masks_enc, collated_masks_pred
 
