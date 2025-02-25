@@ -1,22 +1,24 @@
 app: vjepa
 nodes: 1
 tasks_per_node: 1
+tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/adni_all_bet_train.csv
+  - src/datasets/debug_nii_list16.csv
+  #- src/datasets/adni_all_bet_train.csv
   #- src/datasets/debug_nii_list.csv
   # - src/datasets/oasis3_all_bet_nii_with_bbox.csv # Relative path instead of abs path
   #- src/datasets/ppmi_all_nii_with_bbox.csv
   #- src/datasets/adni_all_train_split.csv
   decode_one_clip: true  # unused
   batch_size: 16 
-  num_clips: 8 #1  #12 works!
-  num_frames: 16 #128 # 24 works! 50% increase ok
-  tubelet_size: 8
+  num_clips: 1 #8  #12 works!
+  num_frames: 192 # 24 works! 50% increase ok
+  tubelet_size: 16 #8
   sampling_rate: 1
   crop_size: 192 #224 
-  patch_size: 8
+  patch_size: 16 #8
   in_channel_size: 1
   random_clip_sampling: true
   pin_mem: true

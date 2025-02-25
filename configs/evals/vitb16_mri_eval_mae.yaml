@@ -71,7 +71,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_02_15__08_32_11/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_02_22__16_58_33/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_02_15__08_32_11/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: mae-latest.pth.tar
   

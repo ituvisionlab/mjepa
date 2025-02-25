@@ -241,6 +241,41 @@ class _MaskGenerator(object):
     #     # --
     #     return mask
 
+    def _sample_block_mask1(self, b_size):
+        """
+        Efficiently generate mask blocks using full vectorization.
+        """
+        t, h, w = map(int, b_size)  # Ensure integer values
+
+        num_masks = self.npred  # Number of masked blocks
+
+        # Sample top-left corner locations **all at once**
+        start = torch.randint(0, max(1, self.duration - t + 1), (num_masks,))
+        top = torch.randint(0, max(1, self.height - h + 1), (num_masks,))
+        left = torch.randint(0, max(1, self.width - w + 1), (num_masks,))
+
+        # Create an empty mask of ones
+        mask = torch.ones((self.duration, self.height, self.width), dtype=torch.int8, device='cpu')
+
+        # Generate full indices for masked regions (vectorized)
+        t_indices = (start[:, None] + torch.arange(t)).flatten()
+        h_indices = (top[:, None] + torch.arange(h)).flatten()
+        w_indices = (left[:, None] + torch.arange(w)).flatten()
+
+        # Ensure indices remain within valid bounds
+        t_indices = t_indices.clamp(0, self.duration - 1)
+        h_indices = h_indices.clamp(0, self.height - 1)
+        w_indices = w_indices.clamp(0, self.width - 1)
+
+        # Use tensor indexing to set mask blocks to **zero** (masked)
+        mask[t_indices, h_indices, w_indices] = 0
+
+        # Restrict context mask span
+        if self.max_context_duration < self.duration:
+            mask[self.max_context_duration:, :, :] = 0
+
+        return mask
+
     def __call__(self, batch_size):
         """
         Create encoder and predictor masks when collating imgs into a batch
@@ -270,11 +305,16 @@ class _MaskGenerator(object):
         empty_context = True
         while empty_context:
             mask_e = self._sample_block_mask(b_size)  # Vectorized sampling
+            mask_e = mask_e.flatten()
+
+            # To-DO: try fully vectorized sampling
+            # mask_e = self._sample_block_mask1(b_size).flatten()
+
             #mask_e = torch.ones((self.duration, self.height, self.width), dtype=torch.int32)
             #for _ in range(self.npred):
-            #    mask_e *= self._sample_block_mask(p_size, generator=local_g) #GU_ All random functions will use the same generator g, ensuring consistent and random mask generation within each worker.
-            mask_e = mask_e.flatten()
-                
+            #    mask_e *= self._sample_block_mask(p_size, generator=local_g) #GU_ Too much slowed down! All random functions will use the same generator g, ensuring consistent and random mask generation within each worker.
+            # mask_e = mask_e.flatten()
+
             mask_p = torch.argwhere(mask_e == 0).squeeze()
             mask_e = torch.nonzero(mask_e).squeeze()
 

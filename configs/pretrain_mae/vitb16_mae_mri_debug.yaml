@@ -1,6 +1,7 @@
 app: mae
 nodes: 1
 tasks_per_node: 1  #1
+tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
@@ -72,8 +73,8 @@ mask:
     max_keep: null
 meta:
   load_checkpoint: false #true #false
-  read_checkpoint: null #mae-latest.pth.tar #null # vitl16.pth.tar 
-  ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_02_15__08_32_11/model_ckpt/latest-model/
+  read_checkpoint: mae-latest.pth.tar #null # vitl16.pth.tar 
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_02_22__16_58_33/model_ckpt/latest-model/
   seed: 1881 #234
   eval_freq: 100
   use_sdpa: true

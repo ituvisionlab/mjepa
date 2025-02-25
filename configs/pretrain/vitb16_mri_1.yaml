@@ -1,6 +1,7 @@
 app: vjepa
 nodes: 1
 tasks_per_node: 4  #1
+tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path

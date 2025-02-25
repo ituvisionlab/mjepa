@@ -1,6 +1,7 @@
-app: mjepa
-nodes: 2
+app: vjepa
+nodes: 1
 tasks_per_node: 4  #1
+tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
@@ -11,9 +12,9 @@ data:
   - src/datasets/mood_all_nii_with_bbox.csv
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 32 #16
+  batch_size: 16 #16
   num_clips: 1 #8
-  num_frames: 128 #16
+  num_frames: 192 #16
   tubelet_size: 16 #8
   sampling_rate: 1
   crop_size: 192 #160 #128 #192 #224

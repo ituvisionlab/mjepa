@@ -91,7 +91,7 @@ def load_checkpoint(
         opt.load_state_dict(checkpoint['opt'])
         
         if discard_stem:
-            opt.state = defaultdict(dict)
+            opt.state = defaultdict(dict) #reset weight information of the optimizer
             
         if scaler is not None:
             scaler.load_state_dict(checkpoint['scaler'])
