@@ -179,9 +179,9 @@ class _MaskGenerator(object):
         # return (t, h, w)
 
     def _sample_block_size(self):
-        """Vectorized block sampling based on fixed token sizes."""
-        h = w = self.spatial_pred_mask_scale[0]
-        t = self.temporal_pred_mask_scale[0]
+        """Block sampling based on fixed token sizes."""
+        h = w = int(self.spatial_pred_mask_scale[0])  # Ensure integer values
+        t = int(self.temporal_pred_mask_scale[0])  # Ensure integer values
         return (t, h, w)
     
      #GU_
@@ -201,7 +201,7 @@ class _MaskGenerator(object):
 
     def _sample_block_mask(self, b_size):
         """Generate mask blocks efficiently without looping over npred."""
-        t, h, w = b_size
+        t, h, w = map(int, b_size)  # Convert all values to int
         num_masks = self.npred
 
         # Sample top-left corner locations

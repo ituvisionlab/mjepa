@@ -80,6 +80,7 @@ def init_video_model(
     num_frames=16,
     tubelet_size=2,
     model_name='vit_base',
+    pred_model_name='vit_decoder',
     crop_size=224,
     pred_depth=6,
     pred_embed_dim=384,
@@ -104,16 +105,13 @@ def init_video_model(
         attn_drop_rate=attn_drop_rate
     )
     encoder = MultiMaskWrapper(encoder)
-    decoder = vit_decoder.__dict__['vit_decoder'](
+    decoder = vit_decoder.__dict__[pred_model_name](
         img_size=crop_size,
         use_mask_tokens=use_mask_tokens,
         patch_size=patch_size,
         num_frames=num_frames,
         tubelet_size=tubelet_size,
         embed_dim=encoder.backbone.embed_dim,
-        predictor_embed_dim=pred_embed_dim,
-        depth=pred_depth,
-        num_heads=encoder.backbone.num_heads,
         uniform_power=uniform_power,
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,

@@ -5,16 +5,17 @@ tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/debug_nii_list16.csv
-  #- src/datasets/adni_all_bet_train.csv
-  #- src/datasets/debug_nii_list.csv
-  # - src/datasets/oasis3_all_bet_nii_with_bbox.csv # Relative path instead of abs path
-  #- src/datasets/ppmi_all_nii_with_bbox.csv
-  #- src/datasets/adni_all_train_split.csv
+  #- src/datasets/debug_nii_list16.csv
+  - src/datasets/oasis3_all_bet_nii_with_bbox.csv
+  - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  - src/datasets/brats24_all_nii.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/mood_all_nii_with_bbox.csv
+  - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 16 
+  batch_size: 32 
   num_clips: 1 #8  #12 works!
-  num_frames: 192 # 24 works! 50% increase ok
+  num_frames: 128 # 192 works! 
   tubelet_size: 16 #8
   sampling_rate: 1
   crop_size: 192 #224 

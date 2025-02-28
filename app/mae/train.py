@@ -61,6 +61,7 @@ from app.mae.transforms import make_transforms
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
+write_freq_debug = 500 # save reconstructed images periodically for debugging
 # --
 
 _GLOBAL_SEED = 0
@@ -103,6 +104,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- MODEL
     cfgs_model = args.get('model')
     model_name = cfgs_model.get('model_name')
+    pred_model_name = cfgs_model.get('pred_model_name')
     pred_depth = cfgs_model.get('pred_depth')
     pred_embed_dim = cfgs_model.get('pred_embed_dim')
     uniform_power = cfgs_model.get('uniform_power', True)
@@ -323,6 +325,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         num_frames=num_frames,
         tubelet_size=tubelet_size,
         model_name=model_name,
+        pred_model_name=pred_model_name,
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
@@ -474,7 +477,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata = next(loader)
 
     epoch_losses = []
-    
+
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
@@ -663,19 +666,20 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
     
                 # Debug_GU: reconstruct images or masks to visualize
-                #imgs = reconstruct_image(c_hat, clips) 
-                # binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
-               
-                # #GU_ debug
-                # affine = np.eye(4)
-                # for i in range(len(imgs)):
-                #    nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
-                #    nib.save(nifti_image, f'zReconstructed_volume{i}.nii')
-                # affine = np.eye(4)
-                # for i, vol in enumerate(binary_volumes):
-                #     # Optionally, convert to float32 if needed (or keep as uint8)
-                #     nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)
-                #     nib.save(nifti_image, f'zMask_volume_{i}.nii')
+                if (itr % write_freq_debug == 0):
+                    imgs = reconstruct_image(c_hat, clips) 
+                    binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
+                
+                    # #GU_ debug
+                    affine = np.eye(4)
+                    for i in range(len(imgs)):
+                        nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
+                    nib.save(nifti_image, f'zReconstructed_volume{i}-iter{itr}.nii')
+                    #affine = np.eye(4)
+                    for i, vol in enumerate(binary_volumes):
+                        # Optionally, convert to float32 if needed (or keep as uint8)
+                        nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)
+                        nib.save(nifti_image, f'zMask_volume_{i}-iter{itr}.nii')
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -760,7 +764,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             'train/pred_global_norm': grad_stats_pred.global_norm,
                             'train/gpu_etime_ms': gpu_etime_ms,
                             'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
-                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2
+                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                            'train/lr': _new_lr,
+                            'train/wd': _new_wd
                         })
                 
             def info_stats():

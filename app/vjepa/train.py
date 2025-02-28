@@ -510,8 +510,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         wall_time_meter = AverageMeter()
 
         for itr in range(ipe):
-            itr_start_time = time.time()
-
+            iter_start_time = time.time()
+           
+            data_start_time = time.time() # **Measure Data Loading Time**
             try:
                 udata, masks_enc, masks_pred = next(loader) #returned from "call" of multiblock3d
             except Exception:
@@ -522,6 +523,17 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata, masks_enc, masks_pred = next(loader)
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
+
+            data_end_time = time.time() # **Measure Data Loading Time End**
+            data_loading_time = data_end_time - data_start_time # **Measure Data Loading Time **
+            logger.info(f"Data Loading Time: {data_loading_time:.4f} sec") # **Measure Data Loading Time End**
+             
+         
+            # mask_start_time = time.time()   # **Measure Mask Collator Time**
+            # masks_enc, masks_pred = mask_collator(udata)
+            # mask_end_time = time.time()    # **Measure Mask Collator Time**
+            # mask_gen_time = mask_end_time - mask_start_time # **Measure Mask Collator Time**
+            # logger.info(f"Mask Generation Time: {mask_gen_time:.4f} sec") # **Measure Mask Collator Time**
 
             def load_clips():
                 # -- unsupervised video clips
@@ -541,7 +553,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     _masks_pred.append(_mp)
 
                 return (clips, _masks_enc, _masks_pred)
+            
+            
+            clip_start_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
             clips, masks_enc, masks_pred = load_clips()
+            clip_end_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
+            clip_transfer_time = clip_end_time - clip_start_time # **Measure Load Clips & Transfer to GPU Time**
+            logger.info(f"Clip Transfer Time: {clip_transfer_time:.4f} sec") # **Measure Load Clips & Transfer to GPU Time**
 
             
             # visualization_interval = 10  # Adjust as needed (e.g., visualize every 10 iterations)
@@ -593,6 +611,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 # Step 1. Forward
                 loss_jepa, loss_reg = 0., 0.
+           
+                forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     h = forward_target(clips)
                     z = forward_context(clips, h)
@@ -600,7 +620,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     pstd_z = reg_fn(z)  # predictor variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
                 loss = loss_jepa + reg_coeff * loss_reg
+                
+                forward_end_time = time.time() # **Measure Forward Pass Time**
+                forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
+                logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
 
+                
+                backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
                 if mixed_precision:
@@ -616,6 +642,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     scaler.update()
                 else:
                     optimizer.step()
+                backward_end_time = time.time() # **Measure Backward Pass + Optimizer Step**
+                backward_time = backward_end_time - backward_start_time # **Measure Backward Pass + Optimizer Step**
+                logger.info(f"Backward Pass Time: {backward_time:.4f} sec") # **Measure Backward Pass + Optimizer Step**
+
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
                 grad_stats_pred = grad_logger(predictor.named_parameters())
@@ -640,7 +670,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     optim_stats,
                 )
             (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
-            iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
+            iter_elapsed_time_ms = (time.time() - iter_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
             input_var_min = float(AllReduce.apply(torch.min(clips.view(clips.shape[0], -1).var(dim=1))))
@@ -651,6 +681,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
             
+            
+            gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
+            logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
+
+            
+            iter_end_time = time.time() # **Total Iteration Time**
+            iter_elapsed_time = iter_end_time - iter_start_time # **Total Iteration Time**
+            logger.info(f"Iteration Time: {iter_elapsed_time:.4f} sec") # **Total Iteration Time**
+
             # Release memory
             del clips
             torch.cuda.empty_cache()
@@ -690,7 +729,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             'train/pred_global_norm': grad_stats_pred.global_norm,
                             'train/gpu_etime_ms': gpu_etime_ms,
                             'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
-                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2
+                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                            'train/lr': _new_lr,
+                            'train/wd': _new_wd
                         })
                 
             def info_stats():

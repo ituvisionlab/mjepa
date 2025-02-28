@@ -6,16 +6,16 @@ data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
   - src/datasets/debug_nii_list16.csv
-  #- src/datasets/oasis3_all_bet_nii_with_bbox.csv
-  #- src/datasets/ppmi_all_bet_nii_with_bbox.csv 
-  #- src/datasets/brats24_all_nii.csv
-  #- src/datasets/ixi_all_bet_nii_with_bbox.csv
-  #- src/datasets/mood_all_nii_with_bbox.csv
-  #- src/datasets/adni_all_bet_train.csv
+  # - src/datasets/oasis3_all_bet_nii_with_bbox.csv
+  # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  # - src/datasets/brats24_all_nii.csv
+  # - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  # - src/datasets/mood_all_nii_with_bbox.csv
+  # - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 4
   num_clips: 1 #8
-  num_frames: 192 #128 #16
+  num_frames: 128 #192 #16
   tubelet_size: 16
   sampling_rate: 1
   crop_size: 192 #128 #160 #224
@@ -80,9 +80,10 @@ meta:
   use_sdpa: true
   dtype: bfloat16
 model:
-  model_name: vit_base
-  pred_depth: 12 #8
-  pred_embed_dim: 768
+  model_name: vit_small_mod #vit_base
+  pred_model_name: vit_decoder_mod
+  pred_depth: 3 #12 #8
+  pred_embed_dim: 384 #768
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
   zero_init_mask_tokens: false #true
@@ -94,6 +95,6 @@ optimization:
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 500
   warmup: 20
-  start_lr: 3.0e-5 #5e-05
-  lr: 2.0e-4 #1.0e-4
-  final_lr: 5.0e-6 #1.0e-6
+  start_lr: 1.0e-4 #3.0e-5 #5e-05
+  lr: 1.0e-3 #2.0e-4 #1.0e-4
+  final_lr: 1.0e-5 #5.0e-6 #1.0e-6
