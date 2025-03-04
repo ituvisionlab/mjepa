@@ -62,6 +62,9 @@ log_timings = True
 log_freq = 10
 checkpoint_freq = 1
 write_freq_debug = 500 # save reconstructed images periodically for debugging
+accumulation_steps = 4  # Define the number of steps before updating the optimizer 
+# Adjust this based on memory constraints
+
 # --
 
 _GLOBAL_SEED = 0
@@ -529,17 +532,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 return (clips, _masks_enc, _masks_pred)
             clips, masks_enc, masks_pred = load_clips()
 
-            
-            # visualization_interval = 10  # Adjust as needed (e.g., visualize every 10 iterations)
-            # if itr % visualization_interval == 0:
-            # # Save and visualize masks for the first sample in the batch
-            #     save_and_visualize_masks(masks_enc, masks_pred, epoch, itr,)
-
-
         # -------------------------------------------------
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
-
+                
             def train_step():
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
@@ -662,7 +658,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss_mae = loss_fn(c_hat, clips)  # mae prediction loss
                     pstd_z = reg_fn(c_hat)  # output variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
-                loss = loss_mae + reg_coeff * loss_reg
+                
+                # Accumulate loss before stepping optimizer
+                loss = (loss_mae + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
+
+                #loss = loss_mae + reg_coeff * loss_reg
 
     
                 # Debug_GU: reconstruct images or masks to visualize
@@ -685,26 +685,32 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 _enc_norm, _pred_norm = 0., 0.
                 if mixed_precision:
                     scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
+                    if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
+                        scaler.unscale_(optimizer)
+                        if (epoch > warmup) and (clip_grad is not None):
+                            _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
+                            _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
+                        scaler.step(optimizer)
+                        scaler.update()
+                        
                 else:
                     loss.backward()
-                if (epoch > warmup) and (clip_grad is not None):
-                    _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
-                    _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
-                if mixed_precision:
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    optimizer.step()
+                    if (itr + 1) % accumulation_steps == 0:  # Only when we're going to step
+                        if (epoch > warmup) and (clip_grad is not None):
+                            _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
+                            _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
+                        optimizer.step()
+
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
                 grad_stats_pred = grad_logger(decoder.named_parameters())
-                grad_stats_pred.global_norm = float(_pred_norm)
-                optimizer.zero_grad()
+                grad_stats_pred.global_norm = float(_pred_norm)                
                 optim_stats = adamw_logger(optimizer)
+                
+                optimizer.zero_grad()  # Only zero gradients after step
 
                 return (
-                    float(loss),
+                    float(loss) * accumulation_steps,  # Restore original loss scale
                     float(loss_mae),
                     float(loss_reg),
                     _new_lr,

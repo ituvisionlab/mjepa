@@ -9,7 +9,7 @@ import os
 import pathlib
 import warnings
 import math
-
+import time
 from logging import getLogger
 
 import numpy as np
@@ -141,6 +141,10 @@ class MRIDataset(torch.utils.data.Dataset):
         self.duration = duration
         self.in_chans = in_chans
         self.training = training
+        # self.batchtime = 0 #for debugging time
+        # self.batchnum = 0 #for debugging time
+        # self.batchsize = 2 #for debugging time
+        # self.loadTotaltime = 0 #for debugging time
 
         # Load data from CSV
         samples, labels = [], []
@@ -180,28 +184,31 @@ class MRIDataset(torch.utils.data.Dataset):
         self.bbox = bbox  # Store bounding boxes
 
     def __getitem__(self, index):
+#        data_start_time = time.time() # **Start timing data loading
+#        self.batchnum +=1 # **Start timing data loading
+
         sample = self.samples[index]
         # Label/annotations for video
         label = self.labels[index]
         bbox = self.bbox[index]  # Bounding box for this sample
 
-        # GU_DEBUG: !!!!! bbox order does not match the volume dimensions
-        #bbox = [bbox[4], bbox[5], bbox[0], bbox[1], bbox[2], bbox[3]]  # Shift order
-        #bbox = [bbox[4], bbox[5], bbox[2], bbox[3], bbox[0], bbox[1]]  # Shift order
-
+        
         # Load MRI volume
         volume = self.load_nifti_file(sample, bbox, self.in_chans)
          # debug_print
         # print(f'File name at {index}: ',sample)
 
+        
         if volume is None:
             # Handle failed loading by skipping the sample
             warnings.warn(f'Failed to load volume at index {index}')
             return self.__getitem__((index + 1) % len(self.samples))
 
+
         if self.transform is not None:  #even if auto_augment is false, converts the volume to a tensor
             volume = self.transform(volume)
-            
+        
+
         #GU_ debug
         # affine = np.eye(4)
         # nifti_image = nib.Nifti1Image(volume.numpy(), affine)
@@ -216,6 +223,15 @@ class MRIDataset(torch.utils.data.Dataset):
             # nib.save(nifti_image, 'buffer.nii')
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
+
+            # data_end_time = time.time()  # **End timing data load
+            # data_gen_time = data_end_time - data_start_time # **End timing data
+            # self.batchtime += data_gen_time # **End timing mask generation
+            # if (self.batchnum == self.batchsize):
+            #     print(f"Batch Time: {self.batchtime:.4f} sec") # **Print timing of batch
+            #     self.batchnum = 0
+            #     self.batchtime = 0 
+
             #GU_debug
             # affine = np.eye(4)            
             # for i in range(self.num_clips): # Assuming buffer is a PyTorch tensor of shape [C, T, W, H]
@@ -563,6 +579,7 @@ class MRIDataset(torch.utils.data.Dataset):
 
     def split_volume(self, volume):
         """  """
+
         fpc = self.frames_per_clip
         fstp = self.frame_step
         

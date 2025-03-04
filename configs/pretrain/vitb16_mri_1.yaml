@@ -5,7 +5,7 @@ tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  - src/datasets/oasis3_all_bet_nii_with_bbox.csv
+  - src/datasets/oasis3_all_bet.csv
   - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
   - src/datasets/brats24_all_nii.csv
   - src/datasets/ixi_all_bet_nii_with_bbox.csv

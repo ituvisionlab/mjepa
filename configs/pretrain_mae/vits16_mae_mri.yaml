@@ -5,7 +5,7 @@ tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  - src/datasets/oasis3_all_bet_nii_with_bbox.csv
+  - src/datasets/oasis3_all_bet.csv
   - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
   - src/datasets/brats24_all_nii.csv
   - src/datasets/ixi_all_bet_nii_with_bbox.csv
@@ -13,12 +13,12 @@ data:
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 32
-  num_clips: 1 #8
-  num_frames: 128 #16
-  tubelet_size: 16 #8
+  num_clips: 3 #8
+  num_frames: 64 #16
+  tubelet_size: 8 #8
   sampling_rate: 1
   crop_size: 192 #128 #160 #192 #224
-  patch_size: 16 #8
+  patch_size: 8 #8
   in_channel_size: 1
   random_clip_sampling: false
   pin_mem: true
@@ -69,7 +69,7 @@ meta:
 model:
   model_name: vit_small_mod
   pred_model_name: vit_decoder_mod
-  pred_depth: 3 #8
+  pred_depth: 4 #8
   pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
@@ -81,7 +81,7 @@ optimization:
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 500
-  warmup: 20
-  start_lr: 0 #1e-4
-  lr: 1.0e-3
+  warmup: 10
+  start_lr: 1.0e-3
+  lr: 5.0e-3
   final_lr: 1.0e-5

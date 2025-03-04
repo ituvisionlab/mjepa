@@ -6,6 +6,7 @@
 #
 
 import math
+import time
 from multiprocessing import Value
 from logging import getLogger
 import torch
@@ -53,11 +54,17 @@ class MaskCollator(object):
         batch_size = len(batch)
         collated_batch = torch.utils.data.default_collate(batch)
 
+        # mask_start_time = time.time()  # **Measure Mask Generation**
+
         collated_masks_pred, collated_masks_enc = [], []
         for i, mask_generator in enumerate(self.mask_generators):
             masks_enc, masks_pred = mask_generator(batch_size)
             collated_masks_enc.append(masks_enc)
             collated_masks_pred.append(masks_pred)
+
+        # mask_end_time = time.time()  # **Measure Mask Generation**
+        # mask_gen_time = mask_end_time - mask_start_time # **Measure Mask Generation**
+        # print(f"MaskCollator Time: {mask_gen_time:.4f} sec")  # **Measure Mask Generation**
 
         return collated_batch, collated_masks_enc, collated_masks_pred
 
@@ -298,6 +305,8 @@ class _MaskGenerator(object):
         #     aspect_ratio_scale=self.aspect_ratio,
         # )
 
+        #mask_start_time = time.time()  # **Start timing mask generation
+
         collated_masks_pred, collated_masks_enc = [], []
         min_keep_enc = min_keep_pred = self.duration * self.height * self.width
         # for _ in range(batch_size): #GU_
@@ -325,6 +334,10 @@ class _MaskGenerator(object):
                 collated_masks_pred.append(mask_p)
                 collated_masks_enc.append(mask_e)
         
+        # mask_end_time = time.time()  # **End timing mask generation
+        # mask_gen_time = mask_end_time - mask_start_time # **End timing mask generation
+        # print(f"MaskGenerator Time: {mask_gen_time:.4f} sec") # **End timing mask generation
+
         #GU_ replicate the masks along the batchsize
         collated_masks_enc *= batch_size
         collated_masks_pred *= batch_size

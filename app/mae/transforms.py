@@ -101,14 +101,14 @@ class MRITransform(object):
 
                 tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
 
-                tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
+                # tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
             }
 
             # Define the MRI intensity transformation list
             intensity_transforms = {
                 tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
 
-                tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
+                # tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
 
                 tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
             }

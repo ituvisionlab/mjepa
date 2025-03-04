@@ -7,7 +7,7 @@
 
 import torch
 import torchvision.transforms as transforms
-
+import time
 import torchio as tio
 import numpy as np
 import nibabel as nib
@@ -91,7 +91,7 @@ class MRITransform(object):
             # buffer = np.transpose(buffer, (3, 1, 2, 0))  # T H W C -> C H W T
             # Permute to shape C H W T for TorchIO compatibility
             buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
-            
+
             # Define the MRI spatial transformation list
             spatial_transforms = {
                 tio.RandomAffine(
@@ -101,14 +101,20 @@ class MRITransform(object):
 
                 tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
 
-                tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
+                #tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
             }
 
+
+            # Combine spatial and intensity transforms using OneOf
+            spatial_transform = tio.OneOf(spatial_transforms)
+            buffer = spatial_transform(buffer)
+
+        
             # Define the MRI intensity transformation list
             intensity_transforms = {
                 tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
 
-                tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
+                # tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
 
                 tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
             }
@@ -116,12 +122,9 @@ class MRITransform(object):
             # transform = tio.OneOf(transforms_dict)
             # buffer = transform(buffer)
 
-            # Combine spatial and intensity transforms using OneOf
-            spatial_transform = tio.OneOf(spatial_transforms)
             intensity_transform = tio.OneOf(intensity_transforms)
 
             # Apply the transforms
-            buffer = spatial_transform(buffer)
             buffer = intensity_transform(buffer)
     
             # Permute back to original shape T H W C

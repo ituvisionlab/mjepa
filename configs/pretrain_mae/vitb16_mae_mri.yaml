@@ -5,7 +5,7 @@ tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  - src/datasets/oasis3_all_bet_nii_with_bbox.csv
+  - src/datasets/oasis3_all_bet.csv
   - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
   - src/datasets/brats24_all_nii.csv
   - src/datasets/ixi_all_bet_nii_with_bbox.csv
@@ -13,12 +13,12 @@ data:
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 16
-  num_clips: 1 #8
-  num_frames: 192 #16
-  tubelet_size: 16 #8
+  num_clips: 3 #1 #8
+  num_frames: 64 #16
+  tubelet_size: 8 #16
   sampling_rate: 1
   crop_size: 192 #128 #160 #192 #224
-  patch_size: 16 #8
+  patch_size: 8 #16
   in_channel_size: 1
   random_clip_sampling: false
   pin_mem: true

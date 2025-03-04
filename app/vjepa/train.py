@@ -512,7 +512,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         for itr in range(ipe):
             iter_start_time = time.time()
            
-            data_start_time = time.time() # **Measure Data Loading Time**
+            #data_start_time = time.time() # **Measure Data Loading Time**
             try:
                 udata, masks_enc, masks_pred = next(loader) #returned from "call" of multiblock3d
             except Exception:
@@ -524,17 +524,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
 
-            data_end_time = time.time() # **Measure Data Loading Time End**
-            data_loading_time = data_end_time - data_start_time # **Measure Data Loading Time **
-            logger.info(f"Data Loading Time: {data_loading_time:.4f} sec") # **Measure Data Loading Time End**
+            #data_end_time = time.time() # **Measure Data Loading Time End**
+            #data_loading_time = data_end_time - data_start_time # **Measure Data Loading Time **
+            #logger.info(f"Data Loading Time: {data_loading_time:.4f} sec") # **Measure Data Loading Time End**
              
-         
-            # mask_start_time = time.time()   # **Measure Mask Collator Time**
-            # masks_enc, masks_pred = mask_collator(udata)
-            # mask_end_time = time.time()    # **Measure Mask Collator Time**
-            # mask_gen_time = mask_end_time - mask_start_time # **Measure Mask Collator Time**
-            # logger.info(f"Mask Generation Time: {mask_gen_time:.4f} sec") # **Measure Mask Collator Time**
-
             def load_clips():
                 # -- unsupervised video clips
                 # Put each clip on the GPU and concatenate along batch
@@ -554,20 +547,16 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 return (clips, _masks_enc, _masks_pred)
             
-            
-            clip_start_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
+            #clip_start_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
             clips, masks_enc, masks_pred = load_clips()
-            clip_end_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
-            clip_transfer_time = clip_end_time - clip_start_time # **Measure Load Clips & Transfer to GPU Time**
-            logger.info(f"Clip Transfer Time: {clip_transfer_time:.4f} sec") # **Measure Load Clips & Transfer to GPU Time**
+            #clip_end_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
+            #clip_transfer_time = clip_end_time - clip_start_time # **Measure Load Clips & Transfer to GPU Time**
+            #logger.info(f"Clip Transfer Time: {clip_transfer_time:.4f} sec") # **Measure Load Clips & Transfer to GPU Time**
 
+            if torch.isnan(clips).any():
+                print("NaN detected in input data!")
+                raise ValueError("NaN detected in input data!")
             
-            # visualization_interval = 10  # Adjust as needed (e.g., visualize every 10 iterations)
-            # if itr % visualization_interval == 0:
-            # # Save and visualize masks for the first sample in the batch
-            #     save_and_visualize_masks(masks_enc, masks_pred, epoch, itr,)
-
-
         # -------------------------------------------------
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
@@ -612,7 +601,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # Step 1. Forward
                 loss_jepa, loss_reg = 0., 0.
            
-                forward_start_time = time.time() # **Measure Forward Pass Time**
+                #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     h = forward_target(clips)
                     z = forward_context(clips, h)
@@ -621,12 +610,12 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
                 loss = loss_jepa + reg_coeff * loss_reg
                 
-                forward_end_time = time.time() # **Measure Forward Pass Time**
-                forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
-                logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
+                # forward_end_time = time.time() # **Measure Forward Pass Time**
+                # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
+                # logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
 
                 
-                backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
+                # backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
                 if mixed_precision:
@@ -634,6 +623,17 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     scaler.unscale_(optimizer)
                 else:
                     loss.backward()
+                
+                # # Check gradients for NaNs before optimizer step
+                # for name, param in encoder.named_parameters():
+                #     if param.grad is not None and torch.isnan(param.grad).any():
+                #         print(f"NaN detected in encoder gradient: {name}")
+                #         raise ValueError("NaN in encoder gradients!")
+                # for name, param in predictor.named_parameters():
+                #     if param.grad is not None and torch.isnan(param.grad).any():
+                #         print(f"NaN detected in predictor gradient: {name}")
+                #         raise ValueError("NaN in predictor gradients!")
+                
                 if (epoch > warmup) and (clip_grad is not None):
                     _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
                     _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
@@ -642,9 +642,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     scaler.update()
                 else:
                     optimizer.step()
-                backward_end_time = time.time() # **Measure Backward Pass + Optimizer Step**
-                backward_time = backward_end_time - backward_start_time # **Measure Backward Pass + Optimizer Step**
-                logger.info(f"Backward Pass Time: {backward_time:.4f} sec") # **Measure Backward Pass + Optimizer Step**
+                # backward_end_time = time.time() # **Measure Backward Pass + Optimizer Step**
+                # backward_time = backward_end_time - backward_start_time # **Measure Backward Pass + Optimizer Step**
+                # logger.info(f"Backward Pass Time: {backward_time:.4f} sec") # **Measure Backward Pass + Optimizer Step**
 
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
@@ -686,9 +686,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
 
             
-            iter_end_time = time.time() # **Total Iteration Time**
-            iter_elapsed_time = iter_end_time - iter_start_time # **Total Iteration Time**
-            logger.info(f"Iteration Time: {iter_elapsed_time:.4f} sec") # **Total Iteration Time**
+            # iter_end_time = time.time() # **Total Iteration Time**
+            # iter_elapsed_time = iter_end_time - iter_start_time # **Total Iteration Time**
+            # logger.info(f"Iteration Time: {iter_elapsed_time:.4f} sec") # **Total Iteration Time**
 
             # Release memory
             del clips
