@@ -1,8 +1,9 @@
 #!/bin/bash
 #SBATCH --partition=radiology
-#SBATCH --gres=gpu:a100:1
-#SBATCH --mem=256GB
+#SBATCH --gres=gpu:a100:2
+#SBATCH --mem=192GB
 #SBATCH --nodes=1
+#SBATCH --time=3-00:00:00
 #SBATCH --job-name=launch
 #SBATCH --mail-type=END
 #SBATCH --mail-user=gozde.unal@nyulangone.org
@@ -12,4 +13,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main_distributed --fname configs/pretrain_mae/vits16_mae_mri2.yaml --time 4300 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition radiology
+python -m app.main_distributed --fname configs/pretrain_mae/vitb16_mae_mri.yaml --time 4300 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition radiology

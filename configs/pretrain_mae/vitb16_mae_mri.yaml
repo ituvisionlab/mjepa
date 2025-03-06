@@ -1,6 +1,6 @@
 app: mae
 nodes: 1
-tasks_per_node: 4  #1
+tasks_per_node: 2  #1
 tag: mae
 data:
   dataset_type: MRIDataset
@@ -13,8 +13,8 @@ data:
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 16
-  num_clips: 3 #1 #8
-  num_frames: 64 #16
+  num_clips: 1 #8
+  num_frames: 128 #16
   tubelet_size: 8 #16
   sampling_rate: 1
   crop_size: 192 #128 #160 #192 #224
@@ -28,7 +28,7 @@ data:
 data_aug:
   auto_augment: true
   random_noise: 0.01
-  random_bias: 0.1
+  random_bias: 0.1 #unused
   intensity_gamma: 0.1
   motion_shift: false
   random_resize_aspect_ratio:
@@ -49,7 +49,7 @@ mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.7
+    num_blocks: 0.75
     spatial_scale:
       - 1
       - 1
@@ -80,7 +80,8 @@ optimization:
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 500
-  warmup: 20
-  start_lr: 3.0e-5 #3e-05
-  lr: 2.0e-4 #1.0e-4
-  final_lr: 5.0e-6 #1.0e-6
+  warmup: 5
+  start_lr: 1.0e-3 #3e-05
+  lr: 2.0e-3 #1.0e-4
+  final_lr: 1.0e-4 #1.0e-6
+  grad_accum_steps: 2 #4

@@ -62,7 +62,6 @@ log_timings = True
 log_freq = 10
 checkpoint_freq = 1
 write_freq_debug = 500 # save reconstructed images periodically for debugging
-accumulation_steps = 4  # Define the number of steps before updating the optimizer 
 # Adjust this based on memory constraints
 
 # --
@@ -107,7 +106,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- MODEL
     cfgs_model = args.get('model')
     model_name = cfgs_model.get('model_name')
-    pred_model_name = cfgs_model.get('pred_model_name')
+    pred_model_name = cfgs_model.get('pred_model_name','vit_decoder')
     pred_depth = cfgs_model.get('pred_depth')
     pred_embed_dim = cfgs_model.get('pred_embed_dim')
     uniform_power = cfgs_model.get('uniform_power', True)
@@ -168,10 +167,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     lr = cfgs_opt.get('lr')
     final_lr = cfgs_opt.get('final_lr')
     ema = cfgs_opt.get('ema')
-    betas = cfgs_opt.get('betas', (0.9, 0.999))
+    betas = cfgs_opt.get('betas', (0.9, 0.95)) #GU_Debug: (0.9, 0.999)
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
     drop_rate = cfgs_opt.get('drop_rate', 0.1)
     attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
+    accumulation_steps = cfgs_opt.get('grad_accum_steps', 4)  # Define the number of steps before updating the optimizer 
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -486,6 +486,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
 
+        optimizer.zero_grad()
+
         # -- update distributed-data-loader epoch
         unsupervised_sampler.set_epoch(epoch)
 
@@ -674,7 +676,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     affine = np.eye(4)
                     for i in range(len(imgs)):
                         nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
-                    nib.save(nifti_image, f'zReconstructed_volume{i}-iter{itr}.nii')
+                        nib.save(nifti_image, f'zReconstructed_volume{i}-iter{itr}.nii')
                     #affine = np.eye(4)
                     for i, vol in enumerate(binary_volumes):
                         # Optionally, convert to float32 if needed (or keep as uint8)
@@ -692,7 +694,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
                         scaler.step(optimizer)
                         scaler.update()
-                        
+                        torch.cuda.synchronize()
+                        loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 else:
                     loss.backward()
                     if (itr + 1) % accumulation_steps == 0:  # Only when we're going to step
@@ -700,6 +703,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
                             _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
                         optimizer.step()
+                        torch.cuda.synchronize()
+                        loss = AllReduce.apply(loss)  # Average loss across GPUs
 
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
@@ -707,7 +712,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 grad_stats_pred.global_norm = float(_pred_norm)                
                 optim_stats = adamw_logger(optimizer)
                 
-                optimizer.zero_grad()  # Only zero gradients after step
+                if (itr + 1) % accumulation_steps == 0:
+                    optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
+                #optimizer.zero_grad()  # Only zero gradients after step
 
                 return (
                     float(loss) * accumulation_steps,  # Restore original loss scale
@@ -719,6 +726,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     grad_stats_pred,
                     optim_stats,
                 )
+            
             (loss, loss_mae, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)

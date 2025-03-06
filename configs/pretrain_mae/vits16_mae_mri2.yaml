@@ -1,6 +1,6 @@
 app: mae
 nodes: 1
-tasks_per_node: 4  #1
+tasks_per_node: 2  #1
 tag: mae
 data:
   dataset_type: MRIDataset
@@ -22,7 +22,7 @@ data:
   in_channel_size: 1
   random_clip_sampling: false
   pin_mem: true
-  num_workers: 8 #8 #12
+  num_workers: 2 #8 #12
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -49,7 +49,7 @@ mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.7
+    num_blocks: 0.75
     spatial_scale:
       - 1
       - 1
@@ -69,7 +69,7 @@ meta:
 model:
   model_name: vit_small_mod
   pred_model_name: vit_decoder_mod
-  pred_depth: 4 #8
+  pred_depth: 6 #8
   pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
@@ -78,10 +78,11 @@ optimization:
   ipe: null #300
   ipe_scale: 1.25
   clip_grad: 1.0
-  weight_decay: 0.005
-  final_weight_decay: 0.001 #0.1 #for large dataset
+  weight_decay: 0.05
+  final_weight_decay: 0.1 #0.1 #for large dataset
   epochs: 500
-  warmup: 10
+  warmup: 5
   start_lr: 1.0e-3
-  lr: 5.0e-3
+  lr: 2.0e-3
   final_lr: 1.0e-5
+  grad_accum_steps: 2 #4

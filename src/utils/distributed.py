@@ -118,3 +118,10 @@ class AllReduce(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grads):
         return grads
+# #obsolete
+# def all_reduce_mean(tensor):
+#     """ Averages a tensor across all distributed processes. """
+#     if dist.is_available() and dist.is_initialized():
+#         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+#         tensor /= dist.get_world_size()
+#     return tensor

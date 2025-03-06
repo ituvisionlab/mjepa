@@ -145,11 +145,11 @@ def launch_app_with_parsed_args(
            slurm_partition=partition,
            # slurm_reservation=reservation,
            # slurm_mem_per_gpu='128G', 
-           slurm_mem='256G',  #'192G',
+           slurm_mem='192G',  #'256G',
            timeout_min=timeout,
            nodes=nodes,
            tasks_per_node=tasks_per_node,
-           cpus_per_task=10, #for num_workers=8  #6 for num_workers=4
+           cpus_per_task=4, #for num_workers=8  #6 for num_workers=4
            gpus_per_node=tasks_per_node,
            slurm_additional_parameters={
            'reservation': reservation,
@@ -157,11 +157,11 @@ def launch_app_with_parsed_args(
     else:
         slurm_params = {
             'partition': partition,
-            'mem': '256G',  # Adjust memory per your needs
+            'mem': '192G',  # Adjust memory per your needs
             'time': timeout,
             'nodes': nodes,
             'tasks_per_node': tasks_per_node,
-            'cpus_per_task': 10,
+            'cpus_per_task': 4,
             'gpus_per_node': tasks_per_node,
             }   
         executor.update_parameters(**slurm_params)

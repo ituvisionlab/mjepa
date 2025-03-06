@@ -497,6 +497,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         if rank == 0:
             logger.info('Epoch %d' % (epoch + 1))
 
+        optimizer.zero_grad()
+
         # -- update distributed-data-loader epoch
         unsupervised_sampler.set_epoch(epoch)
 
