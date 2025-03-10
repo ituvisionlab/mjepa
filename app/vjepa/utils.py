@@ -123,6 +123,7 @@ def init_video_model(
     num_frames=16,
     tubelet_size=2,
     model_name='vit_base',
+    pred_model_name='vit_predictor',
     crop_size=224,
     pred_depth=6,
     pred_embed_dim=384,
@@ -147,7 +148,7 @@ def init_video_model(
         attn_drop_rate=attn_drop_rate
     )
     encoder = MultiMaskWrapper(encoder)
-    predictor = vit_pred.__dict__['vit_predictor'](
+    predictor = vit_pred.__dict__[pred_model_name](
         img_size=crop_size,
         use_mask_tokens=use_mask_tokens,
         patch_size=patch_size,

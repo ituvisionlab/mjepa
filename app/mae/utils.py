@@ -112,6 +112,8 @@ def init_video_model(
         num_frames=num_frames,
         tubelet_size=tubelet_size,
         embed_dim=encoder.backbone.embed_dim,
+        predictor_embed_dim=pred_embed_dim,
+        depth=pred_depth,
         uniform_power=uniform_power,
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,

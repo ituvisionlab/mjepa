@@ -58,6 +58,7 @@ from app.vjepa.transforms import make_transforms
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
+periodic_ckpt_save_freq = 50 
 # --
 
 _GLOBAL_SEED = 0
@@ -102,6 +103,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- MODEL
     cfgs_model = args.get('model')
     model_name = cfgs_model.get('model_name')
+    pred_model_name = cfgs_model.get('pred_model_name','vit_predictor')
     pred_depth = cfgs_model.get('pred_depth')
     pred_embed_dim = cfgs_model.get('pred_embed_dim')
     uniform_power = cfgs_model.get('uniform_power', True)
@@ -166,7 +168,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
     drop_rate = cfgs_opt.get('drop_rate', 0.1)
     attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
-
+    accumulation_steps = cfgs_opt.get('grad_accum_steps', 2)  # Define the number of steps before updating the optimizer 
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -323,6 +325,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         num_frames=num_frames,
         tubelet_size=tubelet_size,
         model_name=model_name,
+        pred_model_name=pred_model_name,
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
@@ -555,9 +558,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             #clip_transfer_time = clip_end_time - clip_start_time # **Measure Load Clips & Transfer to GPU Time**
             #logger.info(f"Clip Transfer Time: {clip_transfer_time:.4f} sec") # **Measure Load Clips & Transfer to GPU Time**
 
-            if torch.isnan(clips).any():
-                print("NaN detected in input data!")
-                raise ValueError("NaN detected in input data!")
+            # if torch.isnan(clips).any():
+            #     print("NaN detected in input data!")
+            #     raise ValueError("NaN detected in input data!")
             
         # -------------------------------------------------
             for _i, m in enumerate(mask_meters):
@@ -610,7 +613,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss_jepa = loss_fn(z, h)  # jepa prediction loss
                     pstd_z = reg_fn(z)  # predictor variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
-                loss = loss_jepa + reg_coeff * loss_reg
+                
+                # Accumulate loss before stepping optimizer
+                loss = (loss_jepa + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
+                #loss = loss_jepa + reg_coeff * loss_reg
                 
                 # forward_end_time = time.time() # **Measure Forward Pass Time**
                 # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
@@ -619,31 +625,28 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 # backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
-                _enc_norm, _pred_norm = 0., 0.
+                _enc_norm, _pred_norm = 0., 0. 
                 if mixed_precision:
                     scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
+                    if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
+                        scaler.unscale_(optimizer)
+                        if (epoch > warmup) and (clip_grad is not None):
+                            _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
+                            _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
+                        scaler.step(optimizer)
+                        scaler.update()
+                        torch.cuda.synchronize()
+                        loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 else:
                     loss.backward()
+                    if (itr + 1) % accumulation_steps == 0:  # Only when we're going to step
+                        if (epoch > warmup) and (clip_grad is not None):
+                            _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
+                            _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
+                        optimizer.step()
+                        torch.cuda.synchronize()
+                        loss = AllReduce.apply(loss)  # Average loss across GPUs
                 
-                # # Check gradients for NaNs before optimizer step
-                # for name, param in encoder.named_parameters():
-                #     if param.grad is not None and torch.isnan(param.grad).any():
-                #         print(f"NaN detected in encoder gradient: {name}")
-                #         raise ValueError("NaN in encoder gradients!")
-                # for name, param in predictor.named_parameters():
-                #     if param.grad is not None and torch.isnan(param.grad).any():
-                #         print(f"NaN detected in predictor gradient: {name}")
-                #         raise ValueError("NaN in predictor gradients!")
-                
-                if (epoch > warmup) and (clip_grad is not None):
-                    _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
-                    _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
-                if mixed_precision:
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    optimizer.step()
                 # backward_end_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # backward_time = backward_end_time - backward_start_time # **Measure Backward Pass + Optimizer Step**
                 # logger.info(f"Backward Pass Time: {backward_time:.4f} sec") # **Measure Backward Pass + Optimizer Step**
@@ -652,8 +655,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 grad_stats.global_norm = float(_enc_norm)
                 grad_stats_pred = grad_logger(predictor.named_parameters())
                 grad_stats_pred.global_norm = float(_pred_norm)
-                optimizer.zero_grad()
                 optim_stats = adamw_logger(optimizer)
+
+                if (itr + 1) % accumulation_steps == 0:
+                    optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
+                #optimizer.zero_grad()  # Only zero gradients after step
 
                 # Step 3. momentum update of target encoder
                 m = next(momentum_scheduler)
@@ -662,7 +668,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
                 return (
-                    float(loss),
+                    float(loss) * accumulation_steps,  # Restore original loss scale
                     float(loss_jepa),
                     float(loss_reg),
                     _new_lr,
@@ -685,7 +691,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             
             
             gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
-            logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
+            # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
 
             
             # iter_end_time = time.time() # **Total Iteration Time**
@@ -804,7 +810,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
         # -- Save Last
-        if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
+        if ((itr == 0) and epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
             
             if not os.path.exists(latest_path):
                 save_checkpoint(epoch + 1, latest_path, latest_info_path)
@@ -812,7 +818,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 if len(epoch_losses) > 0:
                     if loss_meter.avg < min(epoch_losses) and epoch > 20 :
                         save_checkpoint(epoch + 1, best_path, best_info_path)
-                    elif epoch % 50 == 0:
+                    elif epoch % periodic_ckpt_save_freq == 0:
                         periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
                         periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
                         save_checkpoint(epoch + 1, periodic_path, periodic_info_path)

@@ -40,18 +40,18 @@ optimization:
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  start_lr: 1.0e-5 #1.0e-5
-  lr: 1.0e-4 #1.0e-5
-  final_lr: 1.0e-6 #1.0e-6 
-  warmup: 5
+  start_lr: 1.0e-4 #1.0e-5
+  lr: 1.0e-3 #1.0e-5
+  final_lr: 1.0e-5 #1.0e-6 
+  warmup: 0
   use_bfloat16: true
   clip_grad_classifier: 10.0
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: 0.5 #0.75 #null to turn it off
+  layer_decay: 0.75 #null to turn it off
   classifier_depth: 1
-  dropout: 0.2 #0.25 #null to turn off
+  dropout: 0.3 #0.25 #null to turn off
   drop_rate: 0.1
   attn_drop_rate: 0.1
 pretrain:
@@ -65,9 +65,9 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #default: true
+  frozen: true #default: true
   clip_grad_encoder: 10.0
-  encoder_warmup: 0
+  encoder_warmup: 5
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added

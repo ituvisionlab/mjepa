@@ -61,9 +61,8 @@ from app.mae.transforms import make_transforms
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
-write_freq_debug = 500 # save reconstructed images periodically for debugging
-# Adjust this based on memory constraints
-
+periodic_ckpt_save_freq = 50 
+write_img_freq = 5 # every other x epochs, save reconstructed images periodically for monitoring
 # --
 
 _GLOBAL_SEED = 0
@@ -171,7 +170,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
     drop_rate = cfgs_opt.get('drop_rate', 0.1)
     attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
-    accumulation_steps = cfgs_opt.get('grad_accum_steps', 4)  # Define the number of steps before updating the optimizer 
+    accumulation_steps = cfgs_opt.get('grad_accum_steps', 2)  # Define the number of steps before updating the optimizer 
 
     # -- LOGGING
     cfgs_logging = args.get('logging')
@@ -667,8 +666,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 #loss = loss_mae + reg_coeff * loss_reg
 
     
-                # Debug_GU: reconstruct images or masks to visualize
-                if (itr % write_freq_debug == 0):
+                # Reconstruct images & masks to visualize at every write_img_freq epochs
+                if (itr == 0) and (epoch % write_img_freq == 0):
                     imgs = reconstruct_image(c_hat, clips) 
                     binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
                 
@@ -676,12 +675,12 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     affine = np.eye(4)
                     for i in range(len(imgs)):
                         nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
-                        nib.save(nifti_image, f'zReconstructed_volume{i}-iter{itr}.nii')
+                        nib.save(nifti_image, f'zReconstructed_volume{i}-epoch{epoch}.nii')
                     #affine = np.eye(4)
                     for i, vol in enumerate(binary_volumes):
                         # Optionally, convert to float32 if needed (or keep as uint8)
                         nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)
-                        nib.save(nifti_image, f'zMask_volume_{i}-iter{itr}.nii')
+                        nib.save(nifti_image, f'zMask_volume_{i}-epoch{epoch}.nii')
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -850,8 +849,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # -- Save Checkpoint
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
-        # -- Save Last
-        if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
+        # -- Save checkpoint or last epoch
+        if ((itr == 0) and (epoch % checkpoint_freq == 0) or (epoch == (num_epochs - 1))) and log_dir != None:
             
             if not os.path.exists(latest_path):
                 save_checkpoint(epoch + 1, latest_path, latest_info_path)
@@ -859,7 +858,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 if len(epoch_losses) > 0:
                     if loss_meter.avg < min(epoch_losses) and epoch > 20 :
                         save_checkpoint(epoch + 1, best_path, best_info_path)
-                    elif epoch % 50 == 0:
+                    elif epoch % periodic_ckpt_save_freq == 0:
                         periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
                         periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
                         save_checkpoint(epoch + 1, periodic_path, periodic_info_path)
