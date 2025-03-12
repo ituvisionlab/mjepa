@@ -75,7 +75,6 @@ model:
   zero_init_mask_tokens: true
 optimization:
   ipe: null #300
-  ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset

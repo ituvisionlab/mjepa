@@ -12,12 +12,12 @@ data:
   - src/datasets/mood_all_nii_with_bbox.csv
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 16
+  batch_size: 14
   num_clips: 1 #8
   num_frames: 128 #16
   tubelet_size: 8 #16
   sampling_rate: 1
-  crop_size: 192 #128 #160 #192 #224
+  crop_size: 192 #128 #224
   patch_size: 8 #16
   in_channel_size: 1
   random_clip_sampling: true #false
@@ -67,6 +67,7 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_base
+  pred_model_name: vit_decoder
   pred_depth: 12 #8
   pred_embed_dim: 768
   uniform_power: true # positional_embedding related, check later
@@ -74,7 +75,6 @@ model:
   zero_init_mask_tokens: true #false
 optimization:
   ipe: null #300
-  ipe_scale: 1.25
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset

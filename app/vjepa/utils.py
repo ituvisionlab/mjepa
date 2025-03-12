@@ -208,7 +208,7 @@ def init_opt(
     final_wd=1e-6,
     final_lr=0.0,
     mixed_precision=False,
-    ipe_scale=1.25,
+    ipe_scale=1.0,
     betas=(0.9, 0.999),
     eps=1e-8,
     zero_init_bias_wd=True,

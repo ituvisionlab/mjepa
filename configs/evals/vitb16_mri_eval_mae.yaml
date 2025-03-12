@@ -10,11 +10,11 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/adni_all_3class_bet_train.csv 
+  - src/datasets/adni_all_2class_bet_train.csv 
   dataset_val: 
-  - src/datasets/adni_all_3class_bet_val.csv 
+  - src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
-  num_classes: 3
+  num_classes: 2
   frames_per_clip: 128
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
@@ -56,7 +56,7 @@ optimization:
   attn_drop_rate: 0.1
 pretrain:
   model_name: vit_base
-  checkpoint_key: encoder
+  checkpoint_key: target_encoder #encoder
   clip_duration: null
   frames_per_clip: 128
   tubelet_size: 8

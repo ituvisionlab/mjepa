@@ -71,7 +71,8 @@ from src.utils.tensors import trunc_normal_
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
+checkpoint_freq = 1
+save_ckpt_epoch_freq = 10
 _GLOBAL_SEED = 0
 #np.random.seed(_GLOBAL_SEED)
 #torch.manual_seed(_GLOBAL_SEED)
@@ -160,6 +161,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     dropout = args_opt.get('dropout', None)
     drop_rate = args_opt.get('drop_rate', 0.1)
     attn_drop_rate = args_opt.get('attn_drop_rate', 0.1) 
+    accumulation_steps = args_opt.get('grad_accum_steps', 2)  # Define the number of steps before updating the optimizer 
+
    
     # -- EXPERIMENT-ID/TAG (optional)
     resume_checkpoint = args_eval.get('resume_checkpoint', False) or resume_preempt
@@ -183,8 +186,6 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
 
     # -- log/checkpointing paths
-    
-    checkpoint_freq = 1
     
     if log_dir != None:
         model_folder = os.path.join(log_dir, "model_ckpt")
@@ -226,7 +227,13 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                                 ('%.5f', 'train acc'),
                                 ('%.5f', 'val acc'),
                                 ('%.5f', 'train loss'),
-                                ('%.5f', 'val loss'))
+                                ('%.5f', 'val loss'),
+                                ('%.5f', 'train recall'),
+                                ('%.5f', 'val recall'),
+                                ('%.5f', 'train precision'),
+                                ('%.5f', 'val precision'),
+                                ('%.5f', 'train f1'),
+                                ('%.5f', 'val f1'))
         
         if rank == 0:
             # wandb init
@@ -454,13 +461,13 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
-            logger.info('Epoch %d' % (epoch + 1))
+            logger.info('Epoch %d' % (epoch))
 
         if not frozen:
             if epoch >= encoder_warmup:
                 encoder_frozen = False
 
-        train_acc, train_loss = run_one_epoch(
+        train_acc, train_loss, train_recall, train_precision, train_f1 = run_one_epoch(
             device=device,
             training=True,
             num_temporal_views=eval_num_clips, #if attend_across_segments else 1,
@@ -484,9 +491,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             num_classes=num_classes,
             warmup=warmup,
             clip_grad_encoder=clip_grad_encoder,
-            clip_grad_classifier=clip_grad_classifier)
+            clip_grad_classifier=clip_grad_classifier,
+            accumulation_steps=accumulation_steps)
 
-        val_acc, val_loss = run_one_epoch(
+        val_acc, val_loss, val_recall, val_precision, val_f1  = run_one_epoch(
              device=device,
              training=False,
              num_temporal_views=eval_num_clips,
@@ -510,30 +518,31 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              num_classes=num_classes,
              warmup=warmup,
              clip_grad_encoder=clip_grad_encoder,
-             clip_grad_classifier=clip_grad_classifier)
+             clip_grad_classifier=clip_grad_classifier,
+             accumulation_steps=accumulation_steps)
 
         if rank == 0:
-            logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
+            logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch, train_acc, val_acc))
         
         # if rank == 0:
         if csv_logger != None:
-            csv_logger.log(epoch + 1, train_acc, val_acc, train_loss, val_loss)
+            csv_logger.log(epoch, train_acc, val_acc, train_loss, val_loss, train_recall, val_recall, train_precision, val_precision, train_f1, val_f1)
         
-        if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
-            
+        #if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
+        if log_dir != None: # at the end of every epoch       
             if not os.path.exists(latest_path):
-                save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
+                save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path)
             else:
                 if len(epoch_accs) > 0:
-                    if train_acc > max(epoch_accs) and epoch > 4:
-                        save_checkpoint(epoch + 1, train_acc, val_acc, best_path, best_info_path)
-                    elif epoch%20==0:
-                        periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch+1}.pth.tar')
-                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
-                        save_checkpoint(epoch + 1, train_acc, val_acc, periodic_path, periodic_info_path)
+                    if val_acc > max(epoch_val_accs) and epoch > 4: #if train_acc > max(epoch_accs) and epoch > 4:
+                        save_checkpoint(epoch, train_acc, val_acc, best_path, best_info_path)
                     else:
-                        save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
-        if epoch > 4:
+                        save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path)
+                    if epoch% save_ckpt_epoch_freq ==0:
+                        periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch}.pth.tar')
+                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
+                        save_checkpoint(epoch, train_acc, val_acc, periodic_path, periodic_info_path)
+        if epoch >= 4:
             epoch_accs.append(train_acc)
             epoch_val_accs.append(val_acc)
             
@@ -565,7 +574,8 @@ def run_one_epoch(
     num_classes,
     warmup,
     clip_grad_encoder,
-    clip_grad_classifier
+    clip_grad_classifier,
+    accumulation_steps
 ):
 
     classifier.train(mode=training)
@@ -713,11 +723,15 @@ def run_one_epoch(
         # else:
         #     print("Encoder is not frozen. Gradients are propagating to some parameters.")
         #end_debug
-
+        
+        loss = loss / accumulation_steps
+        torch.cuda.synchronize()
+        loss = AllReduce.apply(loss)  # Average loss across GPUs  
         if training:
             if use_bfloat16:
                 scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
+                if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
+                    scaler.unscale_(optimizer)
                 if epoch > warmup:
                     torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
                     if not frozen:
@@ -743,8 +757,10 @@ def run_one_epoch(
             #         print(f"Classifier: No gradient for: {name}")
             #     else:
             #         print(f"Classifier Gradient exists for: {name} | Norm: {param.grad.norm().item()}")
-
-            optimizer.zero_grad(set_to_none=True)
+            
+            if (itr + 1) % accumulation_steps == 0:
+                optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
+            #optimizer.zero_grad(set_to_none=True)
 
         # Tensorboard logging. log_writer set to None
         if log_writer != None:
@@ -796,7 +812,7 @@ def run_one_epoch(
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
 
-    return top1_meter.avg, loss
+    return top1_meter.avg, loss, recall, precision, f1
 
 
 def load_checkpoint(

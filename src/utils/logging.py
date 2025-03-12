@@ -59,7 +59,7 @@ class CSVLogger(object):
         with open(self.fname, '+a') as f:
             for i, tv in enumerate(zip(self.types, argv), 1):
                 end = ',' if i < len(argv) else '\n'
-                # print(tv[0] % tv[1], end=end, file=f)
+                print(tv[0] % tv[1], end=end, file=f)
 
 
 class AverageMeter(object):

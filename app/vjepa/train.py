@@ -58,7 +58,7 @@ from app.vjepa.transforms import make_transforms
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
-periodic_ckpt_save_freq = 50 
+periodic_ckpt_save_freq = 25 
 # --
 
 _GLOBAL_SEED = 0
@@ -246,7 +246,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- load pretrained model path
     load_path = None
     if load_model:
-        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None #latest_path
+        load_path = os.path.join(jepa_ckpt_folder, r_file) if r_file is not None else None
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
@@ -473,7 +473,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         try:
             torch.save(save_dict, path)
             with open(info_path, "w") as info_f:
-                info_f.write(f"Model path: {path},\nEpoch: {epoch+1}, loss: {loss_meter.avg}, lr: {lr}")
+                info_f.write(f"Model path: {path},\nEpoch: {epoch}, loss: {loss_meter.avg}, lr: {lr}")
             
         except Exception as e:
             logger.info(f'Encountered exception when saving checkpoint: {e}')
@@ -498,7 +498,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
-            logger.info('Epoch %d' % (epoch + 1))
+            logger.info('Epoch %d' % (epoch))
 
         optimizer.zero_grad()
 
@@ -626,6 +626,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0. 
+                torch.cuda.synchronize()
+                loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 if mixed_precision:
                     scaler.scale(loss).backward()
                     if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
@@ -635,8 +637,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
                         scaler.step(optimizer)
                         scaler.update()
-                        torch.cuda.synchronize()
-                        loss = AllReduce.apply(loss)  # Average loss across GPUs  
+                        #torch.cuda.synchronize()
+                        #loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 else:
                     loss.backward()
                     if (itr + 1) % accumulation_steps == 0:  # Only when we're going to step
@@ -644,8 +646,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
                             _pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
                         optimizer.step()
-                        torch.cuda.synchronize()
-                        loss = AllReduce.apply(loss)  # Average loss across GPUs
+                        #torch.cuda.synchronize()
+                        #loss = AllReduce.apply(loss)  # Average loss across GPUs
                 
                 # backward_end_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # backward_time = backward_end_time - backward_start_time # **Measure Backward Pass + Optimizer Step**
@@ -705,7 +707,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             # -- Logging
             def log_stats():
                 csv_logger.log(
-                    epoch + 1,
+                    epoch,
                     itr,
                     loss,
                     loss_jepa,
@@ -753,7 +755,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         '[mem: %.2e] '
                         '[gpu: %.1f ms]'
                         '[wall: %.1f ms]'
-                        % (epoch + 1, itr,
+                        % (epoch, itr,
                            loss_meter.avg,
                            jepa_loss_meter.avg,
                            reg_loss_meter.avg,
@@ -769,7 +771,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     if optim_stats is not None:
                         logger.info(
                             '[%d, %5d] first moment: %.2e [%.2e %.2e] second moment: %.2e [%.2e %.2e]'
-                            % (epoch + 1, itr,
+                            % (epoch, itr,
                                optim_stats.get('exp_avg').avg,
                                optim_stats.get('exp_avg').min,
                                optim_stats.get('exp_avg').max,
@@ -780,7 +782,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     if grad_stats is not None:
                         logger.info(
                             '[%d, %5d] enc_grad_stats: f/l[%.2e %.2e] mn/mx(%.2e, %.2e) %.2e'
-                            % (epoch + 1, itr,
+                            % (epoch, itr,
                                grad_stats.first_layer,
                                grad_stats.last_layer,
                                grad_stats.min,
@@ -790,7 +792,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     if grad_stats_pred is not None:
                         logger.info(
                             '[%d, %5d] pred_grad_stats: f/l[%.2e %.2e] mn/mx(%.2e, %.2e) %.2e'
-                            % (epoch + 1, itr,
+                            % (epoch, itr,
                                grad_stats_pred.first_layer,
                                grad_stats_pred.last_layer,
                                grad_stats_pred.min,
@@ -810,21 +812,21 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
         # -- Save Last
-        if ((itr == 0) and epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
-            
+        #if ((itr == 0) and epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
+        if log_dir != None: # itr is always ipe-1 at this point, do at the end of every epoch   
             if not os.path.exists(latest_path):
-                save_checkpoint(epoch + 1, latest_path, latest_info_path)
+                save_checkpoint(epoch, latest_path, latest_info_path)
             else:
                 if len(epoch_losses) > 0:
-                    if loss_meter.avg < min(epoch_losses) and epoch > 20 :
-                        save_checkpoint(epoch + 1, best_path, best_info_path)
-                    elif epoch % periodic_ckpt_save_freq == 0:
-                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch+1}.pth.tar')
-                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch+1}.txt')
-                        save_checkpoint(epoch + 1, periodic_path, periodic_info_path)
+                    if loss_meter.avg < min(epoch_losses) and epoch > 19 :
+                        save_checkpoint(epoch, best_path, best_info_path)
                     else:
-                        save_checkpoint(epoch + 1, latest_path, latest_info_path)
-        if epoch > 20:
+                        save_checkpoint(epoch, latest_path, latest_info_path)
+                    if epoch % periodic_ckpt_save_freq == 0:
+                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch}.pth.tar')
+                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
+                        save_checkpoint(epoch, periodic_path, periodic_info_path)
+        if epoch >= 19:
             epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()
