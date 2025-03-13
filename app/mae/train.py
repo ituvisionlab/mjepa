@@ -52,7 +52,7 @@ from app.mae.utils import (
     init_opt,
     patchify_image,
     unpatchify_image,
-    save_and_visualize_masks,
+    unpatchify_image_from_full
 )
 from app.mae.transforms import make_transforms
 
@@ -552,6 +552,16 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     
                     return z
 
+                def forward_context_full(c):
+                    """
+                    Returns list of tensors of shape [B, N, D], one for each
+                    mask-pred.
+                    """
+                    z = encoder(c, masks_enc)
+                    z_all = decoder(z, masks_enc, masks_pred, return_all_tokens=True)
+                    
+                    return z_all
+                
                 def loss_fn(z, c):
                     patches = patchify_image(c, patch_size)
 
@@ -588,7 +598,26 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             )
                         )
                     return imgs
-
+                
+                def reconstruct_image_full(c_hat_all):                 
+                    imgs = []
+                    # For each mask level, pass the corresponding mask indices.
+                    for level, (unmask_tokens, recon_tokens) in enumerate(c_hat_all):
+                        imgs.append(
+                            unpatchify_image(
+                                recon_tokens,
+                                unmask_tokens,
+                                patch_size,
+                                tubelet_size,
+                                num_frames,
+                                in_chans,
+                                crop_size,
+                                masks_enc[level],  # use mask for the current level
+                                masks_pred[level]  # use mask for the current level
+                            )
+                        )
+                    return imgs
+                
                 def reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size):
                     """
                     Create a binary 3D volume for each mask level, showing the locations of the masked patches.
@@ -670,13 +699,17 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 if (itr == 0) and (epoch % write_img_freq == 0):
                     imgs = reconstruct_image(c_hat, clips) 
                     binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
-                
-                    # #GU_ debug
+                    c_hat_all = forward_context_full(clips)
+                    
+                    imgs_full = reconstruct_image_full(c_hat_all) 
+
                     affine = np.eye(4)
                     for i in range(len(imgs)):
                         nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
                         nib.save(nifti_image, f'zReconstructed_volume{i}-epoch{epoch}.nii')
-                    #affine = np.eye(4)
+                    for i in range(len(imgs_full)):
+                        nifti_image = nib.Nifti1Image(imgs_full[i].cpu().detach().float().numpy(), affine)
+                        nib.save(nifti_image, f'zReconstructed_full_volume{i}-epoch{epoch}.nii')
                     for i, vol in enumerate(binary_volumes):
                         # Optionally, convert to float32 if needed (or keep as uint8)
                         nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)

@@ -53,7 +53,7 @@ class DecoderMultiMaskWrapper(nn.Module):
         super().__init__()
         self.backbone = backbone
 
-    def forward(self, ctxt, masks_ctxt, masks_tgt):
+    def forward(self, ctxt, masks_ctxt, masks_tgt,return_all_tokens=False):
         if type(ctxt) is not list:
             ctxt = [ctxt]
         if type(masks_ctxt) is not list:
@@ -63,5 +63,5 @@ class DecoderMultiMaskWrapper(nn.Module):
 
         outs = []
         for i, (zi, mc, mt) in enumerate(zip(ctxt, masks_ctxt, masks_tgt)):
-            outs += [self.backbone(zi, mc, mt, mask_index=i)]
+            outs += [self.backbone(zi, mc, mt, mask_index=i,return_all_tokens=return_all_tokens)]
         return outs

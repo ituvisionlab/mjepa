@@ -152,7 +152,7 @@ class VisionTransformerDecoder(nn.Module):
             rescale(layer.attn.proj.weight.data, layer_id + 1)
             rescale(layer.mlp.fc2.weight.data, layer_id + 1)
 
-    def forward(self, ctxt, masks_ctxt, masks_tgt, mask_index=1):
+    def forward(self, ctxt, masks_ctxt, masks_tgt, mask_index=1, return_all_tokens=False):
         """
         :param ctxt: context tokens
         :param masks_ctxt: indices of context tokens in input
@@ -173,6 +173,7 @@ class VisionTransformerDecoder(nn.Module):
         # Map context tokens to decoder dimensions
         x = self.predictor_embed(ctxt)
         _, N_ctxt, D = x.shape
+        N_tgts = masks_tgt[0][1].shape[0]
 
         # Add positional embedding to ctxt tokens
         if self.predictor_pos_embed is not None:
@@ -208,11 +209,19 @@ class VisionTransformerDecoder(nn.Module):
             x = blk(x, mask=masks)
         x = self.predictor_norm(x)
 
-        # Return output corresponding to target tokens
-        x = x[:, N_ctxt:]
-        x = self.predictor_proj(x)
-        
-        return x
+        if not return_all_tokens:
+            # Return output corresponding to target tokens
+            x = x[:, N_ctxt:]
+            x = self.predictor_proj(x)    
+            return x
+        else:
+             # Return output corresponding to both context and target tokens
+            x_context = x[:, :N_ctxt]
+            x_target = x[:, N_ctxt:N_ctxt + N_tgts]  # Exactly N_tgts elements
+            x_context = self.predictor_proj(x_context)   
+            x_target = self.predictor_proj(x_target)    
+            return x_context, x_target
+       
 
 
 def vit_decoder(**kwargs):
@@ -223,6 +232,6 @@ def vit_decoder(**kwargs):
 
 def vit_decoder_mod(**kwargs):
     model = VisionTransformerDecoder(
-        mlp_ratio=2, predictor_embed_dim=384, depth=3, num_heads=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        mlp_ratio=2, num_heads=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
         **kwargs)
     return model
