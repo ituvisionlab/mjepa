@@ -20,6 +20,7 @@ import nibabel as nib
 from scipy import ndimage
 import matplotlib.pyplot as plt
 from PIL import Image
+import scipy.ndimage
 import random
 
 import torch
@@ -357,8 +358,8 @@ class MRIDataset(torch.utils.data.Dataset):
             # Clip intensities to a percentile range 
             volume = self.clip_intensity_percentile(volume, lower_percentile=1, upper_percentile=99)
 
-            # Resize the in-plane dimensions to crop_size
-            volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size})
+            # Resize the in-plane dimensions to crop_size and temporal dimension to frames_per_clip
+            volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size}, target_slices=self.frames_per_clip)
 
             # GU_Debug: save one png file for debugging
             # mid_slice_index = volume.shape[0]//2
@@ -456,74 +457,6 @@ class MRIDataset(torch.utils.data.Dataset):
             return 'coronal'
         else:
             raise ValueError("Unable to determine orientation based on spacing.")
-
-    # https://github.com/lunastra26/wmh-segmentation/blob/main/utils.py
-    # following 3 functions are based on this git repo.
-    def permuteOrientation(self, nii):
-        target_dim = (256,256)
-        img_dim = nii.header.get_data_shape()
-        if img_dim[1] == target_dim[0] and img_dim[2] == target_dim[1]:
-            img = np.fliplr(np.rot90(nii.get_data()))
-        elif img_dim[0] == target_dim[0] and img_dim[0] == target_dim[1]:
-            img = np.transpose(nii.get_data(),(2,0,1))
-            img = np.rot90(img,-1)
-        else:
-            print('Permutation not supported: ', img_dim)
-        return img
-
-    def reformat_inputOrientation(self, ipImg,ipType,opShape):
-        '''Creates axial, sagittal, and coronal reformatting of 3D FLAIR
-        and crop 3D volume to size compatible with Orthogonal Nets
-        These operations can be customized based on data orientation. 
-        The following script assumes ipImg is oriented axially
-        '''
-        if ipType == 'Axial':
-            opImg = ipImg    
-        elif ipType == 'Sagittal':
-            opImg = np.transpose(ipImg,(2,0,1))
-        elif ipType == 'Coronal':
-            opImg = np.transpose(ipImg,(2,1,0))         
-        else:
-            print('Data orientation not supported')
-        print("Creating {} test volume for Orthogonal Net".format(ipType))
-        origShape = opImg.shape 
-        opImg = self.myCrop3D(opImg,opShape)
-        return opImg, origShape 
-
-    def myCrop3D(self, ipImg,opShape,padval=0):
-        '''  Creates a 3D cropped volume from ipImg based on opShape (xDim,yDim)
-        ipImg is a 3D volume    
-        '''
-        xDim,yDim = opShape
-        zDim = ipImg.shape[2]
-        if padval == 0:
-            opImg = np.zeros((xDim,yDim,zDim))
-        else:
-            opImg = np.ones((xDim,yDim,zDim)) * np.min(ipImg)
-        
-        xPad = xDim - ipImg.shape[0]
-        yPad = yDim - ipImg.shape[1]
-        
-        x_lwr = int(np.ceil(np.abs(xPad)/2))
-        x_upr = int(np.floor(np.abs(xPad)/2))
-        y_lwr = int(np.ceil(np.abs(yPad)/2))
-        y_upr = int(np.floor(np.abs(yPad)/2))
-        if xPad >= 0 and yPad >= 0:
-            opImg[x_lwr:xDim - x_upr ,y_lwr:yDim - y_upr,:] = ipImg
-        elif xPad < 0 and yPad < 0:
-            xPad = np.abs(xPad)
-            yPad = np.abs(yPad)
-            opImg = ipImg[x_lwr: -x_upr ,y_lwr:- y_upr,:]
-        elif xPad < 0 and yPad >= 0:
-            xPad = np.abs(xPad)
-            temp_opImg = ipImg[x_lwr: -x_upr,:,:]
-            opImg[:,y_lwr:yDim - y_upr,:] = temp_opImg
-        else:
-            yPad = np.abs(yPad)
-            temp_opImg = ipImg[:,y_lwr: -y_upr,:]
-            opImg[x_lwr:xDim - x_upr,:,:] = temp_opImg
-        return opImg
-
     
     def preprocess_volume(self, volume,in_chans=3):
        
@@ -594,15 +527,16 @@ class MRIDataset(torch.utils.data.Dataset):
         # if self.filter_short_videos and len(volume) < clip_len:
         #     warnings.warn(f'skipping volume of length {len(volume)}')
         #     return [], None
-        if len(volume) < clip_len:
-            # Convert to 0-based index
-            interpolated_indices = torch.linspace(1, len(volume), steps=clip_len).round().long() - 1  
+        # Repeat slices along the temporal dimension to match clip_len
+        # if len(volume) < clip_len:
+        #     # Convert to 0-based index
+        #     interpolated_indices = torch.linspace(1, len(volume), steps=clip_len).round().long() - 1  
 
-            # Clamp to ensure indices are within valid range
-            interpolated_indices = interpolated_indices.clamp(0, len(volume)-1)
+        #     # Clamp to ensure indices are within valid range
+        #     interpolated_indices = interpolated_indices.clamp(0, len(volume)-1)
 
-            # Use indexing to create the new tensor
-            volume = volume[interpolated_indices]
+        #     # Use indexing to create the new tensor
+        #     volume = volume[interpolated_indices]
 
             # print(volume.shape)  # Should be (clip_len, cropsize, cropsize)
 
@@ -655,19 +589,21 @@ class MRIDataset(torch.utils.data.Dataset):
         buffer = volume[all_indices]
         return buffer, clip_indices
 
-    def resize(self, volume, crop_sizes):
+    def  resize(self, volume, crop_sizes, target_slices=None):
         """
         Resize the volume along specified axes to the desired sizes without using zoom.
+        Additionally, interpolates the number of slices along the temporal axis (depth).
 
         Parameters:
-        - volume (np.ndarray): The 3D MRI volume to be resized.
+        - volume (np.ndarray): The 3D MRI volume to be resized. Shape: (D, H, W)
         - crop_sizes (dict): A dictionary where keys are axis indices (0, 1, 2)
                             and values are the desired sizes along those axes.
+        - target_slices (int, optional): The desired number of slices along the depth axis (D).
 
         Returns:
         - volume (np.ndarray): The resized volume.
         """
-        # Get the original shape
+      # Get the original shape
         original_shape = volume.shape  # (D, H, W)
         
         resized_volume=np.empty([original_shape[0],crop_sizes[1],crop_sizes[2]])
@@ -698,14 +634,16 @@ class MRIDataset(torch.utils.data.Dataset):
         else:
             raise NotImplementedError("Resizing along axes other than 1 and 2 is not implemented.")
 
+         # **Step 2: Temporal Interpolation along axis=0 (if target_slices is provided and is less than the clip size)**
+        if target_slices and target_slices < resized_volume.shape[0]: #target_slices != resized_volume.shape[0]:
+            depth_scale = target_slices / resized_volume.shape[0]  # Compute scaling factor along D
+            resized_volume = scipy.ndimage.zoom(resized_volume, zoom=(depth_scale, 1, 1), order=1)  # Linear interpolation
+
         # debug_save
-        # output_dir = "volume_resized_output"
-        # os.makedirs(output_dir, exist_ok=True)
-        # output_path = os.path.join(output_dir, "volume_resized_output.nii.gz")
-        # volout = np.squeeze(volume)
-        # volout = np.transpose(volout, (0, 2, 1))
+        # output_filename = "zVolume_resized_output.nii.gz"
+        # volout = np.squeeze(resized_volume)
         # nii_img = nib.Nifti1Image(volout, affine=np.eye(4))
-        # nib.save(nii_img, output_path)
+        # nib.save(nii_img, output_filename)
 
         return resized_volume
         #return volume
@@ -743,6 +681,73 @@ class MRIDataset(torch.utils.data.Dataset):
         # resampled_image.save('resampled_image.nii')
         
         return resampled_image
+    
+   # https://github.com/lunastra26/wmh-segmentation/blob/main/utils.py
+    # following 3 functions are based on this git repo.
+    def permuteOrientation(self, nii):
+        target_dim = (256,256)
+        img_dim = nii.header.get_data_shape()
+        if img_dim[1] == target_dim[0] and img_dim[2] == target_dim[1]:
+            img = np.fliplr(np.rot90(nii.get_data()))
+        elif img_dim[0] == target_dim[0] and img_dim[0] == target_dim[1]:
+            img = np.transpose(nii.get_data(),(2,0,1))
+            img = np.rot90(img,-1)
+        else:
+            print('Permutation not supported: ', img_dim)
+        return img
+
+    def reformat_inputOrientation(self, ipImg,ipType,opShape):
+        '''Creates axial, sagittal, and coronal reformatting of 3D FLAIR
+        and crop 3D volume to size compatible with Orthogonal Nets
+        These operations can be customized based on data orientation. 
+        The following script assumes ipImg is oriented axially
+        '''
+        if ipType == 'Axial':
+            opImg = ipImg    
+        elif ipType == 'Sagittal':
+            opImg = np.transpose(ipImg,(2,0,1))
+        elif ipType == 'Coronal':
+            opImg = np.transpose(ipImg,(2,1,0))         
+        else:
+            print('Data orientation not supported')
+        print("Creating {} test volume for Orthogonal Net".format(ipType))
+        origShape = opImg.shape 
+        opImg = self.myCrop3D(opImg,opShape)
+        return opImg, origShape 
+
+    def myCrop3D(self, ipImg,opShape,padval=0):
+        '''  Creates a 3D cropped volume from ipImg based on opShape (xDim,yDim)
+        ipImg is a 3D volume    
+        '''
+        xDim,yDim = opShape
+        zDim = ipImg.shape[2]
+        if padval == 0:
+            opImg = np.zeros((xDim,yDim,zDim))
+        else:
+            opImg = np.ones((xDim,yDim,zDim)) * np.min(ipImg)
+        
+        xPad = xDim - ipImg.shape[0]
+        yPad = yDim - ipImg.shape[1]
+        
+        x_lwr = int(np.ceil(np.abs(xPad)/2))
+        x_upr = int(np.floor(np.abs(xPad)/2))
+        y_lwr = int(np.ceil(np.abs(yPad)/2))
+        y_upr = int(np.floor(np.abs(yPad)/2))
+        if xPad >= 0 and yPad >= 0:
+            opImg[x_lwr:xDim - x_upr ,y_lwr:yDim - y_upr,:] = ipImg
+        elif xPad < 0 and yPad < 0:
+            xPad = np.abs(xPad)
+            yPad = np.abs(yPad)
+            opImg = ipImg[x_lwr: -x_upr ,y_lwr:- y_upr,:]
+        elif xPad < 0 and yPad >= 0:
+            xPad = np.abs(xPad)
+            temp_opImg = ipImg[x_lwr: -x_upr,:,:]
+            opImg[:,y_lwr:yDim - y_upr,:] = temp_opImg
+        else:
+            yPad = np.abs(yPad)
+            temp_opImg = ipImg[:,y_lwr: -y_upr,:]
+            opImg[x_lwr:xDim - x_upr,:,:] = temp_opImg
+        return opImg
     
 if __name__ == "__main__":
     # Instantiate the RandomHorizontalFlip transformation

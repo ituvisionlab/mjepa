@@ -733,16 +733,18 @@ def run_one_epoch(
                 if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
                     scaler.unscale_(optimizer)
                 if epoch > warmup:
-                    torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
-                    if not frozen:
+                    if (clip_grad_classifier is not None):
+                        torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
+                    if not frozen and (clip_grad_encoder is not None):
                         torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 loss.backward()
                 if epoch > warmup:
-                    torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
-                    if not frozen:
+                    if (clip_grad_classifier is not None):
+                        torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
+                    if not frozen and (clip_grad_encoder is not None):
                         torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 optimizer.step()
             # # GU_Debug

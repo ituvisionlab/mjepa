@@ -14,10 +14,10 @@ data:
   decode_one_clip: true  # unused
   batch_size: 16 #32 
   num_clips: 1 #8  #12 works!
-  num_frames: 128 # 192 works! 
+  num_frames: 160 #192 # 128 
   tubelet_size: 8 #8
   sampling_rate: 1
-  crop_size: 192 #224 
+  crop_size: 192 #224 #cannot work w/ clipsize160
   patch_size: 8 #8
   in_channel_size: 1
   random_clip_sampling: true
@@ -87,3 +87,6 @@ optimization:
   - 0.998
   - 1.0
   grad_accum_steps: 2 #4
+  betas:
+  - 0.9
+  - 0.975

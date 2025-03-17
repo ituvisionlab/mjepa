@@ -1,3 +1,4 @@
+write_tag: mjepa
 nodes: 1
 tasks_per_node: 1
 tag: mri-probe #k400-16x8x3
@@ -14,11 +15,11 @@ data:
   - src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 128
+  frames_per_clip: 160 #128  #176 does not work due to memory!
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
   frame_step: 1
-  num_workers: 0
+  num_workers: 4 #0
   random_clip_sampling: true
 data_aug:
   auto_augment: true
@@ -39,10 +40,10 @@ optimization:
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  lr: 5.0e-5 #1.0e-4 #5.0e-5 #1.0e-5
   start_lr: 1.0e-5 #1.0e-6 #5.0e-5 #1.0e-5
+  lr: 5.0e-5 #1.0e-4 #5.0e-5 #1.0e-5
   final_lr: 1.0e-7 #1.0e-6 
-  warmup: 10
+  warmup: 5
   use_bfloat16: true
   clip_grad_classifier: 10.0
   seed: 1881 #234
@@ -50,14 +51,14 @@ optimization:
   val_log_iter_freq: 1
   layer_decay: 0.75 #null to turn it off
   classifier_depth: 1
-  dropout: 0.5 #0.25 #null to turn off #btw encoder and classifier
+  dropout: 0.2 #0.25 #null to turn off #btw encoder and classifier
   drop_rate: 0.1
   attn_drop_rate: 0.1
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder
   clip_duration: null
-  frames_per_clip: 128
+  frames_per_clip: 160   #128 #176 does not work due to memory!
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -70,12 +71,13 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/
+  folder: /gpfs/home/unalg01/jepa/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_04__14_18_36/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_19__18_14_49/model_ckpt/latest-model/ #this path has to be given regardless of model filename
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-periodic-epoch-501.pth.tar #jepa-latest.pth.tar  # name of pretrained encoder model file inside folder
-  write_tag: jepa
+  checkpoint: mjepa_ckpt.pth #jepa-latest.pth.tar #jepa-periodic-epoch-501.pth.tar  # name of pretrained encoder model file inside folder

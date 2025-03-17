@@ -5,7 +5,7 @@ tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/debug_nii_list16.csv
+  - src/datasets/debug_nii_list.csv
   # - src/datasets/oasis3_all_bet.csv
   # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
   # - src/datasets/brats24_all_nii.csv
@@ -13,17 +13,17 @@ data:
   # - src/datasets/mood_all_nii_with_bbox.csv
   # - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 4
+  batch_size: 16
   num_clips: 1
-  num_frames: 128 
+  num_frames: 160 #192 #160 
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 192 #224 
+  crop_size: 192 #192
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
   pin_mem: true
-  num_workers: 0
+  num_workers: 4 #0
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -43,7 +43,7 @@ logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
   write_tag: jepa
 loss:
-  loss_exp: 2.0 #1.0
+  loss_exp: 1.0 #2.0
   reg_coeff: 0.0
 mask:
   - aspect_ratio:
@@ -88,3 +88,6 @@ optimization:
   - 0.998
   - 1.0
   grad_accum_steps: 2 #4
+  betas:
+  - 0.9
+  - 0.95

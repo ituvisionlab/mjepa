@@ -164,7 +164,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     lr = cfgs_opt.get('lr')
     final_lr = cfgs_opt.get('final_lr')
     ema = cfgs_opt.get('ema')
-    betas = cfgs_opt.get('betas', (0.9, 0.999))
+    betas = cfgs_opt.get('betas', (0.9, 0.95)) #(0.9, 0.999))
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
     drop_rate = cfgs_opt.get('drop_rate', 0.1)
     attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
@@ -811,6 +811,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # -- Save Checkpoint
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
+        # DEBUG_ save current ckpt for debugging
+        # temp_log_dir = "/gpfs/home/unalg01/jepa/mjepa_ckpt.pth"
+        # temp_latest_info_path='/gpfs/home/unalg01/jepa/mjepa_latest-info.txt'
+        # save_checkpoint(epoch, temp_log_dir, temp_latest_info_path)
+
         # -- Save Last
         #if ((itr == 0) and epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
         if log_dir != None: # itr is always ipe-1 at this point, do at the end of every epoch   

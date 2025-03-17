@@ -15,7 +15,7 @@ data:
   decode_one_clip: true  # unused
   batch_size: 4
   num_clips: 1 #8
-  num_frames: 128 #192 #16
+  num_frames: 160 #128 #192 #16
   tubelet_size: 8
   sampling_rate: 1
   crop_size: 192 #128 #160 #224
@@ -88,3 +88,6 @@ optimization:
   lr: 2.0e-3 #1.0e-3 #2.0e-4 #1.0e-4
   final_lr: 1.0e-4 #1.0e-5 #5.0e-6 #1.0e-6
   grad_accum_steps: 2 #4
+  betas:
+  - 0.9
+  - 0.975

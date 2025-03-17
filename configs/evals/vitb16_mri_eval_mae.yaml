@@ -1,6 +1,6 @@
 write_tag: mae
 nodes: 1
-tasks_per_node: 4
+tasks_per_node: 2
 tag: mri-probe #k400-16x8x3
 eval_name: video_classification_frozen
 resume_checkpoint: false #true 
@@ -65,13 +65,14 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #default: true
+  frozen: false #true
   clip_grad_encoder: 10.0
   encoder_warmup: 0
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_12__21_47_27/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: mae-latest.pth.tar
   
