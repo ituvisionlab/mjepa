@@ -5,20 +5,20 @@ tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  - src/datasets/debug_nii_list16.csv
-  # - src/datasets/oasis3_all_bet.csv
-  # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
-  # - src/datasets/brats24_all_nii.csv
-  # - src/datasets/ixi_all_bet_nii_with_bbox.csv
-  # - src/datasets/mood_all_nii_with_bbox.csv
-  # - src/datasets/adni_all_bet_train.csv
+  #- src/datasets/debug_nii_list16.csv
+  - src/datasets/oasis3_all_bet.csv
+  - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  - src/datasets/brats24_all_nii.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/mood_all_nii_with_bbox.csv
+  - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 4
+  batch_size: 16 #
   num_clips: 1 #8
   num_frames: 160 #128 #192 #16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 192 #128 #160 #224
+  crop_size: 160 #128 #192 #224
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: false
@@ -60,7 +60,7 @@ mask:
     max_temporal_keep: 1.0
     max_keep: null
 meta:
-  load_checkpoint: true #true 
+  load_checkpoint: false #true 
   read_checkpoint: mae-latest.pth.tar #null # vitl16.pth.tar 
   ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__16_12_23/model_ckpt/latest-model/ 
@@ -70,10 +70,10 @@ meta:
   use_sdpa: true
   dtype: bfloat16
 model:
-  model_name: vit_small_mod   #vit_base
-  pred_model_name: vit_decoder_mod #vit_decoder
-  pred_depth: 3 #12 #8
-  pred_embed_dim: 384 #768
+  model_name: vit_base #vit_small_mod  
+  pred_model_name:  vit_decoder #vit_decoder_mod
+  pred_depth: 12 #8 #3
+  pred_embed_dim: 768 #384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
   zero_init_mask_tokens: true #false

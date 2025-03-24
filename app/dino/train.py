@@ -30,12 +30,11 @@ from torch.nn.parallel import DistributedDataParallel, DataParallel
 import torch.utils.tensorboard
 import wandb
 import subprocess
-import nibabel as nib
 
 from src.datasets.data_manager import init_data
-from src.masks.random_tube import MaskCollator as TubeMaskCollator
-from src.masks.multiblock3d import MaskCollator as MB3DMaskCollator
-from src.masks.utils import apply_masks
+#from src.masks.random_tube import MaskCollator as TubeMaskCollator
+#from src.masks.multiblock3d import MaskCollator as MB3DMaskCollator
+#from src.masks.utils import apply_masks
 from src.utils.distributed import init_distributed, AllReduce
 from src.utils.logging import (
     CSVLogger,
@@ -46,23 +45,19 @@ from src.utils.logging import (
     AverageMeter)
 from src.utils.tensors import repeat_interleave_batch
 
-from app.mae.utils import (
+from app.dino.utils import (
     load_checkpoint,
     init_video_model,
     init_opt,
-    patchify_image,
-    unpatchify_image,
-    unpatchify_image_from_full
+    save_and_visualize_masks,
 )
-from app.mae.transforms import make_transforms
-
+from app.dino.transforms import make_dino_transforms # New augmentation function
 
 # --
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
-periodic_ckpt_save_freq = 25
-write_img_freq = 5 # every other x epochs, save reconstructed images periodically for monitoring
+periodic_ckpt_save_freq = 25 
 # --
 
 _GLOBAL_SEED = 0
@@ -77,11 +72,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
     # ----------------------------------------------------------------------- #
-    torch.cuda.empty_cache()
+
     # -- META
     cfgs_meta = args.get('meta')
     load_model = cfgs_meta.get('load_checkpoint') or resume_preempt
     r_file = cfgs_meta.get('read_checkpoint', None)
+    discard_stem = cfgs_meta.get('discard_stem', False)
+    reset_schedules = cfgs_meta.get('reset_schedules', False)
     seed = cfgs_meta.get('seed', _GLOBAL_SEED)
     run_ID =  cfgs_meta.get('run_ID', None)
     save_every_freq = cfgs_meta.get('save_every_freq', -1)
@@ -105,7 +102,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- MODEL
     cfgs_model = args.get('model')
     model_name = cfgs_model.get('model_name')
-    pred_model_name = cfgs_model.get('pred_model_name','vit_decoder')
+    pred_model_name = cfgs_model.get('pred_model_name','vit_predictor')
     pred_depth = cfgs_model.get('pred_depth')
     pred_embed_dim = cfgs_model.get('pred_embed_dim')
     uniform_power = cfgs_model.get('uniform_power', True)
@@ -166,7 +163,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     lr = cfgs_opt.get('lr')
     final_lr = cfgs_opt.get('final_lr')
     ema = cfgs_opt.get('ema')
-    betas = cfgs_opt.get('betas', (0.9, 0.95)) #GU_Debug: (0.9, 0.999)
+    betas = cfgs_opt.get('betas', (0.9, 0.95)) #(0.9, 0.999))
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
     drop_rate = cfgs_opt.get('drop_rate', 0.1)
     attn_drop_rate = cfgs_opt.get('attn_drop_rate', 0.1) 
@@ -177,8 +174,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # folder = cfgs_logging.get('folder')
     tag = cfgs_logging.get('write_tag')
     
-    # mae_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
-    mae_ckpt_folder = cfgs_meta.get("ckpt_folder", "src/models/pretrained_weights")
+    # jepa_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
+    dino_ckpt_folder = cfgs_meta.get("ckpt_folder", "src/models/pretrained_weights")
     
     if log_dir != None:
         model_folder = os.path.join(log_dir, "model_ckpt")
@@ -248,7 +245,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- load pretrained model path
     load_path = None
     if load_model:
-        load_path = os.path.join(mae_ckpt_folder, r_file) if r_file is not None else None #latest_path
+        load_path = os.path.join(dino_ckpt_folder, r_file) if r_file is not None else None
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
@@ -301,7 +298,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             ('%d', 'epoch'),
             ('%d', 'itr'),
             ('%.5f', 'loss'),
-            ('%.5f', 'loss-mae'),
+            ('%.5f', 'loss-dino'),
+            #('%.5f', 'loss-jepa'),
             ('%.5f', 'reg-loss'),
             ('%.5f', 'enc-grad-norm'),
             ('%.5f', 'pred-grad-norm'),
@@ -316,8 +314,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         csv_logger = None
     
     
-    # -- init model
-    encoder, decoder = init_video_model(
+    # -- init model: DINO: encoder=STUDENT, target_encoder: TEACHER
+    #encoder, predictor = init_video_model(
+    encoder  = init_video_model(
         uniform_power=uniform_power,
         use_mask_tokens=use_mask_tokens,
         num_mask_tokens=len(cfgs_mask),
@@ -336,25 +335,38 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         drop_rate=drop_rate,
         attn_drop_rate=attn_drop_rate
     )
+    target_encoder = copy.deepcopy(encoder)
 
+    # don't need this: DINO: encoder=STUDENT, target_encoder: TEACHER
+    # def init_dino_model(args, device):
+    #     """
+    #     Initializes the DINO teacher and student models.
+    #     """
+    #     student = init_video_model(args, device)
+    #     teacher = copy.deepcopy(student)
+    #     for p in teacher.parameters():
+    #         p.requires_grad = False  # Teacher is not updated via gradient descent
+    #     return student, teacher
+    
     # -- make data transforms
-    if mask_type == 'multiblock3d':
-        logger.info('Initializing basic multi-block mask')
-        mask_collator = MB3DMaskCollator(
-            crop_size=crop_size,
-            num_frames=num_frames,
-            patch_size=patch_size,
-            tubelet_size=tubelet_size,
-            cfgs_mask=cfgs_mask)
-    else:
-        logger.info('Initializing random tube mask')
-        mask_collator = TubeMaskCollator(
-            crop_size=crop_size,
-            num_frames=num_frames,
-            patch_size=patch_size,
-            tubelet_size=tubelet_size,
-            cfgs_mask=cfgs_mask)
-    transform = make_transforms(
+    # if mask_type == 'multiblock3d':
+    #     logger.info('Initializing basic multi-block mask')
+    #     mask_collator = MB3DMaskCollator(
+    #         crop_size=crop_size,
+    #         num_frames=num_frames,
+    #         patch_size=patch_size,
+    #         tubelet_size=tubelet_size,
+    #         cfgs_mask=cfgs_mask)
+    # else:
+    #     logger.info('Initializing random tube mask')
+    #     mask_collator = TubeMaskCollator(
+    #         crop_size=crop_size,
+    #         num_frames=num_frames,
+    #         patch_size=patch_size,
+    #         tubelet_size=tubelet_size,
+    #         cfgs_mask=cfgs_mask)
+        
+    transform = make_dino_transforms(
         random_horizontal_flip=True,
         random_resize_aspect_ratio=ar_range,
         random_resize_scale=rr_scale,
@@ -385,12 +397,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
          random_clip_sampling=random_clip_sampling,
          transform=transform,
          datasets_weights=datasets_weights,
-         collator=mask_collator,
+         # collator=mask_collator,
          num_workers=num_workers,
          world_size=world_size,
          pin_mem=pin_mem,
          rank=rank,
-         log_dir=csv_folder if log_resource_util_data else None)
+         log_dir=csv_folder if log_resource_util_data else None,
+         vol_type="dino")
     try:
         _dlen = len(unsupervised_loader)
     except Exception:  # Different interface for webdataset
@@ -404,7 +417,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # -- init optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         encoder=encoder,
-        decoder=decoder,
+        # predictor=predictor,
         wd=wd,
         final_wd=final_wd,
         start_lr=start_lr,
@@ -418,7 +431,18 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         betas=betas,
         eps=eps)
     encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
-    decoder = DistributedDataParallel(decoder, static_graph=True, gradient_as_bucket_view=True)
+    # predictor = DistributedDataParallel(predictor, static_graph=True, gradient_as_bucket_view=True)
+    target_encoder = DistributedDataParallel(target_encoder, gradient_as_bucket_view=True)
+    for p in target_encoder.parameters():
+        p.requires_grad = False
+
+    #student_encoder = DistributedDataParallel(student_encoder, device_ids=[device], find_unused_parameters=True)
+    #teacher_encoder = DistributedDataParallel(teacher_encoder, device_ids=[device], find_unused_parameters=True)
+
+
+    # -- momentum schedule
+    momentum_scheduler = (ema[0] + i*(ema[1]-ema[0])/(ipe*num_epochs*ipe_scale)
+                          for i in range(int(ipe*num_epochs*ipe_scale)+1))
 
     start_epoch=0
     # -- load training checkpoint
@@ -426,19 +450,27 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     if load_model and os.path.exists(load_path):
         (
             encoder,
-            decoder,
+            # predictor,
+            target_encoder,
             optimizer,
             scaler,
             start_epoch,
         ) = load_checkpoint(
             r_path=load_path,
             encoder=encoder,
-            decoder=decoder,
+            # predictor=predictor,
+            target_encoder=target_encoder,
             opt=optimizer,
-            scaler=scaler)
+            scaler=scaler,
+            discard_stem=discard_stem)
+        
+        if reset_schedules:
+            start_epoch = 0
+        
         for _ in range(start_epoch * ipe):
             scheduler.step()
             wd_scheduler.step()
+            next(momentum_scheduler)
             # mask_collator.step() #GU_Debug: not needed anymore
 
     def save_checkpoint(epoch, path, info_path):
@@ -446,9 +478,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             return
         save_dict = {
             'encoder': encoder.state_dict(),
-            'decoder': decoder.state_dict(),
+            # 'predictor': predictor.state_dict(),
             'opt': optimizer.state_dict(),
             'scaler': None if scaler is None else scaler.state_dict(),
+            'target_encoder': target_encoder.state_dict(),
             'epoch': epoch,
             'loss': loss_meter.avg,
             'batch_size': batch_size,
@@ -480,6 +513,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
     epoch_losses = []
 
+
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
@@ -493,266 +527,180 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         loss_meter = AverageMeter()
         input_var_meter = AverageMeter()
         input_var_min_meter = AverageMeter()
-        mae_loss_meter = AverageMeter()
+        dino_loss_meter = AverageMeter()  # Track DINO loss
+        # jepa_loss_meter = AverageMeter()
         reg_loss_meter = AverageMeter()
-        mask_meters = [AverageMeter() for _ in range(len(cfgs_mask))]
+        #mask_meters = [AverageMeter() for _ in range(len(cfgs_mask))]
         gpu_time_meter = AverageMeter()
         wall_time_meter = AverageMeter()
 
         for itr in range(ipe):
-            itr_start_time = time.time()
-
+            iter_start_time = time.time()
+           
             try:
-                udata, masks_enc, masks_pred = next(loader) #returned from "call" of multiblock3d
+                udata  = next(loader) 
             except Exception:
                 logger.info('Exhausted data loaders. Refreshing...')
                 torch.cuda.empty_cache()
                 
                 loader = iter(unsupervised_loader) #resets the loader iterator again
-                udata, masks_enc, masks_pred = next(loader)
-            assert len(masks_enc) == len(masks_pred), \
-                'Currently require num encoder masks = num predictor masks'
+                udata = next(loader)             
 
-            def load_clips():
-                # -- unsupervised video clips
-                # Put each clip on the GPU and concatenate along batch
-                # dimension
-                clips = torch.cat([u.to(device, non_blocking=True) for u in udata[0]], dim=0)
+            # Load data and put on GPU: move frames to GPU
+            clips = [
+                [dij.to(device, non_blocking=True) for dij in di]  # iterate over spatial views of clip
+                for di in udata[0]  # iterate over temporal index of clip
+            ]
+            # Put each clip on the GPU and concatenate along batch dimension
+            #clips = torch.cat([u.to(device, non_blocking=True) for u in udata[0]], dim=0)
 
-                # Put each mask-enc/mask-pred pair on the GPU and reuse the
-                # same mask pair for each clip
-                _masks_enc, _masks_pred = [], []
-                for _me, _mp in zip(masks_enc, masks_pred):
-                    _me = _me.to(device, non_blocking=True)
-                    _mp = _mp.to(device, non_blocking=True)
-                    _me = repeat_interleave_batch(_me, batch_size, repeat=num_clips)
-                    _mp = repeat_interleave_batch(_mp, batch_size, repeat=num_clips)
-                    _masks_enc.append(_me)
-                    _masks_pred.append(_mp)
-
-                return (clips, _masks_enc, _masks_pred)
-            clips, masks_enc, masks_pred = load_clips()
-
-        # -------------------------------------------------
-            for _i, m in enumerate(mask_meters):
-                m.update(masks_enc[_i][0].size(-1))
-                
             def train_step():
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
 
-                def forward_context(c):
+                def generate_dino_views(batch):
                     """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
+                    Generates multiple augmented views for DINO.
                     """
-                    z = encoder(c, masks_enc)
-                    z = decoder(z, masks_enc, masks_pred)
-                    
-                    return z
-
-                def forward_context_full(c):
-                    """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
-                    """
-                    z = encoder(c, masks_enc)
-                    z_all = decoder(z, masks_enc, masks_pred, return_all_tokens=True)
-                    
-                    return z_all
+                    global_views = batch[0:2]  # First two are global views
+                    local_views = batch[2:]  # Remaining are local views
+                    return global_views, local_views
                 
-                def loss_fn(z, c):
-                    patches = patchify_image(c, patch_size)
+                def forward_target(c):
+                    """
+                    Returns list of tensors of shape [B, N, D], one for each
+                    mask-pred.
+                    """
+                    with torch.no_grad():
 
-                    # get only target patches
-                    target_patches = apply_masks(patches, masks_pred, concat=False) #returns a list w/concat false
-                                        
+                        # Generate Augmented Views
+                        global_views,  = generate_dino_views(c)
+                        global_views = [view.to(device) for view in global_views]
+
+                        h = target_encoder(global_views)
+                        h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]
+                        return h
+
+                def forward_context(c, h):
+                    """
+                    Returns list of tensors of shape [B, N, D], one for each
+                    mask-pred.
+                    """
+                    # Generate Augmented Views
+                    global_views,local_views = generate_dino_views(c)
+                    global_views = [view.to(device) for view in global_views]
+                    local_views = [view.to(device) for view in local_views]
+                    z_g = encoder(global_views)
+                    z_l = encoder(local_views)
+
+                    return z_g,z_l
+
+                def loss_fn(z, h):
                     loss = 0.
                     # Compute loss and accumulate for each mask-enc/mask-pred pair
-                    for zi, ti in zip(z, target_patches):
-                        loss += torch.mean(torch.abs(zi - ti)**loss_exp) / loss_exp
-                    loss /= len(masks_pred)                   
+                    for zi, hi in zip(z, h):
+                        loss += torch.mean(torch.abs(zi - hi)**loss_exp) / loss_exp
+                    return loss
+
+                def dino_loss_fn(student_output, teacher_output):
+                    """
+                    Computes the DINO loss: softmax similarity between student and teacher.
+                    """
+                    temperature_student = 0.1
+                    temperature_teacher = 0.07 # Teacher uses a lower temp e.g. 0.04
+
+                    student_probs = F.softmax(student_output / temperature_student, dim=-1)
+                    teacher_probs = F.softmax(teacher_output / temperature_teacher, dim=-1).detach()
+
+                    loss = -torch.sum(teacher_probs * torch.log(student_probs + 1e-6), dim=-1).mean() # KL divergence loss
                     return loss
                 
-                def reconstruct_image(z, c):
-                    # c: original video/image, z: reconstructed patches for each mask level
-                    patches = patchify_image(c, patch_size)
-                    # get only unmasked patches from the image for each mask level.
-                    nonmasked_patches = apply_masks(patches, masks_enc, concat=False)  # returns a list
-                    
-                    imgs = []
-                    # For each mask level, pass the corresponding mask indices.
-                    for level, (recon_tokens, unmask_tokens) in enumerate(zip(z, nonmasked_patches)):
-                        imgs.append(
-                            unpatchify_image(
-                                recon_tokens,
-                                unmask_tokens,
-                                patch_size,
-                                tubelet_size,
-                                num_frames,
-                                in_chans,
-                                crop_size,
-                                masks_enc[level],  # use mask for the current level
-                                masks_pred[level]  # use mask for the current level
-                            )
-                        )
-                    return imgs
-                
-                def reconstruct_image_full(c_hat_all):                 
-                    imgs = []
-                    # For each mask level, pass the corresponding mask indices.
-                    for level, (unmask_tokens, recon_tokens) in enumerate(c_hat_all):
-                        imgs.append(
-                            unpatchify_image(
-                                recon_tokens,
-                                unmask_tokens,
-                                patch_size,
-                                tubelet_size,
-                                num_frames,
-                                in_chans,
-                                crop_size,
-                                masks_enc[level],  # use mask for the current level
-                                masks_pred[level]  # use mask for the current level
-                            )
-                        )
-                    return imgs
-                
-                def reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size):
-                    """
-                    Create a binary 3D volume for each mask level, showing the locations of the masked patches.
-                    
-                    Args:
-                        masks_pred (list of torch.Tensor): List of tensors, one per mask level.
-                            Each tensor should have shape (B, L_masked). We use the first sample in the batch.
-                        patch_size (int): Spatial patch size.
-                        tubelet_size (int): Temporal patch (tubelet) size.
-                        num_frames (int): Total number of frames in the video.
-                        crop_size (int): Spatial crop size (assumed square).
-                    
-                    Returns:
-                        volumes (list of torch.Tensor): A list of 3D binary volumes (one per mask level),
-                            each of shape (num_frames, crop_size, crop_size). Masked patches are marked with 1.
-                    """
-                    # Compute grid sizes.
-                    grid_spatial = crop_size // patch_size   # number of patches per spatial dimension
-                    grid_temporal = num_frames // tubelet_size  # number of patch blocks along temporal dimension
-                    
-                    volumes = []
-                    
-                    # For each mask level...
-                    for level in range(len(masks_pred)):
-                        # Select the masked patch indices for the first sample in the batch.
-                        # They should be indices in the range [0, grid_temporal * grid_spatial * grid_spatial).
-                        mask_pred_level = masks_pred[level][0]  # shape: (L_masked,)
-                        
-                        # Create an empty volume: (num_frames, crop_size, crop_size)
-                        vol = torch.zeros(num_frames, crop_size, crop_size, dtype=torch.uint8)
-                        
-                        # For each patch index, compute its grid coordinates and set the corresponding block to 1.
-                        for idx in mask_pred_level:
-                            # Make sure idx is an integer
-                            idx = int(idx.item()) if isinstance(idx, torch.Tensor) else int(idx)
-                            
-                            # Determine which patch block (in the grid) this index corresponds to.
-                            # Total patches per temporal slice is grid_spatial * grid_spatial.
-                            t_idx = idx // (grid_spatial * grid_spatial)  # which temporal patch block
-                            rem = idx % (grid_spatial * grid_spatial)
-                            r_idx = rem // grid_spatial  # row in the patch grid
-                            c_idx = rem % grid_spatial   # column in the patch grid
-                            
-                            # Convert grid indices to pixel indices in the full volume.
-                            t_start = t_idx * tubelet_size
-                            t_end = t_start + tubelet_size
-                            
-                            r_start = r_idx * patch_size
-                            r_end = r_start + patch_size
-                            
-                            c_start = c_idx * patch_size
-                            c_end = c_start + patch_size
-                            
-                            # Set the corresponding block in the volume to 1.
-                            vol[t_start:t_end, r_start:r_end, c_start:c_end] = 1  # or use 255 if desired
-                        
-                        volumes.append(vol)
-                    
-                    return volumes
-
                 def reg_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
 
+
                 # Step 1. Forward
-                loss_mae, loss_reg = 0., 0.
+                loss_dino, loss_reg = 0., 0.
+                # loss_jepa = 0.
+
+    
+                #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
-                    c_hat = forward_context(clips)
-                    loss_mae = loss_fn(c_hat, clips)  # mae prediction loss
-                    pstd_z = reg_fn(c_hat)  # output variance across patches
-                    loss_reg += torch.mean(F.relu(1.-pstd_z))
-                
+                    # Compute teacher and student features
+                    h_teacher = forward_target(clips)  # Only global views are processed into teacher
+                    z_student = forward_context(clips)  # All views go into student #(clips, h_teacher)  # Student output
+
+                    # Compute DINO loss
+                    loss_dino = dino_loss_fn(z_student[-1], h_teacher[-1])  # Using last layer for DINO
+
+                    # Compute JEPA loss
+                    #loss_jepa = loss_fn(z_student, h_teacher)
+
+                    # Regularization term
+                    # pstd_z = reg_fn(z_student)
+                    # loss_reg += torch.mean(F.relu(1. - pstd_z))
+
                 # Accumulate loss before stepping optimizer
-                loss = (loss_mae + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
+                loss = (loss_dino + reg_coeff * loss_reg) / accumulation_steps
+                # loss = (loss_dino +loss_jepa + reg_coeff * loss_reg) / accumulation_steps
 
-                #loss = loss_mae + reg_coeff * loss_reg
+                
+                # forward_end_time = time.time() # **Measure Forward Pass Time**
+                # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
+                # logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
 
+                
+                # backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
-                _enc_norm, _pred_norm = 0., 0.
+                _enc_norm, _pred_norm = 0., 0. 
+                torch.cuda.synchronize()
+                loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 if mixed_precision:
                     scaler.scale(loss).backward()
                     if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
                         scaler.unscale_(optimizer)
                         if (epoch > warmup) and (clip_grad is not None):
                             _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
-                            _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
+                            #_pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
                         scaler.step(optimizer)
                         scaler.update()
-                        torch.cuda.synchronize()
-                        loss = AllReduce.apply(loss)  # Average loss across GPUs  
+                        #torch.cuda.synchronize()
+                        #loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 else:
                     loss.backward()
                     if (itr + 1) % accumulation_steps == 0:  # Only when we're going to step
                         if (epoch > warmup) and (clip_grad is not None):
                             _enc_norm = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad)
-                            _pred_norm = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip_grad)
+                            #_pred_norm = torch.nn.utils.clip_grad_norm_(predictor.parameters(), clip_grad)
                         optimizer.step()
-                        torch.cuda.synchronize()
-                        loss = AllReduce.apply(loss)  # Average loss across GPUs
+                        #torch.cuda.synchronize()
+                        #loss = AllReduce.apply(loss)  # Average loss across GPUs
+                
+                # backward_end_time = time.time() # **Measure Backward Pass + Optimizer Step**
+                # backward_time = backward_end_time - backward_start_time # **Measure Backward Pass + Optimizer Step**
+                # logger.info(f"Backward Pass Time: {backward_time:.4f} sec") # **Measure Backward Pass + Optimizer Step**
 
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
-                grad_stats_pred = grad_logger(decoder.named_parameters())
-                grad_stats_pred.global_norm = float(_pred_norm)                
+                # grad_stats_pred = grad_logger(predictor.named_parameters())
+                grad_stats_pred.global_norm = float(_pred_norm)
                 optim_stats = adamw_logger(optimizer)
-                
+
                 if (itr + 1) % accumulation_steps == 0:
                     optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
                 #optimizer.zero_grad()  # Only zero gradients after step
 
-                #gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
-                # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
-    
-                # Note: Full reconstruct allocates close to 80GB GPU RAM! CUDA OOM! 
-                # Reconstruct images & masks to visualize at every write_img_freq epochs
-                if (itr == 0) and (epoch % write_img_freq == 0):
-                    imgs = reconstruct_image(c_hat, clips) 
-                    binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
-                    #c_hat_all = forward_context_full(clips)
-                    #imgs_full = reconstruct_image_full(c_hat_all) 
-
-                    affine = np.eye(4)
-                    for i in range(len(imgs)):
-                        nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
-                        nib.save(nifti_image, f'zReconstructed_volume{i}-epoch{epoch}.nii')
-                    # for i in range(len(imgs_full)):
-                    #     nifti_image = nib.Nifti1Image(imgs_full[i].cpu().detach().float().numpy(), affine)
-                    #     nib.save(nifti_image, f'zReconstructed_full_volume{i}-epoch{epoch}.nii')
-                    for i, vol in enumerate(binary_volumes):
-                        # Optionally, convert to float32 if needed (or keep as uint8)
-                        nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)
-                        nib.save(nifti_image, f'zMask_volume_{i}-epoch{epoch}.nii')
+                # Step 3. momentum update of teacher (target encoder)
+                m = next(momentum_scheduler)
+                with torch.no_grad():
+                    for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
+                        param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
 
                 return (
                     float(loss) * accumulation_steps,  # Restore original loss scale
-                    float(loss_mae),
+                    float(loss_dino), 
+                    #float(loss_jepa),
                     float(loss_reg),
                     _new_lr,
                     _new_wd,
@@ -760,19 +708,25 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     grad_stats_pred,
                     optim_stats,
                 )
+            (loss, loss_dino, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            iter_elapsed_time_ms = (time.time() - iter_start_time) * 1000.
             
-            (loss, loss_mae, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
-            iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
+            # Update loss meters
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
             input_var_min = float(AllReduce.apply(torch.min(clips.view(clips.shape[0], -1).var(dim=1))))
             input_var_meter.update(input_var)
             input_var_min_meter.update(input_var_min)
-            mae_loss_meter.update(loss_mae)
+            dino_loss_meter.update(loss_dino)
+            # jepa_loss_meter.update(loss_jepa)
             reg_loss_meter.update(loss_reg)
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
             
+            
+            #gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
+            # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
+
             # Release memory
             del clips
             torch.cuda.empty_cache()
@@ -783,30 +737,20 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     epoch,
                     itr,
                     loss,
-                    loss_mae,
+                    loss_dino,
+                    # loss_jepa,
                     loss_reg,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
                     gpu_etime_ms,
-                    iter_elapsed_time_ms)
-                
-                # Tensorboard logging
-                # log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/loss_mae', loss_mae, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
-                # log_writer.flush()
-                
+                    iter_elapsed_time_ms)                
                 
                 # Wandb logging
                 if run != None and rank == 0:
                     run.log({
                             'train/loss': loss,
-                            'train/loss_mae': loss_mae,
+                            'train/loss_dino': loss_dino,
+                            #'train/loss_jepa': loss_jepa,
                             'train/loss_reg': loss_reg,
                             'train/global_norm': grad_stats.global_norm,
                             'train/pred_global_norm': grad_stats_pred.global_norm,
@@ -821,20 +765,21 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
-                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | '
+                        '[%d, %5d] loss: %.3f | d%.3f j%.3f r%.3f | '
                         'input_var: %.3f %.3f | '
-                        'masks: %s '
+                        #'masks: %s '
                         '[wd: %.2e] [lr: %.2e] '
                         '[mem: %.2e] '
                         '[gpu: %.1f ms]'
                         '[wall: %.1f ms]'
                         % (epoch, itr,
                            loss_meter.avg,
-                           mae_loss_meter.avg,
+                           dino_loss_meter.avg,
+                           # jepa_loss_meter.avg,
                            reg_loss_meter.avg,
                            input_var_meter.avg,
                            input_var_min_meter.avg,
-                           '[' + ', '.join(['%.1f' % m.avg for m in mask_meters]) + ']',
+                           #'[' + ', '.join(['%.1f' % m.avg for m in mask_meters]) + ']',
                            _new_wd,
                            _new_lr,
                            torch.cuda.max_memory_allocated() / 1024.0**2,
@@ -876,7 +821,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 log_stats()
                 
             info_stats()
-            # print(torch.cuda.memory_summary(device=None, abbreviated=False))    
+                
             assert not np.isnan(loss), 'loss is nan'
 
             torch.cuda.empty_cache()
@@ -884,8 +829,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # -- Save Checkpoint
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
-        # -- Save checkpoint or last epoch
-       # if ((itr == 0) and (epoch % checkpoint_freq == 0) or (epoch == (num_epochs - 1))) and log_dir != None:
+        # DEBUG_ save current ckpt for debugging
+        # temp_log_dir = "/gpfs/home/unalg01/jepa/mjepa_ckpt.pth"
+        # temp_latest_info_path='/gpfs/home/unalg01/jepa/mjepa_latest-info.txt'
+        # save_checkpoint(epoch, temp_log_dir, temp_latest_info_path)
+
+        # -- Save Last
+        #if ((itr == 0) and epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
         if log_dir != None: # itr is always ipe-1 at this point, do at the end of every epoch   
             if not os.path.exists(latest_path):
                 save_checkpoint(epoch, latest_path, latest_info_path)
@@ -903,6 +853,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             epoch_losses.append(loss_meter.avg)
 
         torch.cuda.empty_cache()
+
+        # SUBMIT A Classifier Evaluation Periodically
+        #if epoch % 150 == 0:
+        #    subprocess.call(['sbatch', './test.sh']) 
 
     if run != None:
         run.finish()

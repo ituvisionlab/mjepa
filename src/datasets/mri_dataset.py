@@ -58,7 +58,8 @@ def make_mridataset(
     pin_mem=True,
     duration=None,
     log_dir=None,
-    training=True
+    training=True,
+    vol_type=None,
 ):
     dataset = MRIDataset(
         data_paths=data_paths,
@@ -75,7 +76,9 @@ def make_mridataset(
         duration=duration,
         shared_transform=shared_transform,
         transform=transform,
-        training=training)
+        training=training,
+        vol_type = vol_type
+        )
 
     logger.info('MRIDataset dataset created')
     if datasets_weights is not None:
@@ -124,7 +127,8 @@ class MRIDataset(torch.utils.data.Dataset):
         filter_short_videos=False,
         filter_long_videos=int(10**9),
         duration=None,  # duration in seconds
-        training=True
+        training=True,
+        vol_type=None
     ):
         self.data_paths = data_paths
         self.datasets_weights = datasets_weights
@@ -142,6 +146,7 @@ class MRIDataset(torch.utils.data.Dataset):
         self.duration = duration
         self.in_chans = in_chans
         self.training = training
+        self.vol_type=vol_type
         # self.batchtime = 0 #for debugging time
         # self.batchnum = 0 #for debugging time
         # self.batchsize = 2 #for debugging time
@@ -241,13 +246,27 @@ class MRIDataset(torch.utils.data.Dataset):
             #     nib.save(nifti_image, f'buffer{i}_volume.nii')
             return buffer, label, clip_indices
         else: # for eval, volume is a list, this has to return a list of clips for clip aggregation in encoder to input to attentive pooler.
-            volume = self.intensity_normalize(volume[0])
-            buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
-            # buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
-            buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
-            buffer = self.split_into_clips(buffer)
-            return [[clip] for clip in buffer], label, clip_indices
-        
+            if self.vol_type is None: #eval case
+                volume = self.intensity_normalize(volume[0]) #cancels volume list to a tensor
+                buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
+                # buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
+                buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
+                buffer = self.split_into_clips(buffer)
+                return [[clip] for clip in buffer], label, clip_indices,
+            else: #DINO
+                volume_out = []
+                for i in range(len(volume)):
+                    volume = self.intensity_normalize(volume[i])
+                    buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
+                    #GU_ debug
+                    # affine = np.eye(4)
+                    # nifti_image = nib.Nifti1Image(buffer.numpy(), affine)
+                    # nib.save(nifti_image, 'buffer.nii')
+                    buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
+                    # buffer = self.split_into_clips(buffer)
+                    volume_out = volume_out.append(buffer) #volume_out is already a list of augmented views=clips
+                return volume_out, label, clip_indices
+            
         # if self.transform is not None:
         #     buffer = [self.transform(clip) for clip in buffer]
         

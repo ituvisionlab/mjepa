@@ -12,12 +12,12 @@ data:
   - src/datasets/mood_all_nii_with_bbox.csv
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 14
+  batch_size: 16
   num_clips: 1 #8
   num_frames: 160 #128 #16
   tubelet_size: 8 #16
   sampling_rate: 1
-  crop_size: 192 #128 #224
+  crop_size: 160 #128 #224
   patch_size: 8 #16
   in_channel_size: 1
   random_clip_sampling: true #false

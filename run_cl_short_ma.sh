@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --partition=a100_short
-#SBATCH --gres=gpu:a100:4
-#SBATCH --mem=256GB
+#SBATCH --gres=gpu:a100:2
+#SBATCH --mem=128GB
 #SBATCH --nodes=1
 #SBATCH --job-name=launch
 #SBATCH --mail-type=END
@@ -12,4 +12,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m evals.main_distributed --fname configs/evals/vitb16_mri_eval_mae_frozen.yaml --time 4300 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition a100_short
+python -m evals.main_distributed --fname configs/evals/vitb16_mri_eval_mae.yaml --time 4300 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition a100_short

@@ -15,7 +15,7 @@ data:
   - src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 128
+  frames_per_clip: 160
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
   frame_step: 1
@@ -36,7 +36,7 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 192
+  resolution: 160
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
@@ -49,16 +49,16 @@ optimization:
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: 0.5 #0.75 #null to turn it off
+  layer_decay: 0.6 #0.75 #null to turn it off
   classifier_depth: 1
-  dropout: 0.2 #0.25 #null to turn off
+  dropout: 0.1 #0.25 #null to turn off
   drop_rate: 0.1
   attn_drop_rate: 0.1
 pretrain:
   model_name: vit_base
   checkpoint_key: target_encoder #encoder
   clip_duration: null
-  frames_per_clip: 128
+  frames_per_clip: 160
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -71,7 +71,7 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_12__21_47_27/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: mae-latest.pth.tar

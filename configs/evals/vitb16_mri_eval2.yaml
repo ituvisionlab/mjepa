@@ -43,7 +43,7 @@ optimization:
   start_lr: 1.0e-5 #5.0e-5 #1.0e-5
   lr: 1.0e-4 #5.0e-5 #1.0e-5
   final_lr: 1.0e-6 #1.0e-6 
-  warmup: 2
+  warmup: 5
   use_bfloat16: true
   clip_grad_classifier: 10.0
   seed: 1881 #234
@@ -71,7 +71,7 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_17__16_53_05/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_17__19_57_11/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/ 
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_10__11_31_15/model_ckpt/periodic-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/
