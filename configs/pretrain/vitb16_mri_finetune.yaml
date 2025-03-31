@@ -1,5 +1,5 @@
 app: vjepa
-nodes: 1
+nodes: 2
 tasks_per_node: 4
 tag: mjepa
 data:
@@ -17,10 +17,10 @@ data:
   num_frames: 160 #192 # 128 
   tubelet_size: 8 #8
   sampling_rate: 1
-  crop_size: 160 #192 #224 #cannot work w/ clipsize160
+  crop_size: 160 #224 #cannot work w/ clipsize160
   patch_size: 8 #8
   in_channel_size: 1
-  random_clip_sampling: false #true
+  random_clip_sampling: true
   pin_mem: true
   num_workers: 8
   filter_short_videos: false
@@ -42,7 +42,7 @@ logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
   write_tag: jepa
 loss:
-  loss_exp: 2.0 #1.0
+  loss_exp: 1.0 #2.0
   reg_coeff: 0.0
 mask:
   - aspect_ratio:
@@ -58,9 +58,9 @@ mask:
     max_temporal_keep: 1.0
     max_keep: null
 meta:
-  load_checkpoint: false
-  read_checkpoint: null # vitl16.pth.tar # null #r_file
-  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
+  load_checkpoint: true
+  read_checkpoint: jepa-latest.pth.tar #null # vitl16.pth.tar # null #r_file
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_26__13_11_43/model_ckpt/latest-model/ #/gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
   seed: 234 #1881 #234
   eval_freq: 100
   use_sdpa: true
@@ -68,7 +68,7 @@ meta:
 model:
   model_name: vit_base
   pred_model_name: vit_predictor
-  pred_depth: 6 #8
+  pred_depth: 6
   pred_embed_dim: 384
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
@@ -76,13 +76,13 @@ model:
 optimization:
   ipe: null #300
   clip_grad: 1.0
-  weight_decay: 0.005
+  weight_decay: 0.002
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 500
-  warmup: 20
-  start_lr: 3.0e-5 #5e-05
-  lr: 2.0e-4 #1.0e-4
-  final_lr: 5.0e-6 #1.0e-6
+  warmup: 0
+  start_lr: 2.0e-5 
+  lr: 2.0e-5 
+  final_lr: 1.0e-6 
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   ema:

@@ -49,7 +49,6 @@ from app.dino.utils import (
     load_checkpoint,
     init_video_model,
     init_opt,
-    save_and_visualize_masks,
 )
 from app.dino.transforms import make_dino_transforms # New augmentation function
 
@@ -141,8 +140,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     random_noise = cfgs_data_aug.get('random_noise', 0.025)
     random_bias = cfgs_data_aug.get('random_bias', 0.2)
     intensity_gamma = cfgs_data_aug.get('intensity_gamma', 0.2)
-    motion_shift = cfgs_data_aug.get('motion_shift', False) #unused
-    reprob = cfgs_data_aug.get('reprob', 0.) # unused
+    local_crop_ratio = cfgs_data_aug.get('local_crop_ratio', 0.75) 
+    max_offset_fraction = cfgs_data_aug.get('max_offset_fraction', 0.1) 
     use_aa = cfgs_data_aug.get('auto_augment', False)
 
     # -- LOSS
@@ -371,10 +370,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         random_resize_aspect_ratio=ar_range,
         random_resize_scale=rr_scale,
         rot_degree = rot_degree,
-        reprob=reprob,
         auto_augment=use_aa,
-        motion_shift=motion_shift,
         crop_size=crop_size,
+        local_crop_ratio=local_crop_ratio,
+        max_offset_fraction = max_offset_fraction,
         intensity_gamma=intensity_gamma,
         random_bias=random_bias,
         random_noise=random_noise)
@@ -558,85 +557,99 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
-
-                def generate_dino_views(batch):
-                    """
-                    Generates multiple augmented views for DINO.
-                    """
-                    global_views = batch[0:2]  # First two are global views
-                    local_views = batch[2:]  # Remaining are local views
-                    return global_views, local_views
                 
                 def forward_target(c):
                     """
                     Returns list of tensors of shape [B, N, D], one for each
                     mask-pred.
                     """
+                    # Helper to split list and encode
+                    def encode_view(view_batch):
+                        view_batch = view_batch.to(device)
+                        return target_encoder(view_batch)  # encoder returns tensor [B, N, D]
+                    
                     with torch.no_grad():
 
-                        # Generate Augmented Views
-                        global_views,  = generate_dino_views(c)
-                        global_views = [view.to(device) for view in global_views]
-
-                        h = target_encoder(global_views)
-                        h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]
+                        # Generate Encoding of Augmented Views
+                        h = [encode_view(view) for view in c[0:2]]  # First two are global views
                         return h
 
-                def forward_context(c, h):
+                def forward_context(c):
                     """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
+                    Processes all augmented views through the encoder.
+                    Encoder expects each view, i.e. c[i] w/ [B, C, D, H, W] size; 
+                    Returns two lists of [B, N, D] tensors: global and local.
                     """
-                    # Generate Augmented Views
-                    global_views,local_views = generate_dino_views(c)
-                    global_views = [view.to(device) for view in global_views]
-                    local_views = [view.to(device) for view in local_views]
-                    z_g = encoder(global_views)
-                    z_l = encoder(local_views)
+                    # Helper to split batch and encode
+                    def encode_view(view_batch):
+                        view_batch = view_batch.to(device)
+                        return encoder(view_batch)  # encoder returns tensor [B, N, D]
 
-                    return z_g,z_l
+                    global_views = [encode_view(view) for view in c[0:2]]
+                    local_views = [encode_view(view) for view in c[2:]]
 
-                def loss_fn(z, h):
-                    loss = 0.
-                    # Compute loss and accumulate for each mask-enc/mask-pred pair
-                    for zi, hi in zip(z, h):
-                        loss += torch.mean(torch.abs(zi - hi)**loss_exp) / loss_exp
-                    return loss
+                    return global_views, local_views  # lists of encoded tensors
 
-                def dino_loss_fn(student_output, teacher_output):
+                def dino_loss_fn(student_output, teacher_output, center, momentum=0.9):
                     """
-                    Computes the DINO loss: softmax similarity between student and teacher.
+                    Computes DINO loss with centering.
+                    Inputs:
+                        student_output: [B, N, D]
+                        teacher_output: [B, N, D]
+                        center: [1, 1, D] — running average buffer
+                    Returns:
+                        loss (scalar), updated center (tensor)
                     """
                     temperature_student = 0.1
-                    temperature_teacher = 0.07 # Teacher uses a lower temp e.g. 0.04
+                    temperature_teacher = 0.07
 
-                    student_probs = F.softmax(student_output / temperature_student, dim=-1)
-                    teacher_probs = F.softmax(teacher_output / temperature_teacher, dim=-1).detach()
+                    # Centering the teacher output [B, N, D]
+                    teacher_logits = (teacher_output - center) / temperature_teacher
+                    student_logits = student_output / temperature_student
 
-                    loss = -torch.sum(teacher_probs * torch.log(student_probs + 1e-6), dim=-1).mean() # KL divergence loss
-                    return loss
+                    # Softmax along feature dim (D)
+                    teacher_probs = F.softmax(teacher_logits, dim=-1).detach()
+                    student_log_probs = F.log_softmax(student_logits, dim=-1)
+                    
+
+                    # KL divergence per token: [B, N]
+                    loss_per_token = torch.sum(teacher_probs * (torch.log(teacher_probs + 1e-6) - student_log_probs), dim=-1)
+                    loss = loss_per_token.mean() # Average over all tokens and batch
+
+                    # Update center
+                    batch_center = teacher_output.mean(dim=(0, 1), keepdim=True)
+                    new_center = center * momentum + batch_center * (1 - momentum)
+
+                    return loss, new_center 
+
                 
                 def reg_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
 
-
                 # Step 1. Forward
                 loss_dino, loss_reg = 0., 0.
                 # loss_jepa = 0.
+                center = torch.zeros(1, 1, pred_embed_dim).to(device)  # initialize for dino centering of teacher output
+                # Subtract a moving average of teacher outputs (i.e. the "center") from the teacher logits before computing the softmax.
 
-    
                 #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     # Compute teacher and student features
                     h_teacher = forward_target(clips)  # Only global views are processed into teacher
-                    z_student = forward_context(clips)  # All views go into student #(clips, h_teacher)  # Student output
+                    z_g_student, z_l_student = forward_context(clips)  # All views go into student 
 
                     # Compute DINO loss
-                    loss_dino = dino_loss_fn(z_student[-1], h_teacher[-1])  # Using last layer for DINO
+                    #num_loss_terms = 0
+                    for student_out in z_g_student + z_l_student:      # 8 student views
+                        for teacher_out in h_teacher:        # 2 teacher views
+                            loss_view, center = dino_loss_fn(student_out, teacher_out, center)
+                            loss_dino += loss_view
+                            #num_loss_terms += 1
+                    loss_dino /= (len(z_g_student) + len(z_l_student)) * len(h_teacher)
+                    #loss_dino /= num_loss_terms
 
                     # Compute JEPA loss
                     #loss_jepa = loss_fn(z_student, h_teacher)
-
                     # Regularization term
                     # pstd_z = reg_fn(z_student)
                     # loss_reg += torch.mean(F.relu(1. - pstd_z))

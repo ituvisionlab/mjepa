@@ -18,12 +18,12 @@ data:
   num_frames: 160 #192 #160 
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 192 #192
+  crop_size: 160 #192
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: true
   pin_mem: true
-  num_workers: 4 #0
+  num_workers: 0 #4
   filter_short_videos: false
   clip_duration: null
 data_aug:

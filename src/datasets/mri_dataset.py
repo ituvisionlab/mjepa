@@ -253,18 +253,18 @@ class MRIDataset(torch.utils.data.Dataset):
                 buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
                 buffer = self.split_into_clips(buffer)
                 return [[clip] for clip in buffer], label, clip_indices,
-            else: #DINO
+            else: #DINO pretraining
                 volume_out = []
                 for i in range(len(volume)):
-                    volume = self.intensity_normalize(volume[i])
-                    buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
+                    buffer = self.intensity_normalize(volume[i])
+                    buffer, clip_indices = self.split_volume(buffer)  # [T H W 1]
                     #GU_ debug
-                    # affine = np.eye(4)
-                    # nifti_image = nib.Nifti1Image(buffer.numpy(), affine)
-                    # nib.save(nifti_image, 'buffer.nii')
+                    nifti_image = nib.Nifti1Image(buffer.numpy(), affine=np.eye(4))
+                    nib.save(nifti_image, f'buffer_{i}.nii')
+                    # end_debug
                     buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
                     # buffer = self.split_into_clips(buffer)
-                    volume_out = volume_out.append(buffer) #volume_out is already a list of augmented views=clips
+                    volume_out.append(buffer) #volume_out is already a list of augmented views=clips
                 return volume_out, label, clip_indices
             
         # if self.transform is not None:
