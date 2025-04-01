@@ -51,6 +51,7 @@ from app.dino.utils import (
     init_opt,
 )
 from app.dino.transforms import make_dino_transforms # New augmentation function
+from app.dino.utils import DinoCenterManager
 
 # --
 log_timings = True
@@ -95,23 +96,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         dtype = torch.float32
         mixed_precision = False
 
-    # -- MASK
-    cfgs_mask = args.get('mask')
-
     # -- MODEL
     cfgs_model = args.get('model')
     model_name = cfgs_model.get('model_name')
-    pred_model_name = cfgs_model.get('pred_model_name','vit_predictor')
-    pred_depth = cfgs_model.get('pred_depth')
-    pred_embed_dim = cfgs_model.get('pred_embed_dim')
+    embed_dim = cfgs_model.get('embed_dim',768) #default value for vit_base
     uniform_power = cfgs_model.get('uniform_power', True)
-    use_mask_tokens = cfgs_model.get('use_mask_tokens', True)
-    zero_init_mask_tokens = cfgs_model.get('zero_init_mask_tokens', True)
 
     # -- DATA
     cfgs_data = args.get('data')
     dataset_type = cfgs_data.get('dataset_type', 'videodataset')
-    mask_type = cfgs_data.get('mask_type', 'multiblock3d')
     dataset_paths = cfgs_data.get('datasets', [])
     datasets_weights = cfgs_data.get('datasets_weights', None)
     if datasets_weights is not None:
@@ -301,7 +294,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             #('%.5f', 'loss-jepa'),
             ('%.5f', 'reg-loss'),
             ('%.5f', 'enc-grad-norm'),
-            ('%.5f', 'pred-grad-norm'),
             ('%d', 'gpu-time(ms)'),
             ('%d', 'wall-time(ms)'),
         )
@@ -317,18 +309,12 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     #encoder, predictor = init_video_model(
     encoder  = init_video_model(
         uniform_power=uniform_power,
-        use_mask_tokens=use_mask_tokens,
-        num_mask_tokens=len(cfgs_mask),
-        zero_init_mask_tokens=zero_init_mask_tokens,
         device=device,
         patch_size=patch_size,
         num_frames=num_frames,
         tubelet_size=tubelet_size,
         model_name=model_name,
-        pred_model_name=pred_model_name,
         crop_size=crop_size,
-        pred_depth=pred_depth,
-        pred_embed_dim=pred_embed_dim,
         in_chans=in_chans,
         use_sdpa=use_sdpa,
         drop_rate=drop_rate,
@@ -511,8 +497,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata = next(loader)
 
     epoch_losses = []
-
-
+    # Subtract a moving average of teacher outputs (i.e. the "center") from the teacher logits before computing the softmax.
+    center_manager = DinoCenterManager(embed_dim, device, momentum=0.9)
+    
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
@@ -529,7 +516,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         dino_loss_meter = AverageMeter()  # Track DINO loss
         # jepa_loss_meter = AverageMeter()
         reg_loss_meter = AverageMeter()
-        #mask_meters = [AverageMeter() for _ in range(len(cfgs_mask))]
         gpu_time_meter = AverageMeter()
         wall_time_meter = AverageMeter()
 
@@ -545,13 +531,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 loader = iter(unsupervised_loader) #resets the loader iterator again
                 udata = next(loader)             
 
-            # Load data and put on GPU: move frames to GPU
-            clips = [
-                [dij.to(device, non_blocking=True) for dij in di]  # iterate over spatial views of clip
-                for di in udata[0]  # iterate over temporal index of clip
-            ]
-            # Put each clip on the GPU and concatenate along batch dimension
-            #clips = torch.cat([u.to(device, non_blocking=True) for u in udata[0]], dim=0)
+            clips = udata[0] #dino preprocessing gives multiview of data, a list of tensors, one per augmented view
 
             def train_step():
                 _new_lr = scheduler.step()
@@ -560,37 +540,35 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 def forward_target(c):
                     """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
+                    Returns list of tensors of shape [B, N, D], one for each view.
+                    Only global views are passed to the teacher.
                     """
-                    # Helper to split list and encode
-                    def encode_view(view_batch):
-                        view_batch = view_batch.to(device)
-                        return target_encoder(view_batch)  # encoder returns tensor [B, N, D]
-                    
                     with torch.no_grad():
-
-                        # Generate Encoding of Augmented Views
-                        h = [encode_view(view) for view in c[0:2]]  # First two are global views
+                        h = []
+                        for view_batch in c:
+                            view_batch = view_batch.to(device)  # [B, C, D, H, W]
+                            h.append(target_encoder(view_batch))  # pass as tensor
                         return h
+
 
                 def forward_context(c):
                     """
-                    Processes all augmented views through the encoder.
-                    Encoder expects each view, i.e. c[i] w/ [B, C, D, H, W] size; 
-                    Returns two lists of [B, N, D] tensors: global and local.
+                    Returns two lists of tensors of shape [B, N, D] from student encoder:
+                    one list for global views, one for local views.
                     """
-                    # Helper to split batch and encode
-                    def encode_view(view_batch):
+                    global_views = []
+                    for view_batch in c[0:2]:
                         view_batch = view_batch.to(device)
-                        return encoder(view_batch)  # encoder returns tensor [B, N, D]
+                        global_views.append(encoder(view_batch))
 
-                    global_views = [encode_view(view) for view in c[0:2]]
-                    local_views = [encode_view(view) for view in c[2:]]
+                    local_views = []
+                    for view_batch in c[2:]:
+                        view_batch = view_batch.to(device)
+                        local_views.append(encoder(view_batch))
 
-                    return global_views, local_views  # lists of encoded tensors
+                    return global_views, local_views
 
-                def dino_loss_fn(student_output, teacher_output, center, momentum=0.9):
+                def dino_loss_fn(student_output, teacher_output, center_manager):
                     """
                     Computes DINO loss with centering.
                     Inputs:
@@ -602,6 +580,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     """
                     temperature_student = 0.1
                     temperature_teacher = 0.07
+                    center = center_manager.get()
 
                     # Centering the teacher output [B, N, D]
                     teacher_logits = (teacher_output - center) / temperature_teacher
@@ -617,10 +596,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss = loss_per_token.mean() # Average over all tokens and batch
 
                     # Update center
-                    batch_center = teacher_output.mean(dim=(0, 1), keepdim=True)
-                    new_center = center * momentum + batch_center * (1 - momentum)
-
-                    return loss, new_center 
+                    center_manager.update(teacher_output)  
+                    return loss
 
                 
                 def reg_fn(z):
@@ -629,41 +606,31 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # Step 1. Forward
                 loss_dino, loss_reg = 0., 0.
                 # loss_jepa = 0.
-                center = torch.zeros(1, 1, pred_embed_dim).to(device)  # initialize for dino centering of teacher output
-                # Subtract a moving average of teacher outputs (i.e. the "center") from the teacher logits before computing the softmax.
 
                 #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     # Compute teacher and student features
-                    h_teacher = forward_target(clips)  # Only global views are processed into teacher
+                    h_teacher = forward_target(clips[0:2])  # Only global views are processed into teacher
                     z_g_student, z_l_student = forward_context(clips)  # All views go into student 
 
                     # Compute DINO loss
                     #num_loss_terms = 0
                     for student_out in z_g_student + z_l_student:      # 8 student views
                         for teacher_out in h_teacher:        # 2 teacher views
-                            loss_view, center = dino_loss_fn(student_out, teacher_out, center)
+                            loss_view = dino_loss_fn(student_out, teacher_out, center_manager)
                             loss_dino += loss_view
                             #num_loss_terms += 1
                     loss_dino /= (len(z_g_student) + len(z_l_student)) * len(h_teacher)
                     #loss_dino /= num_loss_terms
 
-                    # Compute JEPA loss
-                    #loss_jepa = loss_fn(z_student, h_teacher)
-                    # Regularization term
-                    # pstd_z = reg_fn(z_student)
-                    # loss_reg += torch.mean(F.relu(1. - pstd_z))
-
                 # Accumulate loss before stepping optimizer
                 loss = (loss_dino + reg_coeff * loss_reg) / accumulation_steps
                 # loss = (loss_dino +loss_jepa + reg_coeff * loss_reg) / accumulation_steps
-
-                
+              
                 # forward_end_time = time.time() # **Measure Forward Pass Time**
                 # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
                 # logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
-
-                
+               
                 # backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0. 
@@ -696,8 +663,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
-                # grad_stats_pred = grad_logger(predictor.named_parameters())
-                grad_stats_pred.global_norm = float(_pred_norm)
                 optim_stats = adamw_logger(optimizer)
 
                 if (itr + 1) % accumulation_steps == 0:
@@ -718,26 +683,35 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     _new_lr,
                     _new_wd,
                     grad_stats,
-                    grad_stats_pred,
                     optim_stats,
                 )
-            (loss, loss_dino, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_dino, loss_reg, _new_lr, _new_wd, grad_stats, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - iter_start_time) * 1000.
             
             # Update loss meters
             loss_meter.update(loss)
-            input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
-            input_var_min = float(AllReduce.apply(torch.min(clips.view(clips.shape[0], -1).var(dim=1))))
-            input_var_meter.update(input_var)
-            input_var_min_meter.update(input_var_min)
             dino_loss_meter.update(loss_dino)
             # jepa_loss_meter.update(loss_jepa)
             reg_loss_meter.update(loss_reg)
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
-            
-            
-            #gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
+ 
+            input_var_total = 0.0
+            input_var_min_total = float('inf')
+            for clip in clips:
+                reshaped = clip.view(clip.shape[0], -1)         # [B, C*D*H*W]
+                var_per_sample = reshaped.var(dim=1)            # [B]
+                input_var_total += var_per_sample.mean()
+                input_var_min_total = min(input_var_min_total, var_per_sample.min())
+            # 
+            input_var = float(AllReduce.apply(input_var_total / len(clips)))
+            input_var_min = float(AllReduce.apply(input_var_min_total))
+            input_var_meter.update(input_var)
+            input_var_min_meter.update(input_var_min)
+         
+           
+            gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
+            print(gpu_memory_alloc)
             # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
 
             # Release memory
@@ -753,11 +727,18 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss_dino,
                     # loss_jepa,
                     loss_reg,
+                    center_manager,
                     grad_stats.global_norm,
-                    grad_stats_pred.global_norm,
                     gpu_etime_ms,
                     iter_elapsed_time_ms)                
                 
+                if rank == 0:
+                    center_values = center_manager.get().detach().cpu()  # shape [1, 1, D]
+                    center_mean = center_values.mean().item()
+                    center_std = center_values.std().item()
+                    center_min = center_values.min().item()
+                    center_max = center_values.max().item()
+
                 # Wandb logging
                 if run != None and rank == 0:
                     run.log({
@@ -766,19 +747,22 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             #'train/loss_jepa': loss_jepa,
                             'train/loss_reg': loss_reg,
                             'train/global_norm': grad_stats.global_norm,
-                            'train/pred_global_norm': grad_stats_pred.global_norm,
                             'train/gpu_etime_ms': gpu_etime_ms,
                             'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
                             'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
                             'train/lr': _new_lr,
-                            'train/wd': _new_wd
+                            'train/wd': _new_wd,
+                            'center/mean': center_mean, # Center tracking
+                            'center/std': center_std,
+                            'center/min': center_min,
+                            'center/max': center_max,
                         })
                 
             def info_stats():
                 
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
-                        '[%d, %5d] loss: %.3f | d%.3f j%.3f r%.3f | '
+                        '[%d, %5d] loss: %.3f | d%.3f r%.3f | '
                         'input_var: %.3f %.3f | '
                         #'masks: %s '
                         '[wd: %.2e] [lr: %.2e] '
@@ -819,16 +803,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                                grad_stats.min,
                                grad_stats.max,
                                grad_stats.global_norm))
-
-                    if grad_stats_pred is not None:
-                        logger.info(
-                            '[%d, %5d] pred_grad_stats: f/l[%.2e %.2e] mn/mx(%.2e, %.2e) %.2e'
-                            % (epoch, itr,
-                               grad_stats_pred.first_layer,
-                               grad_stats_pred.last_layer,
-                               grad_stats_pred.min,
-                               grad_stats_pred.max,
-                               grad_stats_pred.global_norm))
             
             if log_dir != None:
                 log_stats()

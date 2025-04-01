@@ -110,15 +110,9 @@ def init_video_model(
     num_frames=16,
     tubelet_size=2,
     model_name='vit_base',
-    pred_model_name='vit_predictor',
     crop_size=224,
-    pred_depth=6,
-    pred_embed_dim=384,
     in_chans=3,
     uniform_power=False,
-    use_mask_tokens=False,
-    num_mask_tokens=2,
-    zero_init_mask_tokens=True,
     use_sdpa=False,
     drop_rate=0.0,
     attn_drop_rate=0.0
@@ -239,3 +233,21 @@ def get_new_log_dir(root='./logs', postfix='', prefix=''):
     os.makedirs(log_dir)
     return log_dir
 
+
+class DinoCenterManager:
+    def __init__(self, feature_dim, device, momentum=0.9):
+        self.center = torch.zeros(1, 1, feature_dim, device=device)
+        self.momentum = momentum
+
+    def update(self, teacher_output):
+        # teacher_output: [B, N, D]
+        batch_center = teacher_output.mean(dim=(0, 1), keepdim=True)
+
+        if torch.distributed.is_initialized():
+            torch.distributed.all_reduce(batch_center)
+            batch_center /= torch.distributed.get_world_size()
+
+        self.center = self.center * self.momentum + batch_center * (1. - self.momentum)
+
+    def get(self):
+        return self.center

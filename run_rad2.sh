@@ -13,4 +13,4 @@ source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh
 conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
-python -m app.main_distributed --fname configs/pretrain/vitb16_mri2.yaml --time 5400 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition radiology
+python -m app.main_distributed --fname configs/pretrain_dino/vitb16_mri_dino.yaml --time 5400 --nodes 1  --folder /gpfs/home/unalg01/jepa --partition radiology
