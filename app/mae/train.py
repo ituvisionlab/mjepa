@@ -242,7 +242,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
-        device = torch.device(f'cuda:0')
+        #device = torch.device(f'cuda:0')
+        device = torch.device('cuda', rank % torch.cuda.device_count())  # safer for multi-GPU
         torch.cuda.set_device(device)
 
     # -- load pretrained model path

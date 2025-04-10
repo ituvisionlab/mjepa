@@ -703,9 +703,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 var_per_sample = reshaped.var(dim=1)            # [B]
                 input_var_total += var_per_sample.mean()
                 input_var_min_total = min(input_var_min_total, var_per_sample.min())
-            # 
-            input_var = float(AllReduce.apply(input_var_total / len(clips)))
-            input_var_min = float(AllReduce.apply(input_var_min_total))
+            # # 
+            # input_var = float(AllReduce.apply(input_var_total / len(clips)))
+            # input_var_min = float(AllReduce.apply(input_var_min_total))
+            # Convert scalars to GPU tensors before AllReduce
+            input_var_tensor = torch.tensor(input_var_total / len(clips), device=device)
+            input_var = float(AllReduce.apply(input_var_tensor))
+
+            input_var_min_tensor = torch.tensor(input_var_min_total, device=device)
+            input_var_min = float(AllReduce.apply(input_var_min_tensor))
             input_var_meter.update(input_var)
             input_var_min_meter.update(input_var_min)
          
@@ -720,25 +726,26 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
             # -- Logging
             def log_stats():
-                csv_logger.log(
-                    epoch,
-                    itr,
-                    loss,
-                    loss_dino,
-                    # loss_jepa,
-                    loss_reg,
-                    center_manager,
-                    grad_stats.global_norm,
-                    gpu_etime_ms,
-                    iter_elapsed_time_ms)                
-                
                 if rank == 0:
                     center_values = center_manager.get().detach().cpu()  # shape [1, 1, D]
                     center_mean = center_values.mean().item()
                     center_std = center_values.std().item()
                     center_min = center_values.min().item()
                     center_max = center_values.max().item()
+                else:
+                    center_mean = center_std = center_min = center_max = 0.0  # default for non-zero ranks
 
+                csv_logger.log(
+                    epoch,
+                    itr,
+                    loss,
+                    loss_dino,
+                    loss_reg,
+                    center_mean,
+                    grad_stats.global_norm,
+                    gpu_etime_ms,
+                    iter_elapsed_time_ms)                
+                
                 # Wandb logging
                 if run != None and rank == 0:
                     run.log({

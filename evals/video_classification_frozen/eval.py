@@ -32,7 +32,8 @@ import torch.nn.parallel
 
 from torch.nn.parallel import DistributedDataParallel
 
-import torch.utils.tensorboard
+#import torch.utils.tensorboard
+import argparse
 import wandb
 from sklearn.metrics import roc_auc_score, recall_score, f1_score, precision_score, confusion_matrix
 
@@ -47,6 +48,7 @@ from src.datasets.data_manager import (
 )
 from src.utils.distributed import (
     init_distributed,
+    init_distributed_mode,
     AllReduce
 )
 from src.utils.schedulers import (
@@ -175,18 +177,19 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         mp.set_start_method('spawn')
     except Exception:
         pass
+    
+    # -- init torch distributed backend
+    world_size, rank = init_distributed()
+    logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
 
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
-        device = torch.device('cuda:0')
+        #device = torch.device('cuda:0')
+        device = torch.device('cuda', rank % torch.cuda.device_count())  # safer for multi-GPU
         torch.cuda.set_device(device)
 
-    world_size, rank = init_distributed()
-    logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
-
-    # -- log/checkpointing paths
-    
+    # -- log/checkpointing paths   
     if log_dir != None:
         model_folder = os.path.join(log_dir, "model_ckpt")
         csv_folder = os.path.join(log_dir, "csv_logs")

@@ -10,17 +10,23 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/adni_all_2class_bet_train.csv 
+  #- src/datasets/adni_all_2class_bet_valtrain.csv
+  - src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
+  #- src/datasets/adni_all_3class_bet_valtrain.csv
+  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
-  - src/datasets/adni_all_2class_bet_val.csv 
+  - src/datasets/adni_all_2class_bet_valtest.csv
+  #- src/datasets/adni_all_3class_bet_valtest.csv
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 160
+  frames_per_clip: 144
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
   frame_step: 1
   num_workers: 8
-  random_clip_sampling: true
+  random_clip_sampling: false
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -43,7 +49,7 @@ optimization:
   start_lr: 1.0e-5 #1.0e-5
   lr: 1.0e-4 #1.0e-5
   final_lr: 1.0e-6 #1.0e-6 
-  warmup: 5
+  warmup: 2
   use_bfloat16: true
   clip_grad_classifier: 10.0
   seed: 1881 #234
@@ -58,7 +64,7 @@ pretrain:
   model_name: vit_base
   checkpoint_key: target_encoder #encoder
   clip_duration: null
-  frames_per_clip: 160
+  frames_per_clip: 144
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -71,7 +77,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: mae-latest.pth.tar

@@ -42,17 +42,37 @@ def init_distributed(port=37123, rank_and_world_size=(None, None)):
         if hostname == "panther": # nccl backend doesn't work on panther machine for now
             backend_engine = "gloo"
             
-        torch.distributed.init_process_group(
+        dist.init_process_group(
             backend=backend_engine, # nccl
             world_size=world_size,
-            rank=rank
+            rank=rank,
+            init_method='env://'
         )
+        dist.barrier()
     except Exception as e:
         world_size, rank = 1, 0
         logger.info(f'Rank: {rank}. Distributed training not available {e}')
 
+    print(f"RANK={os.environ.get('RANK')}, WORLD_SIZE={os.environ.get('WORLD_SIZE')}, LOCAL_RANK={os.environ.get('LOCAL_RANK')}")
+    print(f"MASTER_ADDR={os.environ.get('MASTER_ADDR')}, MASTER_PORT={os.environ.get('MASTER_PORT')}")
+
     return world_size, rank
 
+def init_distributed_mode(args):
+    if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ['WORLD_SIZE'])
+        args.gpu = int(os.environ['LOCAL_RANK'])
+    else:
+        print('Not using distributed mode')
+        args.distributed = False
+        return
+
+    args.distributed = True
+
+    torch.cuda.set_device(args.gpu)
+    dist.init_process_group(backend='nccl', init_method='env://')
+    dist.barrier()
 
 class AllGather(torch.autograd.Function):
 

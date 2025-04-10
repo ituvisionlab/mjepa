@@ -64,10 +64,10 @@ optimization:
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 500
   warmup: 0
-  start_lr: 3.0e-5 #5e-05
-  lr: 2.0e-4 #1.0e-4
-  final_lr: 5.0e-6 #1.0e-6
-  drop_rate: 0 #0.1 #default
+  start_lr: 2.0e-5 #5e-05
+  lr: 3.0e-4 #1.0e-4
+  final_lr: 5.0e-5 #1.0e-6
+  drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   ema:
   - 0.998
@@ -75,4 +75,4 @@ optimization:
   grad_accum_steps: 2 #4
   betas:
   - 0.9
-  - 0.999
+  - 0.95

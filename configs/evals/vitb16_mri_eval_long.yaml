@@ -25,7 +25,7 @@ data:
   num_views_per_segment: 1
   frame_step: 1
   num_workers: 8
-  random_clip_sampling: true
+  random_clip_sampling: false #true
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -76,7 +76,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_26__13_11_43/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_28__03_26_15/model_ckpt/periodic-model/ 
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_26__13_11_43/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_31__12_12_24/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_17__19_57_11/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/ 
@@ -88,5 +89,5 @@ pretrain:
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_13__14_44_51/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-501.pth.tar  # name of pretrained encoder model file inside folder
+  checkpoint: jepa-periodic-epoch-100.pth.tar #jepa-latest.pth.tar #jepa-periodic-epoch-100.pth.tar  # name of pretrained encoder model file inside folder
 

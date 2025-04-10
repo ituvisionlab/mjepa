@@ -10,9 +10,15 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/adni_all_2class_bet_train.csv 
+  #- src/datasets/adni_all_2class_bet_valtrain.csv
+  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
+  #- src/datasets/adni_all_3class_bet_valtrain.csv
+  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
+  - src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
-  - src/datasets/adni_all_2class_bet_val.csv 
+  #- src/datasets/adni_all_2class_bet_valtest.csv
+  #- src/datasets/adni_all_3class_bet_valtest.csv
+  - src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 144
@@ -20,7 +26,7 @@ data:
   num_views_per_segment: 1
   frame_step: 1
   num_workers: 8
-  random_clip_sampling: true
+  random_clip_sampling: false
 data_aug:
   auto_augment: true
   random_noise: 0.01

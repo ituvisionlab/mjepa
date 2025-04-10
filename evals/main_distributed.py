@@ -114,15 +114,30 @@ def launch_evals_with_parsed_args(
     exclude_nodes=None,
     args_fname=None
 ):
+    # # 1. Initialize submitit JobEnvironment
+    # env = submitit.JobEnvironment()
+    
+    # # 2. Set the environment variables for distributed training
+    # os.environ["RANK"] = str(env.global_rank)
+    # os.environ["WORLD_SIZE"] = str(env.num_tasks)
+    # os.environ["LOCAL_RANK"] = str(env.local_rank)
+    # os.environ["MASTER_ADDR"] = env.hostnames[0]  # Rank 0's host
+    # os.environ["MASTER_PORT"] = "29500"  # Choose a free port
+
+    # logger.info(f'Initialized distributed environment: RANK={os.environ["RANK"]}, '
+    #             f'WORLD_SIZE={os.environ["WORLD_SIZE"]}, MASTER_ADDR={os.environ["MASTER_ADDR"]}, '
+    #             f'MASTER_PORT={os.environ["MASTER_PORT"]}')
+
     if not isinstance(args_for_evals, list):
         logger.info(f'Passed in eval-args of type {type(args_for_evals)}')
         args_for_evals = [args_for_evals]
 
     time.sleep(delay_seconds)
     logger.info('Launching evaluations in separate jobs...')
-    executor = submitit.AutoExecutor(
-        folder=os.path.join(submitit_folder, 'job_%j'),
-        slurm_max_num_timeout=0) #20)
+    #executor = submitit.AutoExecutor(
+    executor =submitit.SlurmExecutor(
+        folder=os.path.join(submitit_folder, 'job_%j'))
+        #slurm_max_num_timeout=0) #20)
     if reservation:  # Add reservation only if provided
         executor.update_parameters(
            slurm_partition=partition,
@@ -131,7 +146,7 @@ def launch_evals_with_parsed_args(
            slurm_mem='128G',  #'192G',
            timeout_min=timeout,
            nodes=nodes,
-           tasks_per_node=tasks_per_node,
+           ntasks_per_node=tasks_per_node,
            cpus_per_task= 4, #6, #for num_workers=4  
            gpus_per_node=tasks_per_node,
            slurm_additional_parameters={
@@ -143,7 +158,7 @@ def launch_evals_with_parsed_args(
             'mem': '128G',  # Adjust memory per your needs
             'time': timeout,
             'nodes': nodes,
-            'tasks_per_node': tasks_per_node,
+            'ntasks_per_node': tasks_per_node,
             'cpus_per_task': 4, #6,
             'gpus_per_node': tasks_per_node,
             }   
@@ -154,7 +169,7 @@ def launch_evals_with_parsed_args(
 
      # Create log folder for the experiment
     log_dir = get_new_log_dir(args_for_evals[0]['logging']['folder'], prefix=f'{args_for_evals[0]["write_tag"]}_eval_distributed_', postfix='')
-    
+    # Load YAML params and write to log
     if args_fname != None:
         yaml_params = None
         with open(args_fname, 'r') as y_file:
@@ -165,7 +180,7 @@ def launch_evals_with_parsed_args(
         dump = os.path.join(log_dir, 'params-pretrain.yaml')
         with open(dump, 'w') as f:
             yaml.dump(yaml_params, f, Dumper=OrderedDumper, default_flow_style=False)
-            
+    # Submit jobs
     jobs, trainers = [], []
     with executor.batch():
         for ae in args_for_evals:
