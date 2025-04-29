@@ -6,6 +6,7 @@
 #
 
 import numpy as np
+import io
 
 import torch
 import torch.nn as nn
@@ -21,6 +22,11 @@ from src.models.utils.pos_embs import get_1d_sincos_pos_embed
 from src.masks.utils import apply_masks
 
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
+import wandb
+from io import BytesIO
+from PIL import Image
 
 class FrameAggregation(nn.Module):
     """
@@ -609,3 +615,94 @@ def tensor_normalize(tensor, mean, std):
     tensor = tensor - mean
     tensor = tensor / std
     return tensor
+
+@torch.no_grad()
+def extract_embeddings(model, dataloader, device, max_batches=10):
+    """
+    Extract embeddings from a model over a dataloader.
+    """
+    model.eval()
+    embeddings = []
+    labels = []
+    for i, batch in enumerate(dataloader):
+        if i >= max_batches:
+            break
+        x = batch[0].to(device)
+        feats = model(x)
+        embeddings.append(feats.cpu())
+        if len(batch) > 1:
+            labels.append(batch[1])
+    all_embeddings = torch.cat(embeddings)
+    all_labels = torch.cat(labels) if labels else None
+    return all_embeddings, all_labels
+
+
+def plot_tsne(embeddings, labels=None, save_path=None, method='tsne', title='TSNE Embedding Visualization', wandb_log=False, wandb_key="tsne/embeddings", max_plot_samples=500):
+    """
+    Perform dimensionality reduction (t-SNE or PCA) and visualize embeddings.
+    
+    Args:
+        embeddings (Tensor): High-dimensional embeddings [N, D]
+        labels (Tensor or None): Optional labels for coloring
+        method (str): 'tsne' or 'pca'
+        title (str): Plot title
+        save_path (str or None): If provided, saves plot to this path
+        wandb_log (bool): If True, logs image to wandb
+        wandb_key (str): Key name for wandb
+        step (int or None): Training step or epoch
+    """
+    print(f"Original number of embeddings for t-SNE: {embeddings.shape[0]}")
+
+    # Subsample if too many points
+    if embeddings.shape[0] > max_plot_samples:
+        print(f"Subsampling {max_plot_samples} points randomly for TSNE visualization.")
+        indices = np.random.choice(embeddings.shape[0], size=max_plot_samples, replace=False)
+        embeddings = embeddings[indices]
+        labels = labels[indices]
+
+    reducer = TSNE(n_components=2, perplexity=30, init='pca', random_state=42) if method == 'tsne' else PCA(n_components=2) #init='random'
+    reduced = reducer.fit_transform(embeddings)
+
+    # Create a scatter plot
+    unique_labels = np.unique(labels)
+    markers = ['o', '+', 'x', 's', 'd', '^', 'v', '<', '>', 'p', '*']
+    colors = plt.cm.get_cmap('tab10', len(unique_labels))
+    
+    plt.figure(figsize=(10, 8))
+    if labels is not None:
+        scatter = plt.scatter(reduced[:, 0], reduced[:, 1], c=labels, cmap='tab10', s=10, alpha=0.8)
+    else:
+        scatter = plt.scatter(reduced[:, 0], reduced[:, 1], s=5)
+    plt.colorbar(scatter)
+
+    # for idx, label in enumerate(unique_labels):
+    #     indices = labels == label
+    #     plt.scatter(reduced[indices, 0], reduced[indices, 1],
+    #                 marker=markers[idx % len(markers)],
+    #                 color=colors(idx % 10),
+    #                 label=f'Class {label}', alpha=0.7)
+    #plt.legend()
+   
+    plt.title(title)
+    plt.xlabel('Dimension 1')
+    plt.ylabel('Dimension 2')
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Save locally if needed
+    if save_path:
+        plt.savefig(save_path, dpi=300)
+        print(f"Saved plot to: {save_path}")
+
+    # Save to wandb if requested
+    if wandb_log and wandb.run is not None:
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        image = Image.open(buf)  # Convert buffer to PIL image
+        wandb.log({wandb_key: wandb.Image(image, caption=title)})
+        buf.close()
+        #wandb.log({wandb_key: wandb.Image(save_path)})
+        print(f"Logged plot to wandb: {wandb_key}")
+
+    plt.close()

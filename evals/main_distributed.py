@@ -150,8 +150,10 @@ def launch_evals_with_parsed_args(
            cpus_per_task= 4, #6, #for num_workers=4  
            gpus_per_node=tasks_per_node,
            slurm_additional_parameters={
-           'reservation': reservation,
-           } )
+            'reservation': reservation,
+            'output': "/gpfs/data/sodicksonlab/gozde/slurm/slurmDistrib_%j.log"
+            }
+        )
     else:
         slurm_params = {
             'partition': partition,
@@ -161,7 +163,10 @@ def launch_evals_with_parsed_args(
             'ntasks_per_node': tasks_per_node,
             'cpus_per_task': 4, #6,
             'gpus_per_node': tasks_per_node,
-            }   
+            'additional_parameters': {
+                'output': "/gpfs/data/sodicksonlab/gozde/slurm/slurmDistrib_%j.log"
+            }
+        }   
         executor.update_parameters(**slurm_params)
 
     if exclude_nodes is not None:

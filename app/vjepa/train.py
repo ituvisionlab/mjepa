@@ -702,7 +702,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
             # Release memory
             del clips
-            torch.cuda.empty_cache()
+            #torch.cuda.empty_cache() # do not do this after each iteration, but after each epoch!
 
             # -- Logging
             def log_stats():
@@ -806,8 +806,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
             assert not np.isnan(loss), 'loss is nan'
 
-            torch.cuda.empty_cache()
-
         # -- Save Checkpoint
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
@@ -834,7 +832,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         if epoch >= 19:
             epoch_losses.append(loss_meter.avg)
 
-        torch.cuda.empty_cache()
+        # End of one epoch
+        torch.cuda.empty_cache() 
 
         # SUBMIT A Classifier Evaluation Periodically
         #if epoch % 150 == 0:

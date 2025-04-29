@@ -11,6 +11,10 @@ import platform
 import torch
 import torch.distributed as dist
 
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import label_binarize
+import numpy as np
+
 from logging import getLogger
 
 logger = getLogger()
@@ -145,3 +149,94 @@ class AllReduce(torch.autograd.Function):
 #         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
 #         tensor /= dist.get_world_size()
 #     return tensor
+
+
+
+def is_dist_avail_and_initialized():
+    return dist.is_available() and dist.is_initialized()
+
+def get_world_size():
+    return dist.get_world_size() if is_dist_avail_and_initialized() else 1
+
+def is_main_process():
+    return not is_dist_avail_and_initialized() or dist.get_rank() == 0
+
+def gather_all_tensors(tensor):
+    """
+    Gathers tensor data from all processes and concatenates.
+    """
+    world_size = get_world_size()
+    if world_size == 1:
+        return tensor
+
+    gathered = [torch.zeros_like(tensor) for _ in range(world_size)]
+    dist.all_gather(gathered, tensor.contiguous())
+    return torch.cat(gathered, dim=0)
+
+
+def compute_distributed_auc(all_outputs, all_labels, num_classes):
+    """
+    Computes AUC score in both single and multi-GPU settings.
+    
+    Args:
+        all_outputs (List[Tensor]): List of model outputs per batch (after softmax).
+        all_labels (List[Tensor]): List of ground truth labels per batch.
+        num_classes (int): Number of target classes.
+
+    Returns:
+        float: AUC score (macro averaged in multi-class), NaN-safe.
+    """
+    # Combine all batches
+    all_outputs_tensor = torch.cat(all_outputs, dim=0).contiguous()
+    all_labels_tensor = torch.cat(all_labels, dim=0).contiguous()
+
+    # Detect distributed setup
+    is_dist = torch.distributed.is_available() and torch.distributed.is_initialized()
+
+    if is_dist:
+        world_size = torch.distributed.get_world_size()
+        rank = torch.distributed.get_rank()
+
+        all_outputs_tensor = all_outputs_tensor.to('cuda')
+        all_labels_tensor = all_labels_tensor.to('cuda')
+
+        gathered_outputs = [torch.zeros_like(all_outputs_tensor) for _ in range(world_size)]
+        gathered_labels = [torch.zeros_like(all_labels_tensor) for _ in range(world_size)]
+
+        torch.distributed.all_gather(gathered_outputs, all_outputs_tensor)
+        torch.distributed.all_gather(gathered_labels, all_labels_tensor)
+
+        all_outputs_tensor = torch.cat(gathered_outputs, dim=0).cpu()
+        all_labels_tensor = torch.cat(gathered_labels, dim=0).cpu()
+    else:
+        all_outputs_tensor = all_outputs_tensor.cpu()
+        all_labels_tensor = all_labels_tensor.cpu()
+
+    # Convert to numpy for sklearn
+    labels_np = all_labels_tensor.numpy()
+    outputs_np = all_outputs_tensor.numpy()
+
+    try:
+        if num_classes == 2:
+            # Binary classification (use class 1 probs)
+            if len(np.unique(labels_np)) > 1:
+                auc_final = roc_auc_score(labels_np, outputs_np[:, 1])
+            else:
+                auc_final = float('nan')
+        else:
+            # Multi-class classification
+            labels_bin = label_binarize(labels_np, classes=np.arange(num_classes))
+            if len(np.unique(labels_np)) > 1:
+                auc_final = roc_auc_score(
+                    labels_bin,
+                    outputs_np,
+                    average='macro',
+                    multi_class='ovr'
+                )
+            else:
+                auc_final = float('nan')
+    except Exception as e:
+        print(f"[DEBUG AUC ERROR] {e}")
+        auc_final = float('nan')
+
+    return auc_final

@@ -13,14 +13,14 @@ data:
   #- src/datasets/adni_all_2class_bet_valtrain.csv
   #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
   #- src/datasets/adni_all_3class_bet_valtrain.csv
-  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  - src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
+  - src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
   #- src/datasets/adni_all_2class_bet_valtest.csv
-  #- src/datasets/adni_all_3class_bet_valtest.csv
-  - src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
+  - src/datasets/adni_all_3class_bet_valtest.csv
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
-  num_classes: 2
+  num_classes: 3
   frames_per_clip: 160
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1

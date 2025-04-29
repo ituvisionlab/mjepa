@@ -35,11 +35,15 @@ from torch.nn.parallel import DistributedDataParallel
 #import torch.utils.tensorboard
 import argparse
 import wandb
-from sklearn.metrics import roc_auc_score, recall_score, f1_score, precision_score, confusion_matrix
+from sklearn.metrics import recall_score, f1_score, precision_score, confusion_matrix
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import label_binarize
 
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
 sys.path.append('/home/gozde/medChangeDet/jepa')
+
+import math
 
 import src.models.vision_transformer as vit
 from src.models.attentive_pooler import AttentiveClassifier
@@ -49,6 +53,7 @@ from src.datasets.data_manager import (
 from src.utils.distributed import (
     init_distributed,
     init_distributed_mode,
+    compute_distributed_auc,
     AllReduce
 )
 from src.utils.schedulers import (
@@ -470,7 +475,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             if epoch >= encoder_warmup:
                 encoder_frozen = False
 
-        train_acc, train_loss, train_recall, train_precision, train_f1 = run_one_epoch(
+        train_acc, train_loss, train_recall, train_precision, train_f1, auc_score = run_one_epoch(
             device=device,
             training=True,
             num_temporal_views=eval_num_clips, #if attend_across_segments else 1,
@@ -497,7 +502,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             clip_grad_classifier=clip_grad_classifier,
             accumulation_steps=accumulation_steps)
 
-        val_acc, val_loss, val_recall, val_precision, val_f1  = run_one_epoch(
+        val_acc, val_loss, val_recall, val_precision, val_f1, auc_score = run_one_epoch(
              device=device,
              training=False,
              num_temporal_views=eval_num_clips,
@@ -523,6 +528,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              clip_grad_encoder=clip_grad_encoder,
              clip_grad_classifier=clip_grad_classifier,
              accumulation_steps=accumulation_steps)
+
+        #GU_ DEBUG
+        #if not math.isnan(auc_score):
+        #    print(f"Val AUC: {auc_score:.4f} at epoch: {epoch}")
 
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch, train_acc, val_acc))
@@ -589,7 +598,7 @@ def run_one_epoch(
     
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
-    #auroc_meter = AverageMeter()
+    auroc_meter = AverageMeter()
     recall_meter = AverageMeter()
     #specificity_meter = AverageMeter()
     f1_meter = AverageMeter()
@@ -602,6 +611,8 @@ def run_one_epoch(
     data_sampler.set_epoch(epoch)
     
     loss = None
+    all_outputs = []
+    all_labels = []
 
     # for itr, data in enumerate(data_loader):
     for itr in range(ipe):
@@ -691,23 +702,15 @@ def run_one_epoch(
            # tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
            # specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
             
-
-            # auroc calculations
-            # logits = outputs.max(dim=1).values
-            # auroc = roc_auc_score(labels.cpu().numpy(), logits.cpu().numpy(), labels=np.arange(num_classes))
-            # if len(set(labels.cpu().numpy())) > 1:
-            #     auroc = roc_auc_score(labels.cpu().numpy(), outputs.cpu().numpy()[:, 1])
-            # else:
-            #     auroc = 0  # float('nan') 
-
-            # Reduce metrics across GPUs
-            # auroc = float(AllReduce.apply(torch.tensor(auroc, device='cuda')))
+            # Append current batch results for AUC calculations during val
+            if not training:
+                all_outputs.append(outputs.detach().cpu())
+                all_labels.append(labels.detach().cpu())
+    
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
             precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
             #specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
             f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
-
-            # auroc_meter.update(auroc)
             recall_meter.update(recall)
             precision_meter.update(precision)
             # specificity_meter.update(specificity)
@@ -767,7 +770,7 @@ def run_one_epoch(
                 optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
             #optimizer.zero_grad(set_to_none=True)
 
-        # Tensorboard logging. log_writer set to None
+        # Tensorboard logging cancelled: log_writer set to None
         if log_writer != None:
             if training and itr % eval_freq == 0:
                 log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
@@ -809,15 +812,24 @@ def run_one_epoch(
                         'val/f1': f1_meter.avg,
                         'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
-        
-        torch.cuda.empty_cache()
-        
         if itr % 5 == 0 and rank == 0:
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
 
-    return top1_meter.avg, loss, recall, precision, f1
+    #end of one epoch
+    if rank == 0 and not training:
+        auc_score = compute_distributed_auc(all_outputs, all_labels, num_classes)
+    else:
+        auc_score = 'nan'
+
+    # log AUC after one epoch is completed and just for validation
+    if run is not None and rank == 0 and not training:
+        run.log({'val/auc': auc_score})
+        
+    torch.cuda.empty_cache()
+        
+    return top1_meter.avg, loss, recall, precision, f1, auc_score
 
 
 def load_checkpoint(

@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# This code is modified code over JEPA framework of Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
@@ -52,6 +52,7 @@ from app.dino.utils import (
 )
 from app.dino.transforms import make_dino_transforms # New augmentation function
 from app.dino.utils import DinoCenterManager
+from app.dino.utils import extract_embeddings, plot_tsne, cosine_similarity
 
 # --
 log_timings = True
@@ -322,17 +323,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     )
     target_encoder = copy.deepcopy(encoder)
 
-    # don't need this: DINO: encoder=STUDENT, target_encoder: TEACHER
-    # def init_dino_model(args, device):
-    #     """
-    #     Initializes the DINO teacher and student models.
-    #     """
-    #     student = init_video_model(args, device)
-    #     teacher = copy.deepcopy(student)
-    #     for p in teacher.parameters():
-    #         p.requires_grad = False  # Teacher is not updated via gradient descent
-    #     return student, teacher
-    
     # -- make data transforms
     # if mask_type == 'multiblock3d':
     #     logger.info('Initializing basic multi-block mask')
@@ -674,6 +664,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 with torch.no_grad():
                     for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
                         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
+                
+                #Debug DINO
+                if rank == 0:
+                    sim_score = cosine_similarity(z_g_student[0], h_teacher[0])
+                    logger.info(f'[Debug] Cosine Similarity (Student vs Teacher): {sim_score:.4f}')
+                    if run is not None:
+                        run.log({'debug/cosine_similarity': sim_score})
 
                 return (
                     float(loss) * accumulation_steps,  # Restore original loss scale
@@ -851,6 +848,37 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # SUBMIT A Classifier Evaluation Periodically
         #if epoch % 150 == 0:
         #    subprocess.call(['sbatch', './test.sh']) 
+
+    # Debug DINO
+    if rank == 0:
+        logger.info("Extracting and logging learned embeddings to wandb...")
+
+        sample_dataloader, _ = init_data(
+            data=dataset_type,
+            root_path=dataset_paths,
+            batch_size=batch_size,
+            training=False,
+            clip_len=num_frames,
+            frame_sample_rate=sampling_rate,
+            crop_size=crop_size,
+            in_chans=in_chans,
+            decode_one_clip=True,
+            transform=transform,
+            num_workers=num_workers,
+            vol_type="dino"
+        )
+
+        embeddings, labels = extract_embeddings(encoder.module, sample_dataloader, device)
+
+        plot_tsne(
+            embeddings,
+            labels=labels,
+            method='tsne', #method='pca',
+            title='DINO t-SNE Embeddings',
+            wandb_log=True,
+            wandb_key= 'tsne/colored', #'tsne/embeddings', #'tsne/raw', #'pca/raw',
+            step=num_epochs  # or use a fixed value
+        )
 
     if run != None:
         run.finish()

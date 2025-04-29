@@ -14,7 +14,8 @@ import time
 from collections import defaultdict
 
 import torch
-import matplotlib.pyplot as plt
+import torch.nn.functional as F
+
 
 import src.models.vision_transformer as video_vit
 #import src.models.predictor as vit_pred
@@ -251,3 +252,11 @@ class DinoCenterManager:
 
     def get(self):
         return self.center
+
+def cosine_similarity(student_output, teacher_output):
+    """
+    Compute average cosine similarity between student and teacher outputs.
+    """
+    student_norm = F.normalize(student_output, dim=-1)
+    teacher_norm = F.normalize(teacher_output, dim=-1)
+    return (student_norm * teacher_norm).sum(dim=-1).mean().item()

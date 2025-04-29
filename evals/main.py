@@ -100,7 +100,7 @@ if __name__ == '__main__':
         params = yaml.load(y_file, Loader=yaml.FullLoader)
     
     if args.keep_logs or "tsne" in params["eval_name"].lower():
-        log_dir = get_new_log_dir(params['logging']['folder'], prefix=f'mjepa_eval_', postfix='')
+        log_dir = get_new_log_dir(params['logging']['folder'], prefix=f"{params['write_tag']}_eval_", postfix='')
     else:
         log_dir = None
         
