@@ -2,9 +2,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import math
+import numpy as np
 
 # Input CSV path
-csv_file0 = "mae_eval_distributed_2025_04_08__10_29_01" #"mjepa_eval_distributed_2025_04_21__10_53_00" #NC/MCI
+csv_file0 = "mjepa_eval_distributed_2025_05_09__10_01_21"
 csv_file = f"/gpfs/data/sodicksonlab/gozde/logs/{csv_file0}/csv_logs/mri-probe_r0.csv"
 
 # Read the CSV
@@ -79,37 +80,97 @@ with open(summary_path, "w") as f:
         f.write(str(line) + "\n")
 print(f"Max metrics saved to: {summary_path}")
 
+# --------------------- PLOTTING ---------------------
 
-# Split metrics into train and val groups
-train_metrics = {col: metrics_df[col] for col in metrics_df.columns if "train" in col}
-val_metrics = {col: metrics_df[col] for col in metrics_df.columns if "val" in col}
+# Split metrics into train and val groups (EXCLUDE losses)
+train_metrics = {col: metrics_df[col] for col in metrics_df.columns if "train" in col and "loss" not in col}
+val_metrics = {col: metrics_df[col] for col in metrics_df.columns if "val" in col and "loss" not in col}
 
-# --- Plot Train Metrics ---
-plt.figure(figsize=(12, 6))
+# Function to annotate max point
+def annotate_max_point(ax, x, y, label):
+    max_idx = np.argmax(y)
+    max_x = x.iloc[max_idx]
+    max_y = y.iloc[max_idx]
+    ax.plot(max_x, max_y, 'ro')  # red dot
+    ax.annotate(f"Max {label}\n{max_y:.4f} @ {max_x}", xy=(max_x, max_y), xytext=(max_x, max_y + 0.02),
+                arrowprops=dict(facecolor='black', arrowstyle='->'), fontsize=8)
+
+# --- Plot Train Metrics (without loss) ---
+fig, ax = plt.subplots(figsize=(12, 6))
 for label, values in train_metrics.items():
-    plt.plot(epoch, values, label=label)
-plt.xlabel("Epoch")
-plt.ylabel("Metric Value (0–1)")
-plt.title("Training Metrics Over Epochs")
-plt.legend(loc="best")
-plt.grid(True)
+    ax.plot(epoch, values, label=label)
+    annotate_max_point(ax, epoch, values, label)
+
+ax.set_xlabel("Epoch")
+ax.set_ylabel("Metric Value (0–1)")
+ax.set_title("Training Metrics (Acc/F1 etc.) Over Epochs")
+ax.legend(loc="best")
+ax.grid(True)
 plt.tight_layout()
 train_plot_path = os.path.join(output_dir, "train_metrics_plot.png")
 plt.savefig(train_plot_path)
-print(f"Training plot saved to: {train_plot_path}")
-# plt.close()
+#plt.show()
+#plt.close()
+print(f"Training metrics plot saved to: {train_plot_path}")
 
-# --- Plot Val Metrics ---
-plt.figure(figsize=(12, 6))
+# --- Plot Val Metrics (without loss) ---
+fig, ax = plt.subplots(figsize=(12, 6))
 for label, values in val_metrics.items():
-    plt.plot(epoch, values, label=label)
-plt.xlabel("Epoch")
-plt.ylabel("Metric Value (0–1)")
-plt.title("Validation Metrics Over Epochs")
-plt.legend(loc="best")
-plt.grid(True)
+    ax.plot(epoch, values, label=label)
+    annotate_max_point(ax, epoch, values, label)
+
+ax.set_xlabel("Epoch")
+ax.set_ylabel("Metric Value (0–1)")
+ax.set_title("Validation Metrics (Acc/F1 etc.) Over Epochs")
+ax.legend(loc="best")
+ax.grid(True)
 plt.tight_layout()
 val_plot_path = os.path.join(output_dir, "val_metrics_plot.png")
 plt.savefig(val_plot_path)
-print(f"Validation plot saved to: {val_plot_path}")
+# plt.close()
+print(f"Validation metrics plot saved to: {val_plot_path}")
+
+# --- Plot Combined Smoothed Train & Val Loss ---
+def smooth_curve(values, window_size=5):
+    """Simple moving average smoothing"""
+    if len(values) < window_size:
+        return values  # Don't smooth if not enough points
+    return np.convolve(values, np.ones(window_size) / window_size, mode='valid')
+
+fig, ax = plt.subplots(figsize=(12, 6))
+window_size = 5
+
+# Plot smoothed train loss
+if "train loss" in metrics_df.columns:
+    smoothed_train_loss = smooth_curve(metrics_df["train loss"].values, window_size)
+    smoothed_epoch = epoch[window_size - 1:]  # Align epochs after smoothing
+    ax.plot(smoothed_epoch, smoothed_train_loss, label="Train Loss (smoothed)", color="blue")
+    min_idx = np.argmin(smoothed_train_loss)
+    min_x = smoothed_epoch.iloc[min_idx]
+    min_y = smoothed_train_loss[min_idx]
+    ax.plot(min_x, min_y, 'go')  # green dot
+    ax.annotate(f"Min Train Loss\n{min_y:.4f} @ {min_x}", xy=(min_x, min_y), xytext=(min_x, min_y + 0.02),
+                arrowprops=dict(facecolor='black', arrowstyle='->'), fontsize=8)
+
+# Plot smoothed val loss
+if "val loss" in metrics_df.columns:
+    smoothed_val_loss = smooth_curve(metrics_df["val loss"].values, window_size)
+    ax.plot(smoothed_epoch, smoothed_val_loss, label="Val Loss (smoothed)", color="orange", linestyle="--")
+    min_idx = np.argmin(smoothed_val_loss)
+    min_x = smoothed_epoch.iloc[min_idx]
+    min_y = smoothed_val_loss[min_idx]
+    ax.plot(min_x, min_y, 'go')  # green dot
+    ax.annotate(f"Min Val Loss\n{min_y:.4f} @ {min_x}", xy=(min_x, min_y), xytext=(min_x, min_y + 0.02),
+                arrowprops=dict(facecolor='black', arrowstyle='->'), fontsize=8)
+
+ax.set_xlabel("Epoch")
+ax.set_ylabel("Loss Value")
+ax.set_title("Smoothed Training and Validation Loss Over Epochs")
+ax.legend(loc="best")
+ax.grid(True)
+plt.tight_layout()
+loss_plot_path = os.path.join(output_dir, "train_val_loss_plot.png")
+plt.savefig(loss_plot_path)
+#plt.close()
 plt.show()
+print(f"Training + Validation Loss plot (smoothed) saved to: {loss_plot_path}")

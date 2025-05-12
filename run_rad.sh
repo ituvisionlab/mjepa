@@ -8,7 +8,7 @@ cd $RUNDIR
 
 python -m app.main_distributed \
   --fname configs/pretrain/vitb16_mri.yaml \
-  --time 4300 \
-  --nodes 1 \
+  --time 5400 \
+  --nodes 2 \
   --folder /gpfs/home/unalg01/jepa \
   --partition radiology

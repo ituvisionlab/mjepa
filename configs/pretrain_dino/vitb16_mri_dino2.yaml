@@ -1,16 +1,15 @@
 app: dino
 nodes: 1
-tasks_per_node: 1
+tasks_per_node: 4
 tag: dino
 data:
   dataset_type: MRIDataset
   datasets: 
-  #- src/datasets/debug_nii_list64.csv
-  # - src/datasets/oasis3_all_bet.csv
-  # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
-  # - src/datasets/brats24_all_nii.csv
-  # - src/datasets/ixi_all_bet_nii_with_bbox.csv
-  # - src/datasets/mood_all_nii_with_bbox.csv
+  - src/datasets/oasis3_all_bet.csv
+  - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  - src/datasets/brats24_all_nii.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/mood_all_nii_with_bbox.csv
   - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 8
@@ -21,22 +20,22 @@ data:
   crop_size: 128
   patch_size: 8
   in_channel_size: 1
-  random_clip_sampling: false #true
+  random_clip_sampling: false
   pin_mem: true
-  num_workers: 0
+  num_workers: 8
   filter_short_videos: false
   clip_duration: null
 data_aug:
   auto_augment: true
   num_global_views: 2
-  num_local_views: 4 #3
+  num_local_views: 4 #6
   random_noise: 0.1
   random_bias: 0.2
   intensity_gamma: 0.3
   max_offset_fraction: 0.1
   local_crop_ratio: 0.5
   random_resize_aspect_ratio:
-  - 0.5
+  - 0.5 
   - 1.0 
   random_resize_scale:
   - 0.5
@@ -51,9 +50,9 @@ logging:
   write_tag: dino
 loss:
   loss_exp: 1.0 #2.0
-  reg_coeff: 0.25 #0.3
+  reg_coeff: 0.25
   temperature_student: 0.1
-  temperature_teacher: 0.04 #try 0.07
+  temperature_teacher: 0.07
   momentum: 0.9
 meta:
   load_checkpoint: false

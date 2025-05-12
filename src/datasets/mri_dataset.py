@@ -1,9 +1,12 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import os
 import pathlib
@@ -258,7 +261,7 @@ class MRIDataset(torch.utils.data.Dataset):
                 for i in range(len(volume)):
                     buffer = self.intensity_normalize(volume[i])
                     buffer, clip_indices = self.split_volume(buffer)  # [T H W 1]
-                    #GU_ debug
+                    #GU_Debug
                     # nifti_image = nib.Nifti1Image(buffer.numpy(), affine=np.eye(4))
                     # nib.save(nifti_image, f'buffer_{i}.nii')
                     # end_debug

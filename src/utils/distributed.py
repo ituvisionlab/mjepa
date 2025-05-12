@@ -1,9 +1,12 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import os
 import platform
@@ -174,23 +177,32 @@ def gather_all_tensors(tensor):
     return torch.cat(gathered, dim=0)
 
 
-def compute_distributed_auc(all_outputs, all_labels, num_classes):
+def compute_distributed_auc(all_outputs, all_labels, num_classes, save_path=None, step=None):
     """
-    Computes AUC score in both single and multi-GPU settings.
-    
+    Computes AUC score in both single and multi-GPU settings and optionally saves outputs and labels to disk.
+
     Args:
         all_outputs (List[Tensor]): List of model outputs per batch (after softmax).
         all_labels (List[Tensor]): List of ground truth labels per batch.
         num_classes (int): Number of target classes.
-
+        save_path (str, optional): Directory to save outputs and labels for inspection.
+        step (int, optional): Step or epoch number to include in filename.
+        
     Returns:
         float: AUC score (macro averaged in multi-class), NaN-safe.
     """
-    # Combine all batches
-    all_outputs_tensor = torch.cat(all_outputs, dim=0).contiguous()
-    all_labels_tensor = torch.cat(all_labels, dim=0).contiguous()
+    # Early exit if empty
+    if len(all_outputs) == 0 or len(all_labels) == 0:
+        print("[WARNING] AUC skipped: no outputs or labels available.")
+        return float('nan')
 
-    # Detect distributed setup
+    try:
+        all_outputs_tensor = torch.cat(all_outputs, dim=0).contiguous()
+        all_labels_tensor = torch.cat(all_labels, dim=0).contiguous()
+    except Exception as e:
+        print(f"[WARNING] AUC skipped due to tensor cat failure: {e}")
+        return float('nan')
+
     is_dist = torch.distributed.is_available() and torch.distributed.is_initialized()
 
     if is_dist:
@@ -212,19 +224,32 @@ def compute_distributed_auc(all_outputs, all_labels, num_classes):
         all_outputs_tensor = all_outputs_tensor.cpu()
         all_labels_tensor = all_labels_tensor.cpu()
 
-    # Convert to numpy for sklearn
+    if all_outputs_tensor.numel() == 0 or all_labels_tensor.numel() == 0:
+        print("[WARNING] AUC skipped: gathered outputs/labels are empty.")
+        return float('nan')
+
+    if torch.isnan(all_outputs_tensor).any() or torch.isinf(all_outputs_tensor).any():
+        print("[WARNING] AUC skipped: NaN or Inf in outputs.")
+        return float('nan')
+
     labels_np = all_labels_tensor.numpy()
     outputs_np = all_outputs_tensor.numpy()
 
+    # Optional: Save to disk
+    if save_path is not None and torch.distributed.get_rank() == 0:
+        os.makedirs(save_path, exist_ok=True)
+        tag = f"step{step}" if step is not None else "latest"
+        np.save(os.path.join(save_path, f"outputs_{tag}.npy"), outputs_np)
+        np.save(os.path.join(save_path, f"labels_{tag}.npy"), labels_np)
+        print(f"[Rank 0] Saved AUC data at step {tag} to {save_path}")
+
     try:
         if num_classes == 2:
-            # Binary classification (use class 1 probs)
             if len(np.unique(labels_np)) > 1:
                 auc_final = roc_auc_score(labels_np, outputs_np[:, 1])
             else:
                 auc_final = float('nan')
         else:
-            # Multi-class classification
             labels_bin = label_binarize(labels_np, classes=np.arange(num_classes))
             if len(np.unique(labels_np)) > 1:
                 auc_final = roc_auc_score(

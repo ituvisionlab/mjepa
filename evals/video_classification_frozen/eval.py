@@ -1,9 +1,12 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import os
 
@@ -241,7 +244,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                                 ('%.5f', 'train precision'),
                                 ('%.5f', 'val precision'),
                                 ('%.5f', 'train f1'),
-                                ('%.5f', 'val f1'))
+                                ('%.5f', 'val f1'),
+                                ('%.5f', 'val AUC'))
         
         if rank == 0:
             # wandb init
@@ -500,7 +504,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             warmup=warmup,
             clip_grad_encoder=clip_grad_encoder,
             clip_grad_classifier=clip_grad_classifier,
-            accumulation_steps=accumulation_steps)
+            accumulation_steps=accumulation_steps,
+            log_dir=log_dir)
 
         val_acc, val_loss, val_recall, val_precision, val_f1, auc_score = run_one_epoch(
              device=device,
@@ -527,18 +532,19 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
              warmup=warmup,
              clip_grad_encoder=clip_grad_encoder,
              clip_grad_classifier=clip_grad_classifier,
-             accumulation_steps=accumulation_steps)
+             accumulation_steps=accumulation_steps,
+             log_dir=log_dir)
 
         #GU_ DEBUG
         #if not math.isnan(auc_score):
         #    print(f"Val AUC: {auc_score:.4f} at epoch: {epoch}")
-
+        auc_score=0
         if rank == 0:
-            logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch, train_acc, val_acc))
+            logger.info('[%5d] train: %.3f%% test: %.3f%% AUC: %.3f' % (epoch, train_acc, val_acc, auc_score))
         
         # if rank == 0:
         if csv_logger != None:
-            csv_logger.log(epoch, train_acc, val_acc, train_loss, val_loss, train_recall, val_recall, train_precision, val_precision, train_f1, val_f1)
+            csv_logger.log(epoch, train_acc, val_acc, train_loss, val_loss, train_recall, val_recall, train_precision, val_precision, train_f1, val_f1, auc_score)
         
         #if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
         if log_dir != None: # at the end of every epoch       
@@ -587,7 +593,8 @@ def run_one_epoch(
     warmup,
     clip_grad_encoder,
     clip_grad_classifier,
-    accumulation_steps
+    accumulation_steps,
+    log_dir,
 ):
 
     classifier.train(mode=training)
@@ -606,7 +613,8 @@ def run_one_epoch(
     ipe = len(data_loader)
     if eval_freq > ipe:
         eval_freq = 1
- 
+    auc_score = 0 #AUC Calculations are cancelled!!!! SET TO ZERO!!!
+
     loader = iter(data_loader)
     data_sampler.set_epoch(epoch)
     
@@ -732,7 +740,12 @@ def run_one_epoch(
         
         loss = loss / accumulation_steps
         torch.cuda.synchronize()
+        
+        if not torch.isfinite(loss):
+            logger.warning(f"[Rank {rank}] Non-finite loss detected: {loss}")
+            loss = torch.tensor(0.0, device=loss.device)
         loss = AllReduce.apply(loss)  # Average loss across GPUs  
+
         if training:
             if use_bfloat16:
                 scaler.scale(loss).backward()
@@ -818,14 +831,21 @@ def run_one_epoch(
                            torch.cuda.max_memory_allocated() / 1024.**2))
 
     #end of one epoch
-    if rank == 0 and not training:
-        auc_score = compute_distributed_auc(all_outputs, all_labels, num_classes)
-    else:
-        auc_score = 'nan'
+    # if rank == 0 and not training:
+    #     auc_score = compute_distributed_auc(
+    #         all_outputs, all_labels, num_classes,
+    #         save_path=os.path.join(log_dir, "auc_debug") if log_dir else None,
+    #         step=epoch
+    #     )
+    # else:
+    #     auc_score = 0 #float('nan')
 
-    # log AUC after one epoch is completed and just for validation
-    if run is not None and rank == 0 and not training:
-        run.log({'val/auc': auc_score})
+    # # log AUC after one epoch is completed for validation set
+    # if run is not None and rank == 0 and not training:
+    #     if isinstance(auc_score, float) and not np.isnan(auc_score):
+    #         run.log({'val/auc': auc_score})
+    #     else:
+    #         logger.warning(f"[Rank {rank}] Skipping AUC log due to NaN")
         
     torch.cuda.empty_cache()
         

@@ -1,9 +1,12 @@
-# This code is modified code over JEPA framework of Meta Platforms, Inc. and affiliates.
-# All rights reserved.
+# mjepa/dino: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
+# Copyright (c) Meta Platforms, Inc. and affiliates.
 #
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import os
 
@@ -52,7 +55,7 @@ from app.dino.utils import (
 )
 from app.dino.transforms import make_dino_transforms # New augmentation function
 from app.dino.utils import DinoCenterManager
-from app.dino.utils import extract_embeddings, plot_tsne, cosine_similarity
+from app.dino.utils import cosine_similarity, dino_debug_dashboard
 
 # --
 log_timings = True
@@ -60,6 +63,8 @@ log_freq = 10
 checkpoint_freq = 1
 periodic_ckpt_save_freq = 25 
 # --
+
+global_step = 0 # global counter for debug
 
 _GLOBAL_SEED = 0
 #np.random.seed(_GLOBAL_SEED)
@@ -133,15 +138,21 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     rot_degree = cfgs_data_aug.get('rotation_degree', 0.0)
     random_noise = cfgs_data_aug.get('random_noise', 0.025)
     random_bias = cfgs_data_aug.get('random_bias', 0.2)
+    random_blur = cfgs_data_aug.get('random_blur', [0.5, 1.5])
     intensity_gamma = cfgs_data_aug.get('intensity_gamma', 0.2)
-    local_crop_ratio = cfgs_data_aug.get('local_crop_ratio', 0.75) 
+    local_crop_ratio = cfgs_data_aug.get('local_crop_ratio', 0.85) 
     max_offset_fraction = cfgs_data_aug.get('max_offset_fraction', 0.1) 
     use_aa = cfgs_data_aug.get('auto_augment', False)
+    num_global_views = cfgs_data_aug.get('num_global_views', 2)
+    num_local_views = cfgs_data_aug.get('num_local_views', 6)
 
     # -- LOSS
     cfgs_loss = args.get('loss')
-    loss_exp = cfgs_loss.get('loss_exp')
-    reg_coeff = cfgs_loss.get('reg_coeff')
+    reg_coeff = cfgs_loss.get('reg_coeff', 0.0)
+    temperature_student = cfgs_loss.get('temperature_student', 0.1)
+    temperature_teacher = cfgs_loss.get('temperature_teacher', 0.04)
+    momentum = cfgs_loss.get('momentum', 0.9)
+    #loss_exp = cfgs_loss.get('loss_exp')
 
     # -- OPTIMIZATION
     cfgs_opt = args.get('optimization')
@@ -342,6 +353,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     #         cfgs_mask=cfgs_mask)
         
     transform = make_dino_transforms(
+        num_global_views=num_global_views,
+        num_local_views=num_local_views,
         random_horizontal_flip=True,
         random_resize_aspect_ratio=ar_range,
         random_resize_scale=rr_scale,
@@ -352,7 +365,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         max_offset_fraction = max_offset_fraction,
         intensity_gamma=intensity_gamma,
         random_bias=random_bias,
-        random_noise=random_noise)
+        random_noise=random_noise,
+        random_blur=random_blur)
 
     # -- init data-loaders/samplers
     (unsupervised_loader,
@@ -488,8 +502,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
     epoch_losses = []
     # Subtract a moving average of teacher outputs (i.e. the "center") from the teacher logits before computing the softmax.
-    center_manager = DinoCenterManager(embed_dim, device, momentum=0.9)
-    
+    center_manager = DinoCenterManager(embed_dim, device, momentum)
+    global last_center
+    last_center = center_manager.get().detach().clone()
+
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
@@ -524,6 +540,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             clips = udata[0] #dino preprocessing gives multiview of data, a list of tensors, one per augmented view
 
             def train_step():
+                global global_step
+                global last_center 
+
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
@@ -546,15 +565,22 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     Returns two lists of tensors of shape [B, N, D] from student encoder:
                     one list for global views, one for local views.
                     """
+                    noise_std=0.01
                     global_views = []
-                    for view_batch in c[0:2]:
+                    for i, view_batch in enumerate(c[0:num_global_views]):
                         view_batch = view_batch.to(device)
+                        # Inject noise into only one global view for student to introduce asymmetry
+                        if i == 0:
+                            view_batch = view_batch + torch.randn_like(view_batch) * noise_std
                         global_views.append(encoder(view_batch))
 
                     local_views = []
-                    for view_batch in c[2:]:
+                    for view_batch in c[num_global_views:]:
                         view_batch = view_batch.to(device)
-                        local_views.append(encoder(view_batch))
+                        out = encoder(view_batch)
+                        out = F.dropout(out, p=0.4, training=True)  #Add noise to student's views!
+                        local_views.append(out)
+                        #local_views.append(encoder(view_batch))
 
                     return global_views, local_views
 
@@ -568,8 +594,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     Returns:
                         loss (scalar), updated center (tensor)
                     """
-                    temperature_student = 0.1
-                    temperature_teacher = 0.07
                     center = center_manager.get()
 
                     # Centering the teacher output [B, N, D]
@@ -580,18 +604,30 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     teacher_probs = F.softmax(teacher_logits, dim=-1).detach()
                     student_log_probs = F.log_softmax(student_logits, dim=-1)
                     
-
                     # KL divergence per token: [B, N]
                     loss_per_token = torch.sum(teacher_probs * (torch.log(teacher_probs + 1e-6) - student_log_probs), dim=-1)
                     loss = loss_per_token.mean() # Average over all tokens and batch
-
-                    # Update center
+ 
                     center_manager.update(teacher_output)  
+
                     return loss
 
                 
-                def reg_fn(z):
-                    return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
+                # def reg_fn(z):
+                #     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
+
+                def reg_fn(z_list):
+                    """
+                    Encourages std deviation across batch tokens per feature dimension to be ≥ 1.
+                    Returns average std over dimensions.
+                    """
+                    reg = 0.
+                    for z in z_list:
+                        # z: [B, N, D]
+                        z = z.view(-1, z.shape[-1])  # flatten: [B*N, D]
+                        std = torch.sqrt(z.var(dim=0) + 1e-4)  # [D]
+                        reg += std.mean()  # average over D
+                    return reg / len(z_list)
 
                 # Step 1. Forward
                 loss_dino, loss_reg = 0., 0.
@@ -600,23 +636,28 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     # Compute teacher and student features
-                    h_teacher = forward_target(clips[0:2])  # Only global views are processed into teacher
+                    h_teacher = forward_target(clips[0:num_global_views])  # Only global views are processed into teacher
                     z_g_student, z_l_student = forward_context(clips)  # All views go into student 
 
+                    # Cosine similarity
+                    cosine_sim = cosine_similarity(z_g_student[0], h_teacher[0])
+                                                   
                     # Compute DINO loss
                     #num_loss_terms = 0
-                    for student_out in z_g_student + z_l_student:      # 8 student views
+                    for student_out in z_g_student + z_l_student:      # 6 student views
                         for teacher_out in h_teacher:        # 2 teacher views
                             loss_view = dino_loss_fn(student_out, teacher_out, center_manager)
                             loss_dino += loss_view
                             #num_loss_terms += 1
                     loss_dino /= (len(z_g_student) + len(z_l_student)) * len(h_teacher)
                     #loss_dino /= num_loss_terms
+                    pstd_z = reg_fn(z_g_student + z_l_student)
+                    loss_reg += torch.mean(F.relu(1. - pstd_z))
 
                 # Accumulate loss before stepping optimizer
                 loss = (loss_dino + reg_coeff * loss_reg) / accumulation_steps
                 # loss = (loss_dino +loss_jepa + reg_coeff * loss_reg) / accumulation_steps
-              
+  
                 # forward_end_time = time.time() # **Measure Forward Pass Time**
                 # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
                 # logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
@@ -665,25 +706,39 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
                         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
                 
-                #Debug DINO
-                if rank == 0:
-                    sim_score = cosine_similarity(z_g_student[0], h_teacher[0])
-                    logger.info(f'[Debug] Cosine Similarity (Student vs Teacher): {sim_score:.4f}')
-                    if run is not None:
-                        run.log({'debug/cosine_similarity': sim_score})
+                if global_step % 50 == 0 and rank == 0:
+                    debug_metrics = dino_debug_dashboard(
+                        global_step=global_step,
+                        logger=logger,
+                        z_g_student=z_g_student,
+                        h_teacher=h_teacher,
+                        center=center_manager.get(),
+                        prev_center=last_center.clone(),
+                        student_input_0=z_g_student[0],
+                        student_input_1=z_g_student[1],
+                        temperature_teacher=temperature_teacher,
+                        abort_on_collapse=False,
+                    )
+
+                last_center = center_manager.get().detach().clone()  # store current for next delta calc
 
                 return (
                     float(loss) * accumulation_steps,  # Restore original loss scale
                     float(loss_dino), 
                     #float(loss_jepa),
                     float(loss_reg),
+                    float(cosine_sim),
+                    debug_metrics,
                     _new_lr,
                     _new_wd,
                     grad_stats,
                     optim_stats,
                 )
-            (loss, loss_dino, loss_reg, _new_lr, _new_wd, grad_stats, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_dino, loss_reg, sim_score, debug_metrics, _new_lr, _new_wd, grad_stats, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - iter_start_time) * 1000.
+            
+            if run is not None and global_step % 50 == 0 and rank == 0:
+                run.log(debug_metrics, step=global_step) # wandb logging
             
             # Update loss meters
             loss_meter.update(loss)
@@ -714,8 +769,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
          
            
             gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
-            print(gpu_memory_alloc)
+            # print(gpu_memory_alloc)
             # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
+
+            global global_step
+            global_step += 1 
 
             # Release memory
             del clips
@@ -750,10 +808,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             'train/loss_dino': loss_dino,
                             #'train/loss_jepa': loss_jepa,
                             'train/loss_reg': loss_reg,
+                            'train/sim_score': sim_score,
                             'train/global_norm': grad_stats.global_norm,
                             'train/gpu_etime_ms': gpu_etime_ms,
                             'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
-                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                            'train/memory': gpu_memory_alloc,
                             'train/lr': _new_lr,
                             'train/wd': _new_wd,
                             'center/mean': center_mean, # Center tracking
@@ -783,7 +842,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                            #'[' + ', '.join(['%.1f' % m.avg for m in mask_meters]) + ']',
                            _new_wd,
                            _new_lr,
-                           torch.cuda.max_memory_allocated() / 1024.0**2,
+                           gpu_memory_alloc,
                            gpu_time_meter.avg,
                            wall_time_meter.avg))
 
@@ -848,37 +907,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # SUBMIT A Classifier Evaluation Periodically
         #if epoch % 150 == 0:
         #    subprocess.call(['sbatch', './test.sh']) 
-
-    # Debug DINO
-    if rank == 0:
-        logger.info("Extracting and logging learned embeddings to wandb...")
-
-        sample_dataloader, _ = init_data(
-            data=dataset_type,
-            root_path=dataset_paths,
-            batch_size=batch_size,
-            training=False,
-            clip_len=num_frames,
-            frame_sample_rate=sampling_rate,
-            crop_size=crop_size,
-            in_chans=in_chans,
-            decode_one_clip=True,
-            transform=transform,
-            num_workers=num_workers,
-            vol_type="dino"
-        )
-
-        embeddings, labels = extract_embeddings(encoder.module, sample_dataloader, device)
-
-        plot_tsne(
-            embeddings,
-            labels=labels,
-            method='tsne', #method='pca',
-            title='DINO t-SNE Embeddings',
-            wandb_log=True,
-            wandb_key= 'tsne/colored', #'tsne/embeddings', #'tsne/raw', #'pca/raw',
-            step=num_epochs  # or use a fixed value
-        )
 
     if run != None:
         run.finish()

@@ -1,9 +1,13 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
+
 
 import math
 from functools import partial
@@ -225,11 +229,15 @@ class VisionTransformerPredictor(nn.Module):
         # otherwise will break)
         masks_ctxt = torch.cat(masks_ctxt, dim=0)
         masks_tgt = torch.cat(masks_tgt, dim=0)
-        masks = torch.cat([masks_ctxt, masks_tgt], dim=1)
-
-        # Fwd prop
+        
+        # GU_DEBUG: comment the following
+        # masks = torch.cat([masks_ctxt, masks_tgt], dim=1)
+        # # Fwd prop
+        # for blk in self.predictor_blocks:
+        #     x = blk(x, mask=masks)
         for blk in self.predictor_blocks:
-            x = blk(x, mask=masks)
+            x = blk(x)  # ← No mask
+            
         x = self.predictor_norm(x)
 
         # Return output corresponding to target tokens

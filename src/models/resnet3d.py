@@ -1,3 +1,7 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

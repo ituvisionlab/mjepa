@@ -1,9 +1,12 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import math
 from functools import partial
@@ -162,11 +165,17 @@ class VisionTransformer(nn.Module):
     def no_weight_decay(self):
         return {}
 
-    def forward(self, x, masks=None):
+    def forward(self, x, masks=None, **kwargs):
+
         """
         :param x: input image/video
         :param masks: indices of patch tokens to mask (remove)
+        :param return_early: whether to return early features for spectral loss
+        :param early_layer_idx: which block to take as "early" features
+
         """
+        return_early = kwargs.get("return_early", False)
+        early_layer_idxs = kwargs.get("early_layer_idxs", [2, 3])
 
         if masks is not None and not isinstance(masks, list):
             masks = [masks]
@@ -181,16 +190,31 @@ class VisionTransformer(nn.Module):
         B, N, D = x.shape
 
         # Mask away unwanted tokens (if masks provided)
+        # if masks is not None:
+        #     x = apply_masks(x, masks)
+        #     masks = torch.cat(masks, dim=0)
+        x_unmasked = x.clone()  # save full grid for early feature tracking
         if masks is not None:
-            x = apply_masks(x, masks)
-            masks = torch.cat(masks, dim=0)
+            x_masked = apply_masks(x, masks)
+            masks_cat = torch.cat(masks, dim=0)
+        else:
+            x_masked = x
+            masks_cat = None
 
-        # Fwd prop
+
+        early_features = []
         outs = []
+
         for i, blk in enumerate(self.blocks):
-            x = blk(x, mask=masks)
+            # Use masked input only at the start
+            x = blk(x_masked if i == 0 else x, mask=masks_cat)
+
+            if return_early and i in early_layer_idxs:
+                early_features.append(self.norm(x_unmasked))
+
             if self.out_layers is not None and i in self.out_layers:
                 outs.append(self.norm(x))
+
 
         if self.out_layers is not None:
             return outs
@@ -198,7 +222,10 @@ class VisionTransformer(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
 
-        return x
+        if return_early:
+            return {'early': early_features, 'final': x}
+        else:
+            return x
 
     def interpolate_pos_encoding(self, x, pos_embed):
 

@@ -1,9 +1,12 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import torch
 import torchvision.transforms as transforms
@@ -34,12 +37,13 @@ def make_dino_transforms(
     num_global_views=2,
     num_local_views=6,
     random_horizontal_flip=True,
-    random_resize_aspect_ratio=(1.0,1.0), #(3/4, 4/3),
-    random_resize_scale=(0.2, 1.0),
+    random_resize_aspect_ratio=(0.9,1.0),
+    random_resize_scale=(0.8, 1.0),
+    random_blur=(0.2, 0.8),
     rot_degree = 15.0,
     auto_augment=False,
     crop_size= 224,
-    local_crop_ratio=0.8,
+    local_crop_ratio=0.85,
     max_offset_fraction=0.1,
     intensity_gamma=0.2,
     random_bias=0.2,
@@ -60,7 +64,8 @@ def make_dino_transforms(
         rot_degree = rot_degree,
         intensity_gamma=intensity_gamma,
         random_bias=random_bias,
-        random_noise=random_noise
+        random_noise=random_noise,
+        random_blur=random_blur
     )
     return _volume_augmentation
     
@@ -72,10 +77,11 @@ class MRITransform(object):
         random_horizontal_flip=True,
         random_resize_aspect_ratio=(1.0,1.0), #(0.9, 1.1),
         random_resize_scale=(0.8,1.0), # use for crop_retention ratio
+        random_blur=(0.2,0.8),
         rot_degree = 0.0, 
         auto_augment=False,
         crop_size=224,
-        local_crop_ratio=0.8,
+        local_crop_ratio=0.85,
         max_offset_fraction=0.1,
         num_global_views=2,
         num_local_views=6,
@@ -89,14 +95,15 @@ class MRITransform(object):
         self.rot_degree = rot_degree
         self.auto_augment = auto_augment
         self.crop_size = crop_size
-        self.local_crop_ratio = local_crop_ratio
         self.max_offset_fraction=max_offset_fraction
         self.num_global_views = num_global_views
         self.num_local_views = num_local_views
-        self.crop_retention=random_resize_scale[0]
+        self.local_crop_ratio = local_crop_ratio
+        self.crop_retention=random_resize_scale[0] #same as above, check and eliminate
         self.intensity_gamma=intensity_gamma
         self.random_bias=random_bias
         self.random_noise=random_noise
+        self.random_blur=random_blur
   
     def __call__(self, buffer):
 
@@ -108,34 +115,38 @@ class MRITransform(object):
         # Permute to shape C H W T for TorchIO compatibility
         buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
 
-
-        global_transforms = transforms.Compose([
-            self.get_global_spatial_transforms(),
-            self.get_intensity_transforms(),
-            #transforms.ToTensor(),
-        ])
-
-        local_transforms = transforms.Compose([
-            self.get_spatial_transforms(),
-            self.get_intensity_transforms(),
-            #transforms.ToTensor(),
-        ])
-
         buffer_global=[]
-        buffer_local =[]
        # Apply the transforms
         for i in range(self.num_global_views):
-            buffer_g = global_transforms(buffer)
+            global_transforms = transforms.Compose([
+                self.get_spatial_transforms(view_type='global'),
+                self.get_intensity_transforms(view_type='global'),
+                #transforms.ToTensor(),
+            ])
+            buffer_g = global_transforms(buffer)                        
             buffer_g = buffer_g.permute(3, 1, 2, 0) #permute back:C H W T ->  T H W C
             buffer_global.append(buffer_g)
 
+        buffer_local =[]
         image = tio.Image(tensor=buffer, type=tio.INTENSITY) #needed for local xforms that use random_crop fn
         subject = tio.Subject(image=image)  # <- Always wrap
         for i in range(self.num_local_views):
+            local_transforms = transforms.Compose([
+                self.get_spatial_transforms(view_type='local'),
+                self.get_intensity_transforms(view_type='local'),
+                #transforms.ToTensor(),
+            ])
             buffer_l = local_transforms(subject).image.tensor #extract tensor
             buffer_l = buffer_l.permute(3, 1, 2, 0) #permute back:C H W T ->  T H W C
             buffer_local.append(buffer_l)
     
+
+        # DEBUG:
+        # print("Global transform ID:", id(global_transforms))
+        # print("Local transform ID:", id(local_transforms))
+        # print("Global spatial ID:", id(self.get_global_spatial_transforms()))
+        # print("Local spatial ID:", id(self.get_spatial_transforms()))
+
         #GU_ debug
         # mid_slice_index = buffer_global.shape[0] // 2  # Compute the middle slice index along the temporal axis
         # plt.imsave('zxformedBufferG.png', buffer[mid_slice_index, :, :,0].cpu().numpy(), cmap='gray')
@@ -152,40 +163,37 @@ class MRITransform(object):
         buffer_overall = buffer_global + buffer_local  # First two are global, last four are local
         return buffer_overall  # Return as a list of 6 transformed volumes
     
- 
-    def get_global_spatial_transforms(self):
-        """Creates a set of spatial transformations."""       
-        spatial_transforms = {
-            tio.RandomAffine(scales=self.random_resize_aspect_ratio, degrees=self.rot_degree),  # Random affine
-            tio.RandomFlip(axes=(0,)),  # Flip along left-right
-            tio.Lambda(lambda x: x),  # Identity transform
-        }
-        return tio.OneOf(spatial_transforms)
-    
-        #if we want to give weights to different transforms
-        # return tio.OneOf({
-            # tio.RandomAffine(...): 0.4,
-            # tio.RandomFlip(...): 0.4,
-            # tio.Lambda(lambda x: x): 0.2  # 20% chance to do nothing
-        #})
-
-    def get_spatial_transforms(self):
-        """Creates a set of spatial transformations."""       
-        spatial_transforms = {
-            tio.RandomAffine(scales=self.random_resize_aspect_ratio, degrees=self.rot_degree),  # Random affine
-            tio.RandomFlip(axes=(0,)),  # Flip along left-right
-            self.random_center_crop(),
-        }
+    def get_spatial_transforms(self, view_type='global'):
+        """Creates a set of spatial transformations tailored to global or local views."""
+        if view_type == 'global':
+            spatial_transforms = {
+                tio.RandomAffine(scales=self.random_resize_aspect_ratio, degrees=self.rot_degree / 2): 0.45,  # gentler affine
+                tio.RandomFlip(axes=(0,)): 0.45,
+                tio.Lambda(lambda x: x): 0.10,
+            }
+        else:  # local
+            spatial_transforms = {
+                tio.RandomAffine(scales=self.random_resize_scale, degrees=self.rot_degree): 0.4,
+                tio.RandomFlip(axes=(0,)): 0.3,
+                self.random_center_crop(): 0.3,
+            }
         return tio.OneOf(spatial_transforms)
 
-
-    def get_intensity_transforms(self):
-        """Creates a set of intensity transformations."""
-        intensity_transforms = {
-            tio.RandomGamma(log_gamma=(-self.intensity_gamma, self.intensity_gamma)),
-            tio.RandomNoise(mean=0.0, std=self.random_noise),
-            tio.Lambda(lambda x: x),  # Identity transform
-        }
+    def get_intensity_transforms(self, view_type='global'):
+        """Creates a set of intensity transformations with weights, specific to view type."""
+        if view_type == 'global':
+            intensity_transforms = {
+                tio.RandomGamma(log_gamma=(-self.intensity_gamma / 2, self.intensity_gamma / 2)): 0.4,
+                tio.RandomNoise(mean=0.0, std=self.random_noise / 2): 0.3,
+                tio.Lambda(lambda x: x): 0.3,  # More chance of identity to preserve structure
+            }
+        else:  # local view
+            intensity_transforms = {
+                tio.RandomGamma(log_gamma=(-self.intensity_gamma, self.intensity_gamma)): 0.3,
+                tio.RandomNoise(mean=0.0, std=self.random_noise): 0.3,
+                tio.RandomBlur(std=self.random_blur): 0.3,
+                tio.Lambda(lambda x: x): 0.1,
+            }
         return tio.OneOf(intensity_transforms)
 
 #-----Only local transforms use this
@@ -241,36 +249,6 @@ class MRITransform(object):
             local_crop_ratio=self.local_crop_ratio,
             max_offset_fraction=self.max_offset_fraction
         )
-
-        # class CenterCropAndResizeTransform(tio.Transform):
-        #     def __init__(self, crop_retention):
-        #         super().__init__()
-        #         self.crop_retention = crop_retention
-
-        #     def apply_transform(self, buffer):
-        #         # buffer shape: (C, H, W, T)
-        #         C, H, W, T = buffer.shape
-                
-        #         # Compute crop size for H and W dimensions
-        #         retention_factor = random.uniform(self.crop_retention, 1.0)
-        #         crop_H = int(H * retention_factor)
-        #         crop_W = int(W * retention_factor)
-
-        #         # Crop or pad the H and W dimensions only
-        #         crop = tio.CropOrPad(target_shape=(crop_H, crop_W, T))
-        #         cropped = crop(buffer.permute(1, 2, 3, 0))  # Permute to (H, W, T, C)
-
-        #         # Resize the cropped H and W dimensions back to the original size
-        #         resize = tio.Resample(target_shape=(H, W, T))
-        #         resized = resize(cropped)
-
-        #         # Permute back to the original shape (C, H, W, T)
-        #         resized_buffer = resized.permute(3, 0, 1, 2)
-                    
-        #         return resized_buffer
-
-        # return CenterCropAndResizeTransform(self.crop_retention)
-
 
 def tensor_normalize(tensor, mean, std):
     """

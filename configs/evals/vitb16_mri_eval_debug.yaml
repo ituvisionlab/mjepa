@@ -21,7 +21,7 @@ data:
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
   frame_step: 1
-  num_workers: 0
+  num_workers: 0 #4
   random_clip_sampling: true
 data_aug:
   auto_augment: true
@@ -38,7 +38,7 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 192 #160 #192
+  resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
@@ -73,7 +73,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/latest-model/

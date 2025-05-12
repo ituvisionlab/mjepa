@@ -1,9 +1,12 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
 #
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
 
 import logging
 import sys
@@ -242,7 +245,7 @@ class DinoCenterManager:
 
     def update(self, teacher_output):
         # teacher_output: [B, N, D]
-        batch_center = teacher_output.mean(dim=(0, 1), keepdim=True)
+        batch_center = teacher_output.detach().mean(dim=(0, 1), keepdim=True)
 
         if torch.distributed.is_initialized():
             torch.distributed.all_reduce(batch_center)
@@ -260,3 +263,99 @@ def cosine_similarity(student_output, teacher_output):
     student_norm = F.normalize(student_output, dim=-1)
     teacher_norm = F.normalize(teacher_output, dim=-1)
     return (student_norm * teacher_norm).sum(dim=-1).mean().item()
+
+import torch
+import torch.nn.functional as F
+
+def dino_debug_dashboard(
+    global_step,
+    logger,
+    z_g_student,
+    h_teacher,
+    center,
+    prev_center,
+    student_input_0,
+    student_input_1,
+    temperature_teacher,
+    threshold_variance=0.005,
+    threshold_entropy=5.0,
+    threshold_kl=0.01,
+    abort_on_collapse=False,
+):
+    # Cosine similarity
+    cosine_sim = F.cosine_similarity(
+        z_g_student[0].mean(dim=1), h_teacher[0].mean(dim=1), dim=-1
+    ).mean().item()
+
+    # Center tracking
+    center_norm = center.norm().item()
+    delta_center = (center - prev_center).norm().item()
+
+    # Student STD per dimension
+    z_flat = z_g_student[0].view(-1, z_g_student[0].shape[-1])
+    std_per_dim = torch.sqrt(z_flat.var(dim=0) + 1e-4)
+    std_mean = std_per_dim.mean().item()
+    std_min = std_per_dim.min().item()
+    std_max = std_per_dim.max().item()
+
+    # Embedding variance per sample
+    embedding_var = z_g_student[0].var(dim=1).mean().item()
+
+    # View difference (in embedding space)
+    view_diff = (student_input_0 - student_input_1).abs().mean().item()
+
+    # Compute teacher softmax & diagnostics
+    with torch.no_grad():
+        teacher_logits = (h_teacher[0] - center) / temperature_teacher
+        teacher_probs = F.softmax(teacher_logits, dim=-1)
+
+        # Entropy
+        entropy = -torch.sum(teacher_probs * torch.log(teacher_probs + 1e-6), dim=-1).mean().item()
+
+        # Max prob
+        max_prob = teacher_probs.max(dim=-1)[0].mean().item()
+
+        # Student log probs
+        student_logits = z_g_student[0]
+        student_log_probs = F.log_softmax(student_logits, dim=-1)
+
+        # KL divergence
+        kl_per_token = torch.sum(
+            teacher_probs * (torch.log(teacher_probs + 1e-6) - student_log_probs),
+            dim=-1
+        )
+        kl_div = kl_per_token.mean().item()
+
+    # Logging
+    logger.info(f"[DINO DEBUG @ step {global_step}]")
+    logger.info(f"  Cosine Similarity (S vs T): {cosine_sim:.4f}")
+    logger.info(f"  Teacher Entropy:            {entropy:.4f}")
+    logger.info(f"  Teacher Max Prob:           {max_prob:.4f}")
+    logger.info(f"  KL Divergence (S||T):       {kl_div:.4f}")
+    logger.info(f"  Teacher Center Norm:        {center_norm:.4f}, Δcenter: {delta_center:.4f}")
+    logger.info(f"  Student STD: min={std_min:.4f}, max={std_max:.4f}, mean={std_mean:.4f}")
+    logger.info(f"  Student Embedding Variance: {embedding_var:.6f}")
+    logger.info(f"  Global View Diff (emb):     {view_diff:.4f}")
+
+    # Collapse detector
+    if std_mean < threshold_variance or entropy > threshold_entropy or kl_div < threshold_kl:
+        logger.warning(
+            f"[COLLAPSE WARNING] Step {global_step}: variance={std_mean:.6f}, "
+            f"entropy={entropy:.4f}, kl_div={kl_div:.4f}"
+        )
+        if abort_on_collapse:
+            raise RuntimeError("DINO collapse detected — aborting to save compute.")
+    # Return all metrics for wandb logging
+    return {
+        "debug/cosine_similarity": cosine_sim,
+        "debug/teacher_entropy": entropy,
+        "debug/teacher_max_prob": max_prob,
+        "debug/kl_divergence": kl_div,
+        "debug/student_std_mean": std_mean,
+        "debug/student_std_min": std_min,
+        "debug/student_std_max": std_max,
+        "debug/student_embedding_variance": embedding_var,
+        "debug/global_view_diff": view_diff,
+        "debug/center_norm": center_norm,
+        "debug/delta_center_norm": delta_center,
+    }
