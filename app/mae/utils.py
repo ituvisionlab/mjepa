@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 
 import src.models.vision_transformer as video_vit
 import src.models.decoder as vit_decoder
-from src.models.utils.multimask import MultiMaskWrapper, DecoderMultiMaskWrapper
+from src.models.utils.multimask import MultiMaskWrapper #DecoderMultiMaskWrapper
 from src.utils.schedulers import (
     WarmupCosineSchedule,
     CosineWDSchedule)
@@ -125,7 +125,7 @@ def init_video_model(
         drop_rate=drop_rate,
         attn_drop_rate=attn_drop_rate
     )
-    decoder = DecoderMultiMaskWrapper(decoder)
+    # decoder = DecoderMultiMaskWrapper(decoder) #Remove multimask wrapper for MAE
 
     # def init_weights(m):
     #     if isinstance(m, torch.nn.Linear):
@@ -315,61 +315,89 @@ def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_ch
         grid_spatial * patch_size         # width
     )
 
-        # Since mRI volumes are 1-channel and we only want the first sample in the batch,
+    # Since mRI volumes are 1-channel and we only want the first sample in the batch, for visualization
     # return the first sample and remove the channel dimension.
     # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
     return full_tokens[0, 0]
 
 def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames, in_chans, crop_size):
     """
-    Reconstruct a full video volume from patch tokens for a given mask level.
+    Reconstruct a full video volume from patch tokens.
 
-    Args:
-        recon (torch.Tensor): Reconstructed (masked) tokens,
-            shape (B, L_masked, patch_size**2 * tubelet_size * in_chans).
-        patch_size (int): Spatial patch size.
-        tubelet_size (int): Temporal patch (tubelet) size.
-        num_frames (int): Total number of frames in the video.
-        in_chans (int): Number of channels.
-        crop_size (int): Spatial crop size of the video (assumed square).
     Returns:
-        torch.Tensor: Reconstructed video volume of shape
-            (B, in_chans, num_frames, crop_size, crop_size).
+        Tensor of shape [B, C, T, H, W]
     """
-    B = full_tokens.shape[0]
-    L = full_tokens.shape[1]  # Total number of patches
-
-    # Compute grid sizes
-    grid_spatial = crop_size // patch_size  # number of patches per spatial dimension
+    B, L, D = full_tokens.shape
+    grid_spatial = crop_size // patch_size
     grid_temporal = num_frames // tubelet_size
-    assert grid_spatial * grid_spatial * grid_temporal == L, (
-        f"Mismatch: Expected {grid_spatial * grid_spatial * grid_temporal} patches, got {L}"
+    assert grid_spatial * grid_spatial * grid_temporal == L, \
+        f"Expected {grid_spatial ** 2 * grid_temporal} patches, got {L}"
+
+    full_tokens = full_tokens.view( 
+        B, grid_temporal, grid_spatial, grid_spatial,
+        tubelet_size, patch_size, patch_size, in_chans
     )
 
-    # Reshape the full tokens into a video volume.
-    full_tokens = full_tokens.view(
-        B,
-        grid_temporal,    # temporal grid
-        grid_spatial,     # spatial grid height
-        grid_spatial,     # spatial grid width
-        tubelet_size,     # temporal patch dimension
-        patch_size,       # patch spatial height
-        patch_size,       # patch spatial width
-        in_chans          # channels
-    )
-
-    # Permute to (B, in_chans, num_frames, crop_size, crop_size)
     full_tokens = full_tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous()
-    full_tokens = full_tokens.view(
+    # shape [B, C, T, H, W]
+    return full_tokens.view(
         B,
         in_chans,
-        grid_temporal * tubelet_size,   # num_frames
-        grid_spatial * patch_size,        # height
-        grid_spatial * patch_size         # width
+        grid_temporal * tubelet_size,
+        grid_spatial * patch_size,
+        grid_spatial * patch_size
     )
 
-    # Since mRI volumes are 1-channel and we only want the first sample in the batch,
-    # return the first sample and remove the channel dimension.
-    # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
-    return full_tokens[0, 0]
+# def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames, in_chans, crop_size):
+#     """
+#     Reconstruct a full video volume from patch tokens for a given mask level.
+
+#     Args:
+#         recon (torch.Tensor): Reconstructed (masked) tokens,
+#             shape (B, L_masked, patch_size**2 * tubelet_size * in_chans).
+#         patch_size (int): Spatial patch size.
+#         tubelet_size (int): Temporal patch (tubelet) size.
+#         num_frames (int): Total number of frames in the video.
+#         in_chans (int): Number of channels.
+#         crop_size (int): Spatial crop size of the video (assumed square).
+#     Returns:
+#         torch.Tensor: Reconstructed video volume of shape
+#             (B, in_chans, num_frames, crop_size, crop_size).
+#     """
+#     B = full_tokens.shape[0]
+#     L = full_tokens.shape[1]  # Total number of patches
+
+#     # Compute grid sizes
+#     grid_spatial = crop_size // patch_size  # number of patches per spatial dimension
+#     grid_temporal = num_frames // tubelet_size
+#     assert grid_spatial * grid_spatial * grid_temporal == L, (
+#         f"Mismatch: Expected {grid_spatial * grid_spatial * grid_temporal} patches, got {L}"
+#     )
+
+#     # Reshape the full tokens into a video volume.
+#     full_tokens = full_tokens.view(
+#         B,
+#         grid_temporal,    # temporal grid
+#         grid_spatial,     # spatial grid height
+#         grid_spatial,     # spatial grid width
+#         tubelet_size,     # temporal patch dimension
+#         patch_size,       # patch spatial height
+#         patch_size,       # patch spatial width
+#         in_chans          # channels
+#     )
+
+#     # Permute to (B, in_chans, num_frames, crop_size, crop_size)
+#     full_tokens = full_tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous()
+#     full_tokens = full_tokens.view(
+#         B,
+#         in_chans,
+#         grid_temporal * tubelet_size,   # num_frames
+#         grid_spatial * patch_size,        # height
+#         grid_spatial * patch_size         # width
+#     )
+
+#     # Since mRI volumes are 1-channel and we only want the first sample in the batch,
+#     # return the first sample and remove the channel dimension.
+#     # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
+#     return full_tokens[0, 0]
 

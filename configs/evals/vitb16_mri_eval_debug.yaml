@@ -22,7 +22,7 @@ data:
   num_views_per_segment: 1
   frame_step: 1
   num_workers: 0 #4
-  random_clip_sampling: true
+  random_clip_sampling: false
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -37,7 +37,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 200
   resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -47,11 +47,11 @@ optimization:
   final_lr: 1.0e-7 #1.0e-6 
   warmup: 0
   use_bfloat16: true
-  clip_grad_classifier: 10.0
+  clip_grad_classifier: 1.0
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: 0.75 #null to turn it off
+  layer_decay: null #0.75 #null to turn it off
   classifier_depth: 1
   dropout: 0.0 #0.25 #null to turn off #btw encoder and classifier
   drop_rate: 0.0
@@ -68,8 +68,8 @@ pretrain:
   use_sdpa: true
   patch_size: 8
   frozen: false #default: true
-  clip_grad_encoder: 10.0
-  encoder_warmup: 0
+  clip_grad_encoder: 1.0
+  encoder_warmup: 3
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added

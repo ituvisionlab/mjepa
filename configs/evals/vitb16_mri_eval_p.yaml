@@ -1,0 +1,77 @@
+write_tag: mjepa
+nodes: 1
+tasks_per_node: 2
+tag: mri-probe #k400-16x8x3
+eval_name: video_classification_frozen
+resume_checkpoint: false #true 
+checkpoint_path: null #/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
+logging:
+  folder: /gpfs/data/sodicksonlab/gozde/logs/
+data:
+  root_path: /gpfs/home/unalg01/jepa
+  dataset_train: 
+  - src/datasets/Prostate_downstream_train.csv
+  dataset_val: 
+  - src/datasets/Prostate_downstream_val.csv
+  dataset_type: MRIDataset
+  num_classes: 5
+  frames_per_clip: 36
+  num_segments: 1 #8 #for larger cropsize #rename to num_clips
+  num_views_per_segment: 1
+  frame_step: 1
+  num_workers: 8
+  random_clip_sampling: false #true
+data_aug:
+  auto_augment: true
+  random_noise: 0.01
+  random_bias: 0.1
+  intensity_gamma: 0.1
+  random_resize_aspect_ratio:
+  - 0.9 
+  - 1.1 
+  random_resize_scale:
+  - 0.9
+  - 1.0
+  rotation_degree: 10  
+optimization:
+  attend_across_segments: true
+  num_epochs: 500
+  resolution: 224
+  batch_size: 32
+  weight_decay: 1.0e-3
+  final_weight_decay: 1.0e-4 #0.1
+  start_lr: 1.0e-5 #5.0e-5 #1.0e-5
+  lr: 1.0e-5 #5.0e-5 #1.0e-5
+  final_lr: 1.0e-7 #1.0e-6 
+  warmup: 0
+  use_bfloat16: true
+  clip_grad_classifier: 1.0
+  seed: 1881 #234
+  train_log_iter_freq: 1
+  val_log_iter_freq: 1
+  layer_decay: null #0.6 #null to turn it off
+  classifier_depth: 1
+  dropout: 0.0 #0.25 #null to turn off
+  drop_rate: 0.0 #0.0 #0.1
+  attn_drop_rate: 0.0 #0.0 #0.1
+pretrain:
+  model_name: vit_base
+  checkpoint_key: encoder #target_encoder
+  clip_duration: null
+  frames_per_clip: 36
+  tubelet_size: 8
+  uniform_power: true
+  use_silu: false
+  tight_silu: false
+  use_sdpa: true
+  patch_size: 8
+  frozen: false
+  clip_grad_encoder: 1.0
+  encoder_warmup: 3
+  use_pos_embed: false #true
+  in_channel_size: 2
+  frame_step: 1 # added
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_19__17_02_13/model_ckpt/latest-model/
+  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-501.pth.tar  # name of pretrained encoder model file inside folder
+

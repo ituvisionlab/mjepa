@@ -41,7 +41,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 500
   resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -55,7 +55,7 @@ optimization:
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: null #0.6 #null to turn it off
+  layer_decay: 0.75 #0.6 #null to turn it off
   classifier_depth: 1
   dropout: 0.0 #0.25 #null to turn off
   drop_rate: 0.0 #0.1
@@ -71,13 +71,13 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: true
+  frozen: false
   clip_grad_encoder: 1.0
   encoder_warmup: 3
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_02__09_19_57/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_02__09_19_57/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/

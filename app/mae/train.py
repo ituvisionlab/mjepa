@@ -24,7 +24,7 @@ import copy
 import time
 import numpy as np
 
-import matplotlib.pyplot as plt #GU_
+import matplotlib.pyplot as plt
 
 import torch
 import torch.multiprocessing as mp
@@ -65,8 +65,11 @@ log_timings = True
 log_freq = 10
 checkpoint_freq = 1
 periodic_ckpt_save_freq = 25
-write_img_freq = 5 # every other x epochs, save reconstructed images periodically for monitoring
+write_img_freq = 10 # every other x epochs, save reconstructed images periodically for monitoring
 # --
+
+global_step = 0 # global counter for spectral warmup
+min_epoch_for_spectral = 10
 
 _GLOBAL_SEED = 0
 #np.random.seed(_GLOBAL_SEED)
@@ -155,6 +158,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     cfgs_loss = args.get('loss')
     loss_exp = cfgs_loss.get('loss_exp')
     reg_coeff = cfgs_loss.get('reg_coeff')
+    spectral_coeff = cfgs_loss.get('spectral_coeff',0.01)
+    spec_loss_every_n = cfgs_loss.get('spec_loss_every_n',25)    
+
 
     # -- OPTIMIZATION
     cfgs_opt = args.get('optimization')
@@ -483,6 +489,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata = next(loader)
 
     epoch_losses = []
+    warmup_iters = 500 #for spectral loss
 
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -517,10 +524,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
 
+            assert len(masks_enc) == len(masks_pred) == 1, "MAE only supports single-level masking"
+
             def load_clips():
                 # -- unsupervised video clips
-                # Put each clip on the GPU and concatenate along batch
-                # dimension
+                # Put each clip on the GPU and concatenate along batch dimension
                 clips = torch.cat([u.to(device, non_blocking=True) for u in udata[0]], dim=0)
 
                 # Put each mask-enc/mask-pred pair on the GPU and reuse the
@@ -540,31 +548,132 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # -------------------------------------------------
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
-                
+
+            # e.g. cutoff_ratio = 0.3 keeps top 70% of high frequencies, masks bottom 30%
+            def make_highpass_mask(shape, cutoff_ratio=0.5, device='cpu'):
+                """
+                Create a high-pass mask for FFT volumes.
+                `cutoff_ratio`: e.g., 0.5 retains upper 50% of frequencies (along each axis)
+                """
+                B, D, X, Y, Z = shape
+                fx = torch.fft.fftfreq(X, d=1).to(device)
+                fy = torch.fft.fftfreq(Y, d=1).to(device)
+                fz = torch.fft.fftfreq(Z, d=1).to(device)
+
+                # Create meshgrid of frequencies
+                grid_fx, grid_fy, grid_fz = torch.meshgrid(fx, fy, fz, indexing="ij")
+                freq_magnitude = torch.sqrt(grid_fx ** 2 + grid_fy ** 2 + grid_fz ** 2)
+
+                # Normalize and mask
+                freq_norm = freq_magnitude / freq_magnitude.max()
+                mask = (freq_norm >= cutoff_ratio).float()
+                mask = mask.unsqueeze(0).unsqueeze(0)  # [1,1,X,Y,Z] to broadcast over B and D
+                return mask.to(device)
+
+            def spectral_loss_images(img_recon, img_gt, mode='complex', cutoff_ratio=0.5):
+
+                """
+                Computes 3D FFT spectral loss between reconstructed and original volumes.
+                img_recon, img_gt: torch tensors of shape [B, T, H, W]
+                """
+                assert img_recon.shape == img_gt.shape, "Mismatch in image shapes"
+                B, T, H, W = img_recon.shape
+
+                # Normalize both recon and gt to zero-mean, unit-std
+                def normalize(x):
+                    x = x - x.mean(dim=(1, 2, 3), keepdim=True)
+                    x_std = x.std(dim=(1, 2, 3), keepdim=True)
+                    return x / (x_std + 1e-6)
+
+                img_recon = normalize(img_recon)
+                img_gt = normalize(img_gt)
+
+                if rank == 0  and (epoch % write_img_freq == 0):
+                    recon_np = img_recon[0].detach().cpu().numpy()
+                    target_np = img_gt[0].detach().cpu().numpy()
+                    nib.save(nib.Nifti1Image(recon_np, affine=np.eye(4)), f"Zdebug_recon_step{global_step}.nii.gz")
+                    nib.save(nib.Nifti1Image(target_np, affine=np.eye(4)), f"Zdebug_target_step{global_step}.nii.gz")
+
+
+                # Optional: clamp and stabilize inputs before FFT
+                # img_recon = torch.clamp(img_recon, -1e6, 1e6)
+                # img_gt = torch.clamp(img_gt, -1e6, 1e6)
+   
+                # FFT: img_recon, img_gt: shape [B, T, H, W]
+                fft_recon = torch.fft.fftn(img_recon, dim=(-3, -2, -1))
+                fft_target = torch.fft.fftn(img_gt, dim=(-3, -2, -1))
+
+                # Optional: high-pass filtering
+                # f_mask = make_highpass_mask(fft_recon.shape, cutoff_ratio=cutoff_ratio, device=recon.device)
+                # fft_recon *= f_mask
+                # fft_target *= f_mask
+
+                # Optional: Normalize each FFT volume by its norm across spatial dims
+                # fft_recon = fft_recon / (torch.linalg.vector_norm(fft_recon, dim=(-3, -2, -1), keepdim=True) + 1e-6)
+                # fft_target = fft_target / (torch.linalg.vector_norm(fft_target, dim=(-3, -2, -1), keepdim=True) + 1e-6)
+
+                # Debug: Monitor magnitudes before loss
+                with torch.no_grad():
+                    if rank == 0  and (epoch % write_img_freq == 0):
+                        spec_r = torch.abs(fft_recon[0]).log1p()
+                        spec_t = torch.abs(fft_target[0]).log1p()
+                        plt.imsave(f"Zspec_recon_xy_{global_step}.png", spec_r[:, :, spec_r.shape[-1]//2].cpu().numpy(), cmap='gray')
+                        plt.imsave(f"Zspec_target_xy_{global_step}.png", spec_t[:, :, spec_t.shape[-1]//2].cpu().numpy(), cmap='gray')
+                        mag_recon = torch.abs(fft_recon).max().item()
+                        mag_target = torch.abs(fft_target).max().item()
+                        mean_r = torch.abs(fft_recon).mean().item()
+                        mean_t = torch.abs(fft_target).mean().item()
+                        if mag_recon > 1e2 or mag_target > 1e2:
+                            logger.warning(f"[SpectralLoss Debug] High FFT magnitude! max_r={mag_recon:.2e}, max_t={mag_target:.2e}")
+                            logger.info(f"[SpectralLoss Debug] mean_r={mean_r:.2e}, mean_t={mean_t:.2e}")
+
+                # Compute spectral loss
+                if mode == 'complex':
+                    loss = F.mse_loss(fft_recon.real, fft_target.real) + F.mse_loss(fft_recon.imag, fft_target.imag)
+                elif mode == 'magnitude':
+                    loss = F.mse_loss(torch.abs(fft_recon), torch.abs(fft_target))
+                elif mode == 'logmag':
+                    recon_log = torch.log1p(torch.abs(fft_recon) + 1e-6)
+                    target_log = torch.log1p(torch.abs(fft_target) + 1e-6)
+                    loss = F.mse_loss(recon_log, target_log)
+                else:
+                    raise ValueError("Mode must be 'complex', 'magnitude', or 'logmag'")
+
+                # Final safeguard
+                if not torch.isfinite(loss) or loss > 1e3:
+                    #logger.warning(f"[SpectralLoss] Clipping extreme value: {loss.item():.2e}")
+                    loss = torch.tensor(0.0, device=loss.device)
+
+                return loss
+               
             def train_step():
+                global global_step
+                if global_step % spec_loss_every_n == 0:
+                    spectral_coeff_eff = min(spectral_coeff * min(1.0, global_step / warmup_iters)* spec_loss_every_n, 0.1) #cap to 0.1
+                else:
+                    spectral_coeff_eff = 0.0
+                #spectral_coeff_eff = spectral_coeff * min(1.0, global_step / warmup_iters)
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
 
                 def forward_context(c):
                     """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
+                    Returns list of tensors of shape [B, N, D], one for each mask-pred.
                     """
                     z = encoder(c, masks_enc)
-                    z = decoder(z, masks_enc, masks_pred)
+                    z = decoder(z[0], masks_enc[0],  masks_pred[0])
                     
                     return z
 
                 def forward_context_full(c):
                     """
-                    Returns list of tensors of shape [B, N, D], one for each
-                    mask-pred.
+                    Returns list of tensors of shape [B, N, D], one for each mask-pred.
                     """
                     z = encoder(c, masks_enc)
-                    z_all = decoder(z, masks_enc, masks_pred, return_all_tokens=True)
+                    ctxt_tokens, tgt_tokens = decoder(z[0], masks_enc[0],  masks_pred[0], return_all_tokens=True)
                     
-                    return z_all
+                    return ctxt_tokens, tgt_tokens
                 
                 def loss_fn(z, c):
                     patches = patchify_image(c, patch_size)
@@ -581,6 +690,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 def reconstruct_image(z, c):
                     # c: original video/image, z: reconstructed patches for each mask level
+                    if not isinstance(z, list):
+                        z = [z]
                     patches = patchify_image(c, patch_size)
                     # get only unmasked patches from the image for each mask level.
                     nonmasked_patches = apply_masks(patches, masks_enc, concat=False)  # returns a list
@@ -603,25 +714,24 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         )
                     return imgs
                 
-                def reconstruct_image_full(c_hat_all):                 
+                def reconstruct_image_full(z_full):
+                    """
+                    z_full: list of all tokens reconstructed for each level, each of shape [B, N, D]
+                    Assumes decoder was given full embeddings and predicts full set of patches.
+                    """
                     imgs = []
-                    # For each mask level, pass the corresponding mask indices.
-                    for level, (unmask_tokens, recon_tokens) in enumerate(c_hat_all):
-                        imgs.append(
-                            unpatchify_image(
-                                recon_tokens,
-                                unmask_tokens,
-                                patch_size,
-                                tubelet_size,
-                                num_frames,
-                                in_chans,
-                                crop_size,
-                                masks_enc[level],  # use mask for the current level
-                                masks_pred[level]  # use mask for the current level
-                            )
+                    for level, recon_tokens in enumerate(z_full):
+                        img = unpatchify_image_from_full(
+                            recon_tokens,
+                            patch_size,
+                            tubelet_size,
+                            num_frames,
+                            in_chans,
+                            crop_size,
                         )
+                        imgs.append(img)
                     return imgs
-                
+
                 def reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size):
                     """
                     Create a binary 3D volume for each mask level, showing the locations of the masked patches.
@@ -686,17 +796,44 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
 
                 # Step 1. Forward
-                loss_mae, loss_reg = 0., 0.
+                loss_mae, loss_reg, loss_spec = 0., 0., 0.
+                imgs_full = None 
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     c_hat = forward_context(clips)
                     loss_mae = loss_fn(c_hat, clips)  # mae prediction loss
                     pstd_z = reg_fn(c_hat)  # output variance across patches
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
-                
-                # Accumulate loss before stepping optimizer
-                loss = (loss_mae + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
+                    
+                # ---- INFERENCE PATH (full tokens for spectral loss) ----
+                spec_loss_active = spectral_coeff > 0 and global_step % spec_loss_every_n == 0 and epoch >= min_epoch_for_spectral
+                if spec_loss_active:
+                    with torch.no_grad():
+                        ctxt_tokens, tgt_tokens = forward_context_full(clips)
+                        enc_mask  = masks_enc[0].long()
+                        pred_mask = masks_pred[0].long()
+                        B, _, D = ctxt_tokens.shape
+                        L_total = enc_mask.shape[1] + pred_mask.shape[1]
 
-                #loss = loss_mae + reg_coeff * loss_reg
+                        tokens_full = torch.zeros(B, L_total, D, device=ctxt_tokens.device, dtype=ctxt_tokens.dtype)
+                        tokens_full.scatter_(1, enc_mask.unsqueeze(-1).expand_as(ctxt_tokens), ctxt_tokens)
+                        tokens_full.scatter_(1, pred_mask.unsqueeze(-1).expand_as(tgt_tokens), tgt_tokens)
+
+                        imgs_full = reconstruct_image_full([tokens_full])  # list of [B, C, T, H, W]
+
+                    # spectral loss summed over channels
+                    for i in range(len(imgs_full)):
+                        img_rec = imgs_full[i]  # [B, C, T, H, W]
+                        img_gt  = clips          # [B, C, T, H, W]
+                        for c in range(img_rec.shape[1]):
+                            loss_spec += spectral_loss_images(img_rec[:, c], img_gt[:, c], mode='complex')
+
+                    # if loss_spec.item() > 1e3:
+                    #     logger.warning(f"[SpectralLoss Warning] High loss_spec={loss_spec.item():.2e} at step {global_step}")
+
+                    loss_spec /= len(imgs_full) * img_rec.shape[1]
+
+                # Accumulate loss before stepping optimizer
+                loss = (loss_mae + reg_coeff * loss_reg + spectral_coeff_eff * loss_spec) / accumulation_steps  # Normalize loss
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -734,38 +871,38 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 #gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
                 # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
     
-                # Note: Full reconstruct allocates close to 80GB GPU RAM! CUDA OOM! 
                 # Reconstruct images & masks to visualize at every write_img_freq epochs
                 if (itr == 0) and (epoch % write_img_freq == 0):
-                    imgs = reconstruct_image(c_hat, clips) 
                     binary_volumes = reconstruct_mask_volume(masks_pred, patch_size, tubelet_size, num_frames, crop_size)
-                    #c_hat_all = forward_context_full(clips)
-                    #imgs_full = reconstruct_image_full(c_hat_all) 
 
-                    affine = np.eye(4)
-                    for i in range(len(imgs)):
-                        nifti_image = nib.Nifti1Image(imgs[i].cpu().detach().float().numpy(), affine)
-                        nib.save(nifti_image, f'zReconstructed_volume{i}-epoch{epoch}.nii')
-                    # for i in range(len(imgs_full)):
-                    #     nifti_image = nib.Nifti1Image(imgs_full[i].cpu().detach().float().numpy(), affine)
-                    #     nib.save(nifti_image, f'zReconstructed_full_volume{i}-epoch{epoch}.nii')
+                    if imgs_full is not None:
+                        imgs_vis = imgs_full[0][0]  # [T, H, W]
+                    else:
+                        imgs = reconstruct_image(c_hat, clips)
+                        imgs_vis = imgs[0]  # [T, H, W]
+                    
+                    nifti_image = nib.Nifti1Image(imgs_vis.squeeze(0).cpu().detach().float().numpy(), affine=np.eye(4))
+                    nib.save(nifti_image, f'zReconstructed_volume-epoch{epoch}.nii')
+
                     for i, vol in enumerate(binary_volumes):
-                        # Optionally, convert to float32 if needed (or keep as uint8)
-                        nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine)
+                        nifti_image = nib.Nifti1Image(vol.cpu().detach().numpy().astype(np.uint8), affine=np.eye(4))
                         nib.save(nifti_image, f'zMask_volume_{i}-epoch{epoch}.nii')
+
 
                 return (
                     float(loss) * accumulation_steps,  # Restore original loss scale
                     float(loss_mae),
+                    float(loss_spec),
                     float(loss_reg),
                     _new_lr,
                     _new_wd,
                     grad_stats,
                     grad_stats_pred,
                     optim_stats,
+                    spectral_coeff_eff,
                 )
             
-            (loss, loss_mae, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,spectral_coeff_eff,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
@@ -777,22 +914,33 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
             
+            global global_step
+            spec_loss_active = spectral_coeff > 0 and global_step % spec_loss_every_n == 0 and epoch >= min_epoch_for_spectral
+            global_step += 1 #for warmup of spectral loss coef
+
             # Release memory
             del clips
             torch.cuda.empty_cache()
 
             # -- Logging
             def log_stats():
+                # Handle NaN-safe or inactive spectral loss logging
+                loss_spec_val = loss_spec if spec_loss_active else float('nan')
+
+                # CSV log (writes everything — still useful to see 'nan' in skipped steps)
                 csv_logger.log(
                     epoch,
                     itr,
                     loss,
                     loss_mae,
+                    loss_spec_val,
                     loss_reg,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
                     gpu_etime_ms,
-                    iter_elapsed_time_ms)
+                    iter_elapsed_time_ms
+                )
+
                 
                 # Tensorboard logging
                 # log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
@@ -807,19 +955,40 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 
                 # Wandb logging
-                if run != None and rank == 0:
-                    run.log({
-                            'train/loss': loss,
-                            'train/loss_mae': loss_mae,
-                            'train/loss_reg': loss_reg,
-                            'train/global_norm': grad_stats.global_norm,
-                            'train/pred_global_norm': grad_stats_pred.global_norm,
-                            'train/gpu_etime_ms': gpu_etime_ms,
-                            'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
-                            'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
-                            'train/lr': _new_lr,
-                            'train/wd': _new_wd
-                        })
+                if run is not None and rank == 0:
+                    log_dict = {
+                        'train/loss': loss,
+                        'train/loss_mae': loss_mae,
+                        'train/loss_reg': loss_reg,
+                        'train/global_norm': grad_stats.global_norm,
+                        'train/pred_global_norm': grad_stats_pred.global_norm,
+                        'train/gpu_etime_ms': gpu_etime_ms,
+                        'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
+                        'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                        'train/lr': _new_lr,
+                        'train/wd': _new_wd,
+                    }
+
+                if spec_loss_active:
+                    log_dict['train/loss_spec'] = loss_spec
+                    log_dict['debug/spectral_coeff_eff'] = spectral_coeff_eff
+                    log_dict['debug/spectral_loss_raw'] = loss_spec.item()
+                    log_dict['debug/spec_active_step'] = global_step
+
+
+                    run.log(log_dict, step=global_step)
+                    # run.log({
+                    #         'train/loss': loss,
+                    #         'train/loss_mae': loss_mae,
+                    #         'train/loss_reg': loss_reg,
+                    #         'train/global_norm': grad_stats.global_norm,
+                    #         'train/pred_global_norm': grad_stats_pred.global_norm,
+                    #         'train/gpu_etime_ms': gpu_etime_ms,
+                    #         'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
+                    #         'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                    #         'train/lr': _new_lr,
+                    #         'train/wd': _new_wd
+                    #     })
                 
             def info_stats():
                 

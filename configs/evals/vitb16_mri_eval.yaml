@@ -11,14 +11,14 @@ data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
   #- src/datasets/adni_all_2class_bet_valtrain.csv
-  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
+  - src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
   #- src/datasets/adni_all_3class_bet_valtrain.csv
   #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  - src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
-  #- src/datasets/adni_all_2class_bet_valtest.csv
+  - src/datasets/adni_all_2class_bet_valtest.csv
   #- src/datasets/adni_all_3class_bet_valtest.csv
-  - src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 160
@@ -41,7 +41,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 500
   resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -57,9 +57,9 @@ optimization:
   val_log_iter_freq: 1
   layer_decay: null #0.6 #null to turn it off
   classifier_depth: 1
-  dropout: 0.0 #0.25 #null to turn off
-  drop_rate: 0.0 #0.1
-  attn_drop_rate: 0.0 #0.1
+  dropout: 0.1 #0.25 #null to turn off
+  drop_rate: 0.0 #0.0 #0.1
+  attn_drop_rate: 0.0 #0.0 #0.1
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder

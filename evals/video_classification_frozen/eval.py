@@ -71,7 +71,6 @@ from src.utils.logging import (
 
 from evals.video_classification_frozen.utils import (
     make_transforms,
-    make_video_transforms,
     ClipAggregation,
     FrameAggregation
 )

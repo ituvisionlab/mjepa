@@ -13,4 +13,5 @@ conda activate gozdessl
 module load fsl
 RUNDIR=/gpfs/home/unalg01/jepa/src/datasets
 cd $RUNDIR
-python -m add_bet_masks_nii_bbox --time 5300 --nodes 1 --folder /gpfs/home/unalg01/jepa --partition gpu4_medium
+python -m validate_adni_all_bet_nii.py --time 5300 --nodes 1 --folder /gpfs/home/unalg01/jepa --partition gpu4_medium
+#python -m add_bet_masks_nii_bbox --time 5300 --nodes 1 --folder /gpfs/home/unalg01/jepa --partition gpu4_medium

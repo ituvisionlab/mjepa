@@ -43,11 +43,11 @@ def make_transforms(
     intensity_gamma=0.2,
     random_bias=0.2,
     random_noise=0.025,
+    random_blur=(0.01, 0.02),
     #normalize=((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     normalize=((0.0),(1))
 ):
 
-   # _frames_augmentation = VideoTransform(
     _frames_augmentation = MRITransform(
         random_horizontal_flip=random_horizontal_flip,
         random_resize_aspect_ratio=random_resize_aspect_ratio,
@@ -57,7 +57,8 @@ def make_transforms(
         rot_degree = rot_degree,
         intensity_gamma=intensity_gamma,
         random_bias=random_bias,
-        random_noise=random_noise
+        random_noise=random_noise,
+        random_blur=random_blur,
     )
     return _frames_augmentation
 
@@ -74,6 +75,7 @@ class MRITransform(object):
         intensity_gamma=0.2,
         random_bias=0.2,
         random_noise=0.025,
+        random_blur=(0.01, 0.02),
     ):
         self.random_horizontal_flip = random_horizontal_flip
         self.random_resize_aspect_ratio = random_resize_aspect_ratio
@@ -85,106 +87,176 @@ class MRITransform(object):
         self.intensity_gamma=intensity_gamma
         self.random_bias=random_bias
         self.random_noise=random_noise
-  
+        self.random_blur=random_blur
+
     def __call__(self, buffer):
+        buffer = torch.tensor(buffer, dtype=torch.float32)  # [T, H, W, C]
 
-        buffer = torch.tensor(buffer, dtype=torch.float32)
-        # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
-        
         if self.auto_augment:
-            # buffer = np.transpose(buffer, (3, 1, 2, 0))  # T H W C -> C H W T
-            # Permute to shape C H W T for TorchIO compatibility
-            buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+            buffer = buffer.permute(3, 1, 2, 0)  # [T, H, W, C] → [C, H, W, T]
 
-            # Define the MRI spatial transformation list
-            spatial_transforms = {
-                tio.RandomAffine(
-                    scales=self.random_resize_aspect_ratio,
-                    degrees=self.rot_degree,
-                ),  # Random affine transformation
-
-                tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
-
-                #tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
+            subject_dict = {
+                f"modality_{i}": tio.Image(tensor=buffer[i:i+1], type=tio.INTENSITY)
+                for i in range(buffer.shape[0])
             }
+            subject = tio.Subject(subject_dict)
 
+            # Combine center crop and affine transforms into one spatial pool
+            spatial_transform = tio.OneOf({
+                # self.custom_center_crop(): 0.25,  # to-be-debugged
+                tio.RandomAffine(scales=self.random_resize_aspect_ratio, degrees=self.rot_degree): 0.3,
+                tio.RandomFlip(axes=('LR',)): 0.3,
+                tio.Lambda(lambda x: x): 0.4,
+            })
 
-            # Combine spatial and intensity transforms using OneOf
-            spatial_transform = tio.OneOf(spatial_transforms)
-            buffer = spatial_transform(buffer)
+            intensity_transform = tio.OneOf({
+                tio.RandomGamma(log_gamma=(-self.intensity_gamma, self.intensity_gamma)): 0.2,
+                tio.RandomNoise(mean=0.0, std=self.random_noise): 0.2,
+                tio.RandomBlur(std=self.random_blur): 0.2,
+                tio.Lambda(lambda x: x): 0.4,
+            })
 
-        
-            # Define the MRI intensity transformation list
-            intensity_transforms = {
-                tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
+            # Apply full transform
+            full_transform = tio.Compose([
+                spatial_transform,
+                intensity_transform,
+            ])
+            subject = full_transform(subject)
 
-                # tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
-
-                tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
-            }
-            # Combine MRI spatial transforms using OneOf
-            # transform = tio.OneOf(transforms_dict)
-            # buffer = transform(buffer)
-
-            intensity_transform = tio.OneOf(intensity_transforms)
-
-            # Apply the transforms
-            buffer = intensity_transform(buffer)
-    
-            # Permute back to original shape T H W C
-            buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
-
-
-        # if self.auto_augment:
-        #     buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
-        #     # Apply transformations to the buffer
-        #     buffer = transforms(buffer)
-
-        #     buffer = buffer.permute(3, 1, 2, 0)  # C H W T -> T H W C
-            
-        #GU_ debug
-        # mid_slice_index = buffer.shape[0] // 2  # Compute the middle slice index along the temporal axis
-        # plt.imsave('xformedBuffer.png', buffer[mid_slice_index, :, :,0].cpu().numpy(), cmap='gray')
-        #GU_ debug
-        # affine = np.eye(4)
-        # nifti_image = nib.Nifti1Image(buffer.numpy(), affine)
-        # nib.save(nifti_image, 'xformed_volume.nii')
+            # Reassemble tensor from subject
+            buffer = torch.cat([subject[f"modality_{i}"].tensor for i in range(buffer.shape[0])], dim=0)
+            buffer = buffer.permute(3, 1, 2, 0)  # [C, H, W, T] → [T, H, W, C]
 
         return buffer
 
+ 
+    # def __call__(self, buffer):
+
+    #     buffer = torch.tensor(buffer, dtype=torch.float32)
+    #     # buffer = buffer.permute(3, 0, 1, 2)  # T H W C -> C T H W
+        
+    #     if self.auto_augment:
+    #         # buffer = np.transpose(buffer, (3, 1, 2, 0))  # T H W C -> C H W T
+    #         # Permute to shape C H W T for TorchIO compatibility
+    #         buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+
+    #         # Define the MRI spatial transformation list
+    #         spatial_transforms = {
+    #             tio.RandomAffine(
+    #                 scales=self.random_resize_aspect_ratio,
+    #                 degrees=self.rot_degree,
+    #             ),  # Random affine transformation
+
+    #             tio.RandomFlip(axes=('LR',)),  # Flip along the left-right axis
+
+    #             #tio.RandomElasticDeformation(num_control_points=9),  # Elastic deformation
+    #         }
+
+
+    #         # Combine spatial and intensity transforms using OneOf
+    #         spatial_transform = tio.OneOf(spatial_transforms)
+    #         buffer = spatial_transform(buffer)
+
+        
+    #         # Define the MRI intensity transformation list
+    #         intensity_transforms = {
+    #             tio.RandomGamma(log_gamma=(-self.intensity_gamma,self.intensity_gamma)),  # Random gamma adjustment
+
+    #             # tio.RandomBiasField(coefficients=self.random_bias),  # Random bias field artifact
+
+    #             tio.RandomNoise(mean=0.0, std=self.random_noise),  # Add random Gaussian noise
+    #         }
+    #         # Combine MRI spatial transforms using OneOf
+    #         # transform = tio.OneOf(transforms_dict)
+    #         # buffer = transform(buffer)
+
+    #         intensity_transform = tio.OneOf(intensity_transforms)
+
+    #         # Apply the transforms
+    #         buffer = intensity_transform(buffer)
+    
+    #         # Permute back to original shape T H W C
+    #         buffer = buffer.permute(3, 1, 2, 0)  # C H W T ->  T H W C
+
+
+    #     # if self.auto_augment:
+    #     #     buffer = buffer.permute(3, 1, 2, 0)  # T H W C -> C H W T
+    #     #     # Apply transformations to the buffer
+    #     #     buffer = transforms(buffer)
+
+    #     #     buffer = buffer.permute(3, 1, 2, 0)  # C H W T -> T H W C
+            
+    #     #GU_ debug
+    #     # mid_slice_index = buffer.shape[0] // 2  # Compute the middle slice index along the temporal axis
+    #     # plt.imsave('xformedBuffer.png', buffer[mid_slice_index, :, :,0].cpu().numpy(), cmap='gray')
+    #     #GU_ debug
+    #     # affine = np.eye(4)
+    #     # nifti_image = nib.Nifti1Image(buffer.numpy(), affine)
+    #     # nib.save(nifti_image, 'xformed_volume.nii')
+
+    #     return buffer
+
+    # To-DO: To be debugged
     def custom_center_crop(self):
-        """
-        Creates a custom center crop transform that retains 90-100% of the input size
-        on the H and W dimensions, and resizes back to the original H and W size.
-        """
         class CenterCropAndResizeTransform(tio.Transform):
             def __init__(self, crop_retention):
                 super().__init__()
                 self.crop_retention = crop_retention
 
-            def apply_transform(self, buffer):
-                # buffer shape: (C, H, W, T)
-                C, H, W, T = buffer.shape
+            def apply_transform(self, subject: tio.Subject) -> tio.Subject:
+                # Extract spatial shape from first modality
+                image = subject[0]  # shape [1, H, W, T]
+                _, H, W, T = image.shape
 
-                # Compute crop size for H and W dimensions
-                retention_factor = random.uniform(self.crop_retention, 1.0)
-                crop_H = int(H * retention_factor)
-                crop_W = int(W * retention_factor)
+                # Random retention factor
+                r = random.uniform(self.crop_retention, 1.0)
+                min_crop = 160  # or a value that matches your data resolution
+                crop_H = max(min_crop, int(H * r))
+                crop_W = max(min_crop, int(W * r))
+                crop_H = int(H * r)
+                crop_W = int(W * r)
 
-                # Crop or pad the H and W dimensions only
-                crop = tio.CropOrPad(target_shape=(crop_H, crop_W, T))
-                cropped = crop(buffer.permute(1, 2, 3, 0))  # Permute to (H, W, T, C)
+                # Crop to (H_crop, W_crop, T), then pad back to (H, W, T)
+                crop = tio.CropOrPad((crop_H, crop_W, T))
+                pad_back = tio.CropOrPad((H, W, T))
 
-                # Resize the cropped H and W dimensions back to the original size
-                resize = tio.Resample(target_shape=(H, W, T))
-                resized = resize(cropped)
-
-                # Permute back to the original shape (C, H, W, T)
-                resized_buffer = resized.permute(3, 0, 1, 2)
-
-                return resized_buffer
+                return pad_back(crop(subject))
 
         return CenterCropAndResizeTransform(self.crop_retention)
+
+    # def custom_center_crop(self):
+    #     """
+    #     Creates a custom center crop transform that retains 90-100% of the input size
+    #     on the H and W dimensions, and resizes back to the original H and W size.
+    #     """
+    #     class CenterCropAndResizeTransform(tio.Transform):
+    #         def __init__(self, crop_retention):
+    #             super().__init__()
+    #             self.crop_retention = crop_retention
+
+    #         def apply_transform(self, buffer):
+    #             # buffer shape: (C, H, W, T)
+    #             C, H, W, T = buffer.shape
+
+    #             # Compute crop size for H and W dimensions
+    #             retention_factor = random.uniform(self.crop_retention, 1.0)
+    #             crop_H = int(H * retention_factor)
+    #             crop_W = int(W * retention_factor)
+
+    #             # Crop or pad the H and W dimensions only
+    #             crop = tio.CropOrPad(target_shape=(crop_H, crop_W, T))
+    #             cropped = crop(buffer.permute(1, 2, 3, 0))  # Permute to (H, W, T, C)
+
+    #             # Resize the cropped H and W dimensions back to the original size
+    #             resize = tio.Resample(target_shape=(H, W, T))
+    #             resized = resize(cropped)
+
+    #             # Permute back to the original shape (C, H, W, T)
+    #             resized_buffer = resized.permute(3, 0, 1, 2)
+
+    #             return resized_buffer
+
+    #     return CenterCropAndResizeTransform(self.crop_retention)
 
 class VideoTransform(object):
 

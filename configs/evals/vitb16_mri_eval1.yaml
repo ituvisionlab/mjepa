@@ -11,14 +11,14 @@ data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
   #- src/datasets/adni_all_2class_bet_valtrain.csv
-  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
+  - src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
   #- src/datasets/adni_all_3class_bet_valtrain.csv
   #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  - src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
-  #- src/datasets/adni_all_2class_bet_valtest.csv
+  - src/datasets/adni_all_2class_bet_valtest.csv
   #- src/datasets/adni_all_3class_bet_valtest.csv
-  - src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 160
@@ -41,7 +41,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 500
   resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -52,17 +52,17 @@ optimization:
   warmup: 0
   use_bfloat16: true
   clip_grad_classifier: 1.0
-  seed: 234
+  seed: 1881
   train_log_iter_freq: 1
   val_log_iter_freq: 1
   layer_decay: null #0.6 #null to turn it off
   classifier_depth: 1
-  dropout: 0.0 #0.25 #null to turn off
+  dropout: 0.0 #0.25 #0.0 #null to turn off
   drop_rate: 0.0 #0.1
   attn_drop_rate: 0.0 #0.1
 pretrain:
   model_name: vit_base
-  checkpoint_key: encoder #target_encoder
+  checkpoint_key: target_encoder #encoder 
   clip_duration: null
   frames_per_clip: 160
   tubelet_size: 8
@@ -77,7 +77,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_06__15_20_50/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_06__15_20_50/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_28__03_26_15/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_17__16_53_05/model_ckpt/latest-model/

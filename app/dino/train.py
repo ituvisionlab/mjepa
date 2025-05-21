@@ -78,7 +78,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
     # ----------------------------------------------------------------------- #
-
+    global global_step
     # -- META
     cfgs_meta = args.get('meta')
     load_model = cfgs_meta.get('load_checkpoint') or resume_preempt
@@ -150,8 +150,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     cfgs_loss = args.get('loss')
     reg_coeff = cfgs_loss.get('reg_coeff', 0.0)
     temperature_student = cfgs_loss.get('temperature_student', 0.1)
-    temperature_teacher = cfgs_loss.get('temperature_teacher', 0.04)
+    temperature_teacher = cfgs_loss.get('temperature_teacher', 0.03)
     momentum = cfgs_loss.get('momentum', 0.9)
+    alpha_vcr = cfgs_loss.get('alpha_vcr',1.0)
+    beta_vcr = cfgs_loss.get('beta_vcr',0.1) #0.4
+
     #loss_exp = cfgs_loss.get('loss_exp')
 
     # -- OPTIMIZATION
@@ -506,6 +509,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     global last_center
     last_center = center_manager.get().detach().clone()
 
+    # --- Teacher temperature warm-up schedule
+    warmup_epochs = 30
+    delta_temp=0.04
+    total_epochs = num_epochs
+    teacher_temp_schedule = np.concatenate([
+        np.linspace(temperature_teacher, temperature_teacher+delta_temp, warmup_epochs),
+        np.ones(total_epochs - warmup_epochs) * temperature_teacher+delta_temp
+    ])
+
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
@@ -595,9 +607,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         loss (scalar), updated center (tensor)
                     """
                     center = center_manager.get()
+                    temp_teacher = teacher_temp_schedule[epoch]
 
                     # Centering the teacher output [B, N, D]
-                    teacher_logits = (teacher_output - center) / temperature_teacher
+                    teacher_logits = (teacher_output - center) / temp_teacher
                     student_logits = student_output / temperature_student
 
                     # Softmax along feature dim (D)
@@ -616,18 +629,50 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # def reg_fn(z):
                 #     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
 
+                # def reg_fn(z_list): #just computes the variance loss term
+                #     """
+                #     Encourages std deviation across batch tokens per feature dimension to be ≥ 1.
+                #     Returns average std over dimensions.
+                #     """
+                #     reg = 0.
+                #     for z in z_list:
+                #         # z: [B, N, D]
+                #         z = z.view(-1, z.shape[-1])  # flatten: [B*N, D]
+                #         std = torch.sqrt(z.var(dim=0) + 1e-4)  # [D]
+                #         reg += std.mean()  # average over D
+                #     return reg / len(z_list)
+
                 def reg_fn(z_list):
                     """
-                    Encourages std deviation across batch tokens per feature dimension to be ≥ 1.
-                    Returns average std over dimensions.
+                    Computes variance and covariance regularization:
+                    - Penalizes std dev < 1 (ReLU(1 - std))
+                    - Penalizes off-diagonal covariance
+                    Args:
+                        z_list: list of [B, N, D] tensors
+                    Returns:
+                        scalar regularization loss
                     """
-                    reg = 0.
+                    var_loss = 0.0
+                    cov_loss = 0.0
+
                     for z in z_list:
-                        # z: [B, N, D]
-                        z = z.view(-1, z.shape[-1])  # flatten: [B*N, D]
-                        std = torch.sqrt(z.var(dim=0) + 1e-4)  # [D]
-                        reg += std.mean()  # average over D
-                    return reg / len(z_list)
+                        B, N, D = z.shape
+                        # -- Variance across tokens per feature dim
+                        std = torch.sqrt(z.var(dim=1) + 1e-4)  # [B, D]
+                        std_mean = std.mean(dim=0)            # [D]
+                        var_loss += F.relu(1. - std_mean).mean()
+
+                        # -- Covariance across batch-token features
+                        z_flat = z.view(-1, D)  # [B*N, D]
+                        z_centered = z_flat - z_flat.mean(dim=0, keepdim=True)
+                        cov = (z_centered.T @ z_centered) / (z_flat.shape[0] - 1)
+                        off_diag = cov - torch.diag(torch.diag(cov))
+                        cov_loss += (off_diag ** 2).sum() / D
+
+                    var_loss /= len(z_list)
+                    cov_loss /= len(z_list)
+
+                    return alpha_vcr * var_loss + beta_vcr * cov_loss
 
                 # Step 1. Forward
                 loss_dino, loss_reg = 0., 0.
@@ -651,8 +696,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                             #num_loss_terms += 1
                     loss_dino /= (len(z_g_student) + len(z_l_student)) * len(h_teacher)
                     #loss_dino /= num_loss_terms
-                    pstd_z = reg_fn(z_g_student + z_l_student)
-                    loss_reg += torch.mean(F.relu(1. - pstd_z))
+                    loss_reg = reg_fn(z_g_student + z_l_student)
 
                 # Accumulate loss before stepping optimizer
                 loss = (loss_dino + reg_coeff * loss_reg) / accumulation_steps
@@ -706,6 +750,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     for param_q, param_k in zip(encoder.parameters(), target_encoder.parameters()):
                         param_k.data.mul_(m).add_((1.-m) * param_q.detach().data)
                 
+                debug_metrics = {}  # default value
                 if global_step % 50 == 0 and rank == 0:
                     debug_metrics = dino_debug_dashboard(
                         global_step=global_step,
@@ -772,7 +817,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             # print(gpu_memory_alloc)
             # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
 
-            global global_step
+            #Increment global_step
             global_step += 1 
 
             # Release memory

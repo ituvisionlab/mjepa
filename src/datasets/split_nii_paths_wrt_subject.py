@@ -8,8 +8,8 @@ file_path = '/gpfs/home/unalg01/jepa/src/datasets/adni_all_bet_nii_with_bbox.csv
 data = pd.read_csv(file_path)
 
 # Specify the split ratio
-train_ratio = 0.80  # % training
-val_ratio = 0.20    # % validation
+train_ratio = 0.85  # % training
+val_ratio = 0.15    # % validation
 
 # Ensure there is a 'subject_id' column in the data
 group_col = 'subject_id'  # Correct column name for subject IDs
@@ -27,7 +27,7 @@ train_data = data[data[group_col].isin(train_subjects)]
 val_data = data[data[group_col].isin(val_subjects)]
 
 # Save the splits to new CSV files
-train_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_all_bet_train.csv', index=False)
-val_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_all_bet_val.csv', index=False)
+train_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_all_bet_train_new.csv', index=False)
+val_data.to_csv('/gpfs/home/unalg01/jepa/src/datasets/adni_all_bet_val_new.csv', index=False)
 
 print("Data has been split by subject_id and saved to 'train_split.csv' and 'val_split.csv'.")

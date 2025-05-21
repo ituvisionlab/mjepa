@@ -41,7 +41,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 500
   resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -62,7 +62,7 @@ optimization:
   attn_drop_rate: 0.0 #0.1
 pretrain:
   model_name: vit_base
-  checkpoint_key: encoder #target_encoder
+  checkpoint_key: target_encoder
   clip_duration: null
   frames_per_clip: 160
   tubelet_size: 8
@@ -71,13 +71,14 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: true
+  frozen: false
   clip_grad_encoder: 1.0
   encoder_warmup: 3
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__11_51_47/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__11_51_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_02__09_19_57/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_28__03_26_15/model_ckpt/latest-model/

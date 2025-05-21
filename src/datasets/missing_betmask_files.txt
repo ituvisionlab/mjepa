@@ -1,0 +1,3 @@
+/gpfs/data/sodicksonlab/gozde/ADNIall/ADNI/033_S_0513/MPR-R__GradWarp__B1_Correction__N3/2007-05-31_13_29_58.0/I67706/ADNI_033_S_0513_MR_MPR-R__GradWarp__B1_Correction__N3_Br_20070815100903642_S33069_I67706_betmask.nii.gz
+Removed the above from the verified.csv file, i.e. this row:
+1,033_S_0513,T1,2007-05-31,M,69.989,98.88,/gpfs/data/sodicksonlab/gozde/ADNIall/ADNI/033_S_0513/MPR-R__GradWarp__B1_Correction__N3/2007-05-31_13_29_58.0/I67706/ADNI_033_S_0513_MR_MPR-R__GradWarp__B1_Correction__N3_Br_20070815100903642_S33069_I67706_betmask.nii.gz,0,256,0,256,0,166

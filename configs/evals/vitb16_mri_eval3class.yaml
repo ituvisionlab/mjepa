@@ -41,7 +41,7 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 500
   resolution: 160 #192
   batch_size: 16
   weight_decay: 1.0e-3
@@ -52,7 +52,7 @@ optimization:
   warmup: 0
   use_bfloat16: true
   clip_grad_classifier: 1.0
-  seed: 234
+  seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
   layer_decay: null #0.6 #null to turn it off
@@ -71,13 +71,14 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #true
+  frozen: false
   clip_grad_encoder: 1.0
   encoder_warmup: 3
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_06__15_20_50/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_02__09_19_57/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_28__03_26_15/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_17__16_53_05/model_ckpt/latest-model/
@@ -91,4 +92,3 @@ pretrain:
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_01_14__21_08_18/model_ckpt/latest-model/ #corrupt model weights
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-501.pth.tar  # name of pretrained encoder model file inside folder
-

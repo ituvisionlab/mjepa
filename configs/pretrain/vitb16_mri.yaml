@@ -10,7 +10,8 @@ data:
   - src/datasets/brats24_all_nii.csv
   - src/datasets/ixi_all_bet_nii_with_bbox.csv
   - src/datasets/mood_all_nii_with_bbox.csv
-  - src/datasets/adni_all_bet_train.csv
+  - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv
+  #- src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
   batch_size: 16 #32 
   num_clips: 1 #8  #12 works!
@@ -43,8 +44,8 @@ logging:
   write_tag: jepa
 loss:
   loss_exp: 1.0 #2.0
-  reg_coeff: 0.0
-  spectral_coeff: 1.0 #0.2 #0.025
+  reg_coeff: 0.01
+  spectral_coeff: 0.7 #0.2 #0.025
 mask:
   - aspect_ratio:
       - 1.0
@@ -79,7 +80,7 @@ optimization:
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 600
+  epochs: 1000
   warmup: 20
   start_lr: 3.0e-5 #5e-05
   lr: 2.0e-4 #1.0e-4
