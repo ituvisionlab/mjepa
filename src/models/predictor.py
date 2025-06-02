@@ -45,7 +45,7 @@ class VisionTransformerPredictor(nn.Module):
         init_std=0.02,
         uniform_power=False,
         use_mask_tokens=False,
-        num_mask_tokens=2,
+        num_mask_tokens=1,
         zero_init_mask_tokens=True,
         **kwargs
     ):
@@ -230,13 +230,13 @@ class VisionTransformerPredictor(nn.Module):
         masks_ctxt = torch.cat(masks_ctxt, dim=0)
         masks_tgt = torch.cat(masks_tgt, dim=0)
         
-        # GU_DEBUG: comment the following
-        # masks = torch.cat([masks_ctxt, masks_tgt], dim=1)
-        # # Fwd prop
-        # for blk in self.predictor_blocks:
-        #     x = blk(x, mask=masks)
+        masks = torch.cat([masks_ctxt, masks_tgt], dim=1)
+        # Fwd prop
         for blk in self.predictor_blocks:
-            x = blk(x)  # ← No mask
+            x = blk(x, mask=masks)
+        # GU_DEBUG: why did I do the following instead of the above????
+        # for blk in self.predictor_blocks:
+        #     x = blk(x)  # ← No mask
             
         x = self.predictor_norm(x)
 

@@ -649,52 +649,43 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
 
             def train_step_dummy():
-                # Replace these lines with dummy computation
-                B, C, T, H, W = 2, 1, 128, 128, 128
+                # --- Dummy Input ---
+                B, C, T, H, W = 2, 1, 16, 128, 128
                 dummy_clips = torch.rand(B, C, T, H, W, device=device)
-                z= encoder(dummy_clips, masks_enc)
-                c_hat = decoder(z[0], masks_enc[0], masks_pred[0]) #returns a tensor
-                patches = patchify_image(dummy_clips, patch_size) #returns a tensor
-                target_patches = apply_masks(patches, masks_pred, concat=False) #returns a list
 
-                loss_mae = sum(F.l1_loss(pi, ti) for pi, ti in zip(c_hat, target_patches[0])) / len(c_hat)
+                # --- Forward Encoder ---
+                z, masks_enc, masks_pred = encoder(dummy_clips, return_all_tokens=True)
 
-                loss = loss_mae  # No spec or reg
-                loss_spec = torch.tensor(0.0, device=device)
-                loss_reg = torch.tensor(0.0, device=device)
-                _new_lr = optimizer.param_groups[0]["lr"]
-                _new_wd = optimizer.param_groups[0]["weight_decay"]
-                spectral_coeff_eff = 0.0
+                logger.debug(f"[DEBUG] Dummy clip shape: {dummy_clips.shape}")
+                logger.debug(f"[DEBUG] Encoder output shape (z[0]): {z[0].shape}")
+                logger.debug(f"[DEBUG] masks_enc[0]: {masks_enc[0].shape}, masks_pred[0]: {masks_pred[0].shape}")
 
+                # --- Decoder ---
+                c_hat = decoder(z[0], masks_enc[0], masks_pred[0])
+
+                logger.debug(f"[DEBUG] Decoder output shape: {c_hat.shape}")
+                logger.debug(f"[DEBUG] c_hat requires_grad: {c_hat.requires_grad}")
+
+                # --- Target patches ---
+                patches = patchify_image(dummy_clips, patch_size)
+                target_patches = apply_masks(patches, masks_pred, concat=False)  # returns list
+                logger.debug(f"[DEBUG] Target patch shape: {target_patches[0].shape}")
+
+                # --- MAE Loss ---
+                loss = 0.
+                for pred, tgt in zip(c_hat, target_patches):
+                    loss += F.l1_loss(pred, tgt)
+                loss /= len(c_hat)
+
+                logger.info(f"[DEBUG] Dummy MAE loss: {loss.item():.4f}")
+
+                # --- Backprop ---
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                   # Log loss to file
-                log_path = "/gpfs/home/unalg01/jepa/dummy_train_maeloss_log.txt"
-                with open(log_path, "a") as f:
-                    f.write(f"Loss: {loss.item():.6f}, MAE: {loss_mae.item():.6f}\n")
-
-
-                grad_stats = None
-                grad_stats_pred = None
-                optim_stats = None
-
-                return (
-                    loss.item(),  # scalar
-                    loss_mae.item(),
-                    loss_spec.item(),
-                    loss_reg.item(),
-                    _new_lr,
-                    _new_wd,
-                    grad_stats,
-                    grad_stats_pred,
-                    optim_stats,
-                    spectral_coeff_eff
-                ), 0.0  # dummy GPU time
-
-
-
+                # --- Grad Check (e.g., decoder layer) ---
+                logger.debug(f"[DEBUG] decoder.predictor_proj.weight.grad norm: {decoder.predictor_proj.weight.grad.norm().item():.4f}")
 
             def train_step():
                 global global_step
@@ -710,19 +701,41 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 def forward_context(c):
                     """
-                    Returns list of tensors of shape [B, N, D], one for each mask-pred.
+                    Returns dummy context tokens for debugging decoder training independently.
                     """
-                    z = encoder(c, masks_enc)
-                    c_pred = decoder(z[0], masks_enc[0],  masks_pred[0]) #decoder is not multimask wrapped, so strip out of list
-                    
-                    # logger.info(f"[DEBUG] z[0] shape: {z[0].shape}") #Debug May30
-                    # logger.info(f"[DEBUG] c_pred shape: {c_pred[0].shape}") #Debug May30
-                    # logger.info(f"[DEBUG] decoder output mean: {c_pred[0].mean().item():.4f}, std: {c_pred[0].std().item():.4f}")
-                    # logger.info(f"[DEBUG] Num masked tokens: {masks_pred[0].shape}")
-                    # logger.info(f"[DEBUG] c_pred requires_grad: {c_pred.requires_grad}")
-                    # logger.info(f"[DEBUG] z requires_grad: {z[0].requires_grad}")
+                    B = c.shape[0]
+                    N = masks_enc[0].shape[1]  # number of visible tokens
+                    D = encoder.module.backbone.embed_dim  # or pred_embed_dim if needed
 
-                    return c_pred, z
+                    # Create dummy encoder output (random input to test decoder learning)
+                    z = torch.randn(B, N, D, device=c.device, requires_grad=True)
+
+                    # Forward through decoder with dummy tokens
+                    c_pred = decoder(z, masks_enc[0], masks_pred[0])  # shape: [B, N_masked, D_out]
+
+                    logger.info(f"[DEBUG] Dummy z shape: {z.shape}")
+                    logger.info(f"[DEBUG] c_pred shape: {c_pred.shape}")
+                    logger.info(f"[DEBUG] decoder output mean: {c_pred.mean().item():.4f}, std: {c_pred.std().item():.4f}")
+                    logger.info(f"[DEBUG] z.requires_grad: {z.requires_grad}, c_pred.requires_grad: {c_pred.requires_grad}")
+                    logger.info(f"[DEBUG] c_pred.requires_grad: {c_pred.requires_grad}")
+
+                    return c_pred, [z]  # mimic original return structure
+
+                # def forward_context(c):
+                #     """
+                #     Returns list of tensors of shape [B, N, D], one for each mask-pred.
+                #     """
+                #     z = encoder(c, masks_enc)
+                #     c_pred = decoder(z[0], masks_enc[0],  masks_pred[0]) #decoder is not multimask wrapped, so strip out of list
+                    
+                #     logger.info(f"[DEBUG] z[0] shape: {z[0].shape}") #Debug May30
+                #     logger.info(f"[DEBUG] c_pred shape: {c_pred[0].shape}") #Debug May30
+                #     logger.info(f"[DEBUG] decoder output mean: {c_pred[0].mean().item():.4f}, std: {c_pred[0].std().item():.4f}")
+                #     logger.info(f"[DEBUG] Num masked tokens: {masks_pred[0].shape}")
+                #     logger.info(f"[DEBUG] c_pred requires_grad: {c_pred.requires_grad}")
+                #     logger.info(f"[DEBUG] z requires_grad: {z[0].requires_grad}")
+
+                #     return c_pred, z
 
                 def forward_context_full(c, z):
                     """
@@ -734,27 +747,27 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 def loss_fn(c_hat, c):
                     patches = patchify_image(c, patch_size)
+
                     # get only target patches
                     target_patches = apply_masks(patches, masks_pred, concat=False) #returns a list w/concat false
-
                     # Check apply_masks Alignment
-                    # logger.info(f"[DEBUG] target shape: {target_patches[0].shape}") #Debug May30
-                    # logger.info(f"[DEBUG] c_hat requires_grad: {c_hat.requires_grad}")
+                    logger.info(f"[DEBUG] target shape: {target_patches[0].shape}") #Debug May30
+                    logger.info(f"[DEBUG] c_hat requires_grad: {c_hat.requires_grad}")
                     # make sure loss gradients can flow back through decoder → encoder:
-                    # c_hat[0, 0, 0].backward(retain_graph=True) # REMOVE THIS AFTER DEBUG!!!
-                    # if encoder.module.backbone.patch_embed.proj.weight.grad is not None:
-                    #     logger.info(f"[DEBUG] c_hat Grad norm: {encoder.module.backbone.patch_embed.proj.weight.grad.abs().sum().item():.4e}")
-                    # else:
-                    #     logger.warning("[DEBUG] No grad: encoder.module.backbone.patch_embed.proj.weight")
-                    # logger.info(f"[DEBUG] Num masked target tokens: {masks_pred[0].numel()}")
-                    # logger.info(f"[DEBUG] Target patch std: {target_patches[0].std().item():.4f}")
-                    # logger.info(f"[DEBUG] Pred patch std: {c_hat.std().item():.4f}")
-                    # logger.info(f"[DEBUG] mask_enc size: {masks_enc[0].shape}, mask_pred size: {masks_pred[0].shape}")
+                    c_hat[0, 0, 0].backward(retain_graph=True) # REMOVE THIS AFTER DEBUG!!!
+                    if encoder.module.backbone.patch_embed.proj.weight.grad is not None:
+                        logger.info(f"[DEBUG] c_hat Grad norm: {encoder.module.backbone.patch_embed.proj.weight.grad.abs().sum().item():.4e}")
+                    else:
+                        logger.warning("[DEBUG] No grad: encoder.module.backbone.patch_embed.proj.weight")
+                    logger.info(f"[DEBUG] Num masked target tokens: {masks_pred[0].numel()}")
+                    logger.info(f"[DEBUG] Target patch std: {target_patches[0].std().item():.4f}")
+                    logger.info(f"[DEBUG] Pred patch std: {c_hat.std().item():.4f}")
+                    logger.info(f"[DEBUG] mask_enc size: {masks_enc[0].shape}, mask_pred size: {masks_pred[0].shape}")
 
 
                     loss = 0.
                     # Compute loss and accumulate for each mask-enc/mask-pred pair
-                    for pi, ti in zip(c_hat, target_patches[0]):
+                    for pi, ti in zip(c_hat, target_patches):
                         loss += torch.mean(torch.abs(pi - ti)**loss_exp) / loss_exp
                     loss /= len(masks_pred)                   
                     return loss
@@ -868,10 +881,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 # Step 1. Forward
                 #DEBUG: MAY30 Patchify/Unpatchify Round Trip Check
-                # img = clips[0:1]  # single sample
-                # patches = patchify_image(img, patch_size)
-                # recon_img = unpatchify_image_from_full(patches, patch_size, tubelet_size, num_frames, in_chans, crop_size)
-                # logger.info(f"[DEBUG] patchify→unpatchify diff: {(recon_img - img).abs().mean()}")
+                img = clips[0:1]  # single sample
+                patches = patchify_image(img, patch_size)
+                recon_img = unpatchify_image_from_full(patches, patch_size, tubelet_size, num_frames, in_chans, crop_size)
+                logger.info(f"[DEBUG] patchify→unpatchify diff: {(recon_img - img).abs().mean()}")
 
                 loss_mae, loss_spec, loss_reg = 0., 0., 0.
                 imgs_full = None 
@@ -936,10 +949,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         loss = AllReduce.apply(loss)  # Average loss across GPUs
                 
                 # GU_DEBUG: May30 - 
-                # ema_beta = 0.95
-                # global_grad_enc= ema_beta * global_grad_enc + (1 - ema_beta) * _enc_norm
-                # logger.info(f"[DEBUG] Encoder grad norm EMA: {global_grad_enc:.4f}")
-                # logger.info(f"[DEBUG] MAE Loss: {loss:.4f}")
+                ema_beta = 0.95
+                global_grad_enc= ema_beta * global_grad_enc + (1 - ema_beta) * _enc_norm
+                logger.info(f"[DEBUG] Encoder grad norm EMA: {global_grad_enc:.4f}")
+                logger.info(f"[DEBUG] MAE Loss: {loss:.4f}")
 
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
@@ -948,7 +961,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 optim_stats = adamw_logger(optimizer)
 
                 # GU_DEBUG: May30 - Condensed version
-                if rank == 100:
+                if rank == 10:
                     verbose_grad_debug = False  # Set to True for full param scan
 
                     def print_grad_info(module, name, keys_to_log=None, max_blocks=[0, -1]):
@@ -1022,12 +1035,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     optim_stats,
                     spectral_coeff_eff,
                 )
-            use_dummy = False  #DEBUG May30
-            if use_dummy:
-                (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats, spectral_coeff_eff,), gpu_etime_ms = train_step_dummy()
-            else:
-                (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats, spectral_coeff_eff,), gpu_etime_ms = gpu_timer(train_step)
-
+            
+            (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,spectral_coeff_eff,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))

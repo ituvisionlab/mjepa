@@ -53,7 +53,6 @@ from app.vjepa.utils import (
     load_checkpoint,
     init_video_model,
     init_opt,
-    visualize_fft_3d_spectrum,
 )
 from app.vjepa.transforms import make_transforms
 
@@ -65,7 +64,7 @@ checkpoint_freq = 1
 periodic_ckpt_save_freq = 25 
 # --
    
-global_step = 0 # global counter for spectral warmup
+global_step = 0 # global counter 
 
 _GLOBAL_SEED = 0
 #np.random.seed(_GLOBAL_SEED)
@@ -156,7 +155,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     cfgs_loss = args.get('loss')
     loss_exp = cfgs_loss.get('loss_exp')
     reg_coeff = cfgs_loss.get('reg_coeff', 0.0)
-    spectral_coeff = cfgs_loss.get('spectral_coeff',0.01)
     alpha_vcr = cfgs_loss.get('alpha_vcr',1.0)
     beta_vcr = cfgs_loss.get('beta_vcr',0.1) #0.4
 
@@ -309,7 +307,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             ('%d', 'itr'),
             ('%.5f', 'loss'),
             ('%.5f', 'loss-jepa'),
-            ('%.5f', 'loss-spec'),
             ('%.5f', 'reg-loss'),
             ('%.5f', 'enc-grad-norm'),
             ('%.5f', 'pred-grad-norm'),
@@ -508,7 +505,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata = next(loader)
 
     epoch_losses = []
-    warmup_iters = 500 #for spectral loss
 
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -581,118 +577,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
 
-            # cutoff_ratio = 0.3 keeps top 70% of high frequencies, masks bottom 30%
-            def make_highpass_mask(shape, cutoff_ratio=0.5, device='cpu'):
-                """
-                Create a high-pass mask for FFT volumes.
-                `cutoff_ratio`: e.g., 0.5 retains upper 50% of frequencies (along each axis)
-                """
-                B, D, X, Y, Z = shape
-                fx = torch.fft.fftfreq(X, d=1).to(device)
-                fy = torch.fft.fftfreq(Y, d=1).to(device)
-                fz = torch.fft.fftfreq(Z, d=1).to(device)
-
-                # Create meshgrid of frequencies
-                grid_fx, grid_fy, grid_fz = torch.meshgrid(fx, fy, fz, indexing="ij")
-                freq_magnitude = torch.sqrt(grid_fx ** 2 + grid_fy ** 2 + grid_fz ** 2)
-
-                # Normalize and mask
-                freq_norm = freq_magnitude / freq_magnitude.max()
-                mask = (freq_norm >= cutoff_ratio).float()
-                mask = mask.unsqueeze(0).unsqueeze(0)  # [1,1,X,Y,Z] to broadcast over B and D
-                return mask.to(device)
-
-            def spectral_loss_fn_3d(z_early, h_early, mode='complex', debug_visualize=False):
-                """
-                3D FFT spectral loss between predicted and target early embeddings.
-                - z_early, h_early: lists of tensors, each [B, N, D] where N = grid_size_x * grid_size_x * grid_size_d
-                - mode: 'complex' (default), or 'magnitude', or 'logmag'
-                - Includes NaN/Inf protection
-                """
-                loss = 0.
-                skipped = 0
-
-                grid_size_x = int(crop_size / patch_size)
-                grid_size_d = int(num_frames / tubelet_size)
-                grid_size = grid_size_d * grid_size_x ** 2
-                grid_shape = (grid_size_x, grid_size_x, grid_size_d)
-
-                def flatten_nested_list(lst):
-                    return [item for sublist in lst for item in (sublist if isinstance(sublist, list) else [sublist])]
-
-                z_early = flatten_nested_list(z_early)
-                h_early = flatten_nested_list(h_early)
-
-                for i, (zi, hi) in enumerate(zip(z_early, h_early)):
-                    B, N, D = zi.shape
-                    assert N == grid_size, f"N={N} is not consistent with grid_size={grid_size}"
-
-                    # Reshape to [B, D, X, Y, Z]
-                    X, Y, Z = grid_shape
-                    zi = zi.permute(0, 2, 1).contiguous().view(B, D, X, Y, Z)
-                    hi = hi.permute(0, 2, 1).contiguous().view(B, D, X, Y, Z)
-
-                    # Compute 3D FFT
-                    zi_fft = torch.fft.fftn(zi, dim=(-3, -2, -1))
-                    hi_fft = torch.fft.fftn(hi, dim=(-3, -2, -1))
-
-                    # Apply high-pass filter
-                    f_mask = make_highpass_mask(zi_fft.shape, cutoff_ratio=0.5, device=zi.device)
-                    zi_fft = zi_fft * f_mask
-                    hi_fft = hi_fft * f_mask
-
-                    try:
-                        if mode == 'complex':
-                            loss_r = F.mse_loss(zi_fft.real, hi_fft.real)
-                            loss_i = F.mse_loss(zi_fft.imag, hi_fft.imag)
-                            if torch.isfinite(loss_r) and torch.isfinite(loss_i):
-                                loss += loss_r + loss_i
-                            else:
-                                skipped += 1
-
-                        elif mode == 'magnitude':
-                            mag_loss = F.mse_loss(torch.abs(zi_fft), torch.abs(hi_fft))
-                            if torch.isfinite(mag_loss):
-                                loss += mag_loss
-                            else:
-                                skipped += 1
-
-                        elif mode == 'logmag':
-                            zi_log = torch.log1p(torch.abs(zi_fft) + 1e-6)
-                            hi_log = torch.log1p(torch.abs(hi_fft) + 1e-6)
-                            log_loss = F.mse_loss(zi_log, hi_log)
-                            if torch.isfinite(log_loss):
-                                loss += log_loss
-                            else:
-                                skipped += 1
-
-                        else:
-                            raise ValueError("Mode must be one of: 'complex', 'magnitude', 'logmag'")
-
-                    except Exception as e:
-                        print(f"[Warning] Spectral loss computation failed at step {i}: {str(e)}")
-                        skipped += 1
-
-                    # Optional FFT visualization
-                    if debug_visualize and i == 0:
-                        feat = z_early[i]  # [B, N, D]
-                        visualize_fft_3d_spectrum(
-                            feat, grid_shape, channel_idx=0, slice_dim=2,
-                            title_prefix=f"Early Layer {i} FFT Spectrum"
-                        )
-
-                if skipped > 0 and len(z_early) > skipped:
-                    print(f"[Warning] Skipped {skipped}/{len(z_early)} spectral loss terms due to NaN/Inf")
-                elif skipped == len(z_early):
-                    print("[Warning] All spectral loss terms skipped — returning zero")
-                    return torch.tensor(0.0, device=z_early[0].device, dtype=z_early[0].dtype)
-
-                return loss / (len(z_early) - skipped)
-
-
             def train_step():
                 global global_step
-                spectral_coeff_eff = spectral_coeff * min(1.0, global_step / warmup_iters)
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
@@ -702,55 +588,29 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     Returns list of tensors of shape [B, N, D], one for each mask-pred.
                     """
                     with torch.no_grad():
-                        out = target_encoder(c, return_early=True)
-                        # print("out keys:", out.keys())  # should show 'early', 'final'
-
-                        h_final = apply_masks(out['final'], masks_pred, concat=False)
-                        h_early_full = out['early']  # Keep full early features for FFT
-                        return h_final, h_early_full
+                        h = target_encoder(c)
+                        # -- create target embeddings (masked regions of h)
+                        h = apply_masks(h, masks_pred, concat=False)
+                        return h                        
                         # h = target_encoder(c) #already returns normalized!
                         # h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]: This is !!! double normalization!
-                        # -- create targets (masked regions of h)
-                        #h = apply_masks(h, masks_pred, concat=False)
-                        #return h
 
-                def forward_context(c, h_final):
+
+                def forward_context(c, h):
                     """
                     Returns list of tensors of shape [B, N, D], one for each mask-pred.
                     """
-                    out = encoder(c, masks_enc, return_early=True)
-                    z_input = [o['final'] for o in out]  # list[Tensor], as expected
-                    z_early_full = [o['early'] for o in out]
-                    h_final = [h for h in h_final]  # convert to list of [B, N, D]
-
-                    if not isinstance(h_final, list): # avoid double-wrapping if h_final is already a list
-                        h_final = [h_final]
-                    z_final = predictor(z_input, h_final, masks_enc, masks_pred)  # works as before
-                    return z_final, z_early_full
-                    # z = encoder(c, masks_enc)
-                    # z = predictor(z, h, masks_enc, masks_pred)
-                    # return z
-
-                def loss_fn(z_final, h_final, z_early, h_early, mode='complex'): # or mode='magnitude' 
-                    # JEPA prediction loss
-                    loss_pred = 0.
-                    for zi, hi in zip(z_final, h_final):
-                        loss_pred += torch.mean(torch.abs(zi - hi) ** loss_exp) / loss_exp
-                    loss_pred /= len(h_final)
-
-                    # Spectral loss on early layers if desired
-                    loss_spec = 0.0
-                    if spectral_coeff > 0:
-                        loss_spec = spectral_loss_fn_3d(z_early, h_early, mode, debug_visualize=False)  
-                    return loss_pred, loss_spec
-
-                # def loss_fn(z, h):
-                #     loss = 0.
-                #     # Compute loss and accumulate for each mask-enc/mask-pred pair
-                #     for zi, hi in zip(z, h):
-                #         loss += torch.mean(torch.abs(zi - hi)**loss_exp) / loss_exp
-                #     loss /= len(masks_pred)
-                #     return loss
+                    z = encoder(c, masks_enc)
+                    z = predictor(z, h, masks_enc, masks_pred)
+                    return z
+ 
+                def loss_fn(z, h): # JEPA prediction loss
+                    loss = 0.
+                    # Compute loss and accumulate for each mask-enc/mask-pred pair
+                    for zi, hi in zip(z, h):
+                        loss += torch.mean(torch.abs(zi - hi)**loss_exp) / loss_exp
+                    loss /= len(masks_pred)
+                    return loss
 
                 def reg_var_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
@@ -772,37 +632,25 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     return loss / len(z)
 
                 # Step 1. Forward
-                loss_jepa, loss_spec, loss_reg = 0.0, 0.0, 0.0
+                loss_jepa, loss_reg = 0.0, 0.0
            
                 #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
-                    # h = forward_target(clips)
-                    # z = forward_context(clips, h)
-                    # loss_jepa = loss_fn(z, h)  # jepa prediction loss
-                    # pstd_z = reg_fn(z)  # predictor variance across patches
-                    # loss_reg += torch.mean(F.relu(1.-pstd_z))
-                    h_final, h_early = forward_target(clips)
-                    z_final, z_early = forward_context(clips, h_final)
-
-                    loss_jepa, loss_spec = loss_fn(z_final, h_final, z_early, h_early)
-                    pstd_z = reg_var_fn(z_final)
-                    loss_cov = reg_cov_fn(z_final)
+                    h = forward_target(clips)
+                    z = forward_context(clips, h)
+                    loss_jepa = loss_fn(z, h)  # jepa prediction loss
+                    pstd_z = reg_var_fn(z)  # predictor variance across patches
+                    loss_cov = reg_cov_fn(z)
                     loss_vcr = alpha_vcr * torch.mean(F.relu(1. - pstd_z)) + beta_vcr * loss_cov
                     loss_reg += loss_vcr
 
                 # Accumulate loss before stepping optimizer
-                #loss = (loss_jepa + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
-
-                # Weighting loss terms
-                loss = ((loss_jepa + spectral_coeff_eff * loss_spec + reg_coeff * loss_reg)
-                    / accumulation_steps
-                )
-                
+                loss = (loss_jepa + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
+               
                 # forward_end_time = time.time() # **Measure Forward Pass Time**
                 # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
                 # logger.info(f"Forward Pass Time: {forward_time:.4f} sec") # **Measure Forward Pass Time**
-
-                
+               
                 # backward_start_time = time.time() # **Measure Backward Pass + Optimizer Step**
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0. 
@@ -852,7 +700,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 return (
                     float(loss) * accumulation_steps,  # Restore original loss scale
                     float(loss_jepa),
-                    float(loss_spec),
                     float(loss_reg),
                     _new_lr,
                     _new_wd,
@@ -860,7 +707,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     grad_stats_pred,
                     optim_stats,
                 )
-            (loss, loss_jepa, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - iter_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
@@ -873,7 +720,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             wall_time_meter.update(iter_elapsed_time_ms)
             
             global global_step
-            global_step += 1 #for warmup of spectral loss coef
+            global_step += 1 #for warmup of anything
 
             gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
             # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
@@ -894,7 +741,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     itr,
                     loss,
                     loss_jepa,
-                    loss_spec,
                     loss_reg,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
@@ -918,7 +764,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     run.log({
                             'train/loss': loss,
                             'train/loss_jepa': loss_jepa,
-                            'train/loss_spec': loss_spec,
                             'train/loss_reg': loss_reg,
                             'train/global_norm': grad_stats.global_norm,
                             'train/pred_global_norm': grad_stats_pred.global_norm,

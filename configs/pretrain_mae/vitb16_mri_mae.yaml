@@ -1,5 +1,5 @@
 app: mae
-nodes: 1
+nodes: 2
 tasks_per_node: 4  #1
 tag: mae
 data:
@@ -14,7 +14,7 @@ data:
   decode_one_clip: true  # unused
   batch_size: 16
   num_clips: 1 #8
-  num_frames: 160 #128 #16
+  num_frames: 160 #128 #160
   tubelet_size: 8 #16
   sampling_rate: 1
   crop_size: 160 #128 #224
@@ -44,13 +44,14 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 0.25 #1.0 #0.2
-  spec_loss_every_n: 30
+  spectral_coeff: 0.0 #1.0 #0.2
+  spec_loss_every_n_iter: 30
+  min_epoch_for_spectral: 20 #to disable spectral loss
 mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.85 #0.75
+    num_blocks: 0.75 #0.75
     spatial_scale:
       - 1
       - 1
@@ -61,7 +62,7 @@ mask:
     max_keep: null
 meta:
   load_checkpoint: false
-  read_checkpoint: null # vitl16.pth.tar # null #r_file
+  read_checkpoint: null # mae-latest.pth.tar # vitl16.pth.tar # null #r_file
   ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
   seed: 1881 #234
   eval_freq: 100
@@ -80,7 +81,7 @@ optimization:
   clip_grad: 1.0
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 500
+  epochs: 700
   warmup: 5
   start_lr: 1.0e-4 #1.0e-3 #3e-05
   lr: 5.0e-4 #2.0e-3 #1.0e-4

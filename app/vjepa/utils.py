@@ -133,7 +133,7 @@ def init_video_model(
     in_chans=3,
     uniform_power=False,
     use_mask_tokens=False,
-    num_mask_tokens=2,
+    num_mask_tokens=1,
     zero_init_mask_tokens=True,
     use_sdpa=False,
     drop_rate=0.0,
@@ -261,50 +261,3 @@ def get_new_log_dir(root='./logs', postfix='', prefix=''):
     log_dir = os.path.join(root, prefix + time.strftime('%Y_%m_%d__%H_%M_%S', time.localtime()) + postfix)
     os.makedirs(log_dir)
     return log_dir
-
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
-
-def visualize_fft_3d_spectrum(feature, grid_shape, channel_idx=0, slice_dim=2, title_prefix=""):
-    """
-    Visualizes the log-magnitude FFT spectrum of a single feature channel from 3D embeddings.
-
-    Args:
-        feature: Tensor of shape [B, N, D] or [B, D, X, Y, Z]
-        grid_shape: tuple of (X, Y, Z) if input is [B, N, D]
-        channel_idx: index of feature channel D to visualize
-        slice_dim: axis to slice through (0=X, 1=Y, 2=Z)
-        title_prefix: prefix for figure title
-    """
-    if feature.ndim == 3:  # [B, N, D]
-        B, N, D = feature.shape
-        X, Y, Z = grid_shape
-        assert N == X * Y * Z, f"Expected {X*Y*Z} tokens, got {N}"
-        feature = feature.permute(0, 2, 1).contiguous().view(B, D, X, Y, Z)  # [B, D, X, Y, Z]
-
-    B, D, X, Y, Z = feature.shape
-    feat = feature[0, channel_idx]  # [X, Y, Z] of selected channel
-
-    # Compute FFT and shift
-    fft_vol = torch.fft.fftn(feat, dim=(0, 1, 2))
-    fft_mag = torch.abs(torch.fft.fftshift(fft_vol))  # center DC component
-    fft_log = torch.log1p(fft_mag).detach().cpu().numpy()
-
-    # Take a central slice along chosen axis
-    mid = fft_log.shape[slice_dim] // 2
-    if slice_dim == 0:
-        slice_img = fft_log[mid, :, :]
-    elif slice_dim == 1:
-        slice_img = fft_log[:, mid, :]
-    else:
-        slice_img = fft_log[:, :, mid]
-
-    # Plot
-    plt.figure(figsize=(6, 5))
-    plt.imshow(slice_img, cmap='inferno')
-    plt.colorbar()
-    plt.title(f"{title_prefix}FFT Spectrum Slice (channel {channel_idx}, axis {slice_dim})")
-    plt.axis('off')
-    plt.tight_layout()
-    plt.show()

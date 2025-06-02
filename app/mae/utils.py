@@ -90,7 +90,7 @@ def init_video_model(
     in_chans=3,
     uniform_power=False,
     use_mask_tokens=False,
-    num_mask_tokens=2,
+    num_mask_tokens=1,
     zero_init_mask_tokens=True,
     use_sdpa=False,
     drop_rate=0.0,
@@ -318,7 +318,8 @@ def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_ch
     # Since mRI volumes are 1-channel and we only want the first sample in the batch, for visualization
     # return the first sample and remove the channel dimension.
     # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
-    return full_tokens[0, 0]
+    #return full_tokens[0, 0]  # (T, H, W) ← single channel from first sample
+    return full_tokens[0] # shape: [C, T, H, W]
 
 def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames, in_chans, crop_size):
     """
@@ -338,8 +339,7 @@ def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames
         tubelet_size, patch_size, patch_size, in_chans
     )
 
-    full_tokens = full_tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous()
-    # shape [B, C, T, H, W]
+    full_tokens = full_tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous() # shape [B, C, T, H, W]
     return full_tokens.view(
         B,
         in_chans,
@@ -348,56 +348,45 @@ def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames
         grid_spatial * patch_size
     )
 
-# def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames, in_chans, crop_size):
-#     """
-#     Reconstruct a full video volume from patch tokens for a given mask level.
+def visualize_fft_3d_spectrum(feature, grid_shape, channel_idx=0, slice_dim=2, title_prefix=""):
+    """
+    Visualizes the log-magnitude FFT spectrum of a single feature channel from 3D embeddings.
 
-#     Args:
-#         recon (torch.Tensor): Reconstructed (masked) tokens,
-#             shape (B, L_masked, patch_size**2 * tubelet_size * in_chans).
-#         patch_size (int): Spatial patch size.
-#         tubelet_size (int): Temporal patch (tubelet) size.
-#         num_frames (int): Total number of frames in the video.
-#         in_chans (int): Number of channels.
-#         crop_size (int): Spatial crop size of the video (assumed square).
-#     Returns:
-#         torch.Tensor: Reconstructed video volume of shape
-#             (B, in_chans, num_frames, crop_size, crop_size).
-#     """
-#     B = full_tokens.shape[0]
-#     L = full_tokens.shape[1]  # Total number of patches
+    Args:
+        feature: Tensor of shape [B, N, D] or [B, D, X, Y, Z]
+        grid_shape: tuple of (X, Y, Z) if input is [B, N, D]
+        channel_idx: index of feature channel D to visualize
+        slice_dim: axis to slice through (0=X, 1=Y, 2=Z)
+        title_prefix: prefix for figure title
+    """
+    if feature.ndim == 3:  # [B, N, D]
+        B, N, D = feature.shape
+        X, Y, Z = grid_shape
+        assert N == X * Y * Z, f"Expected {X*Y*Z} tokens, got {N}"
+        feature = feature.permute(0, 2, 1).contiguous().view(B, D, X, Y, Z)  # [B, D, X, Y, Z]
 
-#     # Compute grid sizes
-#     grid_spatial = crop_size // patch_size  # number of patches per spatial dimension
-#     grid_temporal = num_frames // tubelet_size
-#     assert grid_spatial * grid_spatial * grid_temporal == L, (
-#         f"Mismatch: Expected {grid_spatial * grid_spatial * grid_temporal} patches, got {L}"
-#     )
+    B, D, X, Y, Z = feature.shape
+    feat = feature[0, channel_idx]  # [X, Y, Z] of selected channel
 
-#     # Reshape the full tokens into a video volume.
-#     full_tokens = full_tokens.view(
-#         B,
-#         grid_temporal,    # temporal grid
-#         grid_spatial,     # spatial grid height
-#         grid_spatial,     # spatial grid width
-#         tubelet_size,     # temporal patch dimension
-#         patch_size,       # patch spatial height
-#         patch_size,       # patch spatial width
-#         in_chans          # channels
-#     )
+    # Compute FFT and shift
+    fft_vol = torch.fft.fftn(feat, dim=(0, 1, 2))
+    fft_mag = torch.abs(torch.fft.fftshift(fft_vol))  # center DC component
+    fft_log = torch.log1p(fft_mag).detach().cpu().numpy()
 
-#     # Permute to (B, in_chans, num_frames, crop_size, crop_size)
-#     full_tokens = full_tokens.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous()
-#     full_tokens = full_tokens.view(
-#         B,
-#         in_chans,
-#         grid_temporal * tubelet_size,   # num_frames
-#         grid_spatial * patch_size,        # height
-#         grid_spatial * patch_size         # width
-#     )
+    # Take a central slice along chosen axis
+    mid = fft_log.shape[slice_dim] // 2
+    if slice_dim == 0:
+        slice_img = fft_log[mid, :, :]
+    elif slice_dim == 1:
+        slice_img = fft_log[:, mid, :]
+    else:
+        slice_img = fft_log[:, :, mid]
 
-#     # Since mRI volumes are 1-channel and we only want the first sample in the batch,
-#     # return the first sample and remove the channel dimension.
-#     # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
-#     return full_tokens[0, 0]
-
+    # Plot
+    plt.figure(figsize=(6, 5))
+    plt.imshow(slice_img, cmap='inferno')
+    plt.colorbar()
+    plt.title(f"{title_prefix}FFT Spectrum Slice (channel {channel_idx}, axis {slice_dim})")
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()

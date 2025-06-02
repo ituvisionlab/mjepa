@@ -1,83 +1,121 @@
 import os
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
 # ---- CONFIG ----
 nifti_root = "/gpfs/data/prostatelab/NIFTI"
-train_metadata_file = "/gpfs/data/prostatelab/NIFTI_csv/Prostate_training_6May2025.csv"
-val_metadata_file = "/gpfs/data/prostatelab/NIFTI_csv/Prostate_validation_6May2025.csv"
-test_metadata_file = "/gpfs/data/prostatelab/NIFTI_csv/Prostate_test_6May2025.csv"
-valid_subjects_file = "/gpfs/data/prostatelab/NIFTI_csv/valid_subjects.csv"
+pretrain_file = "/gpfs/home/unalg01/jepa/src/datasets/Prostate_pretraining_multichannel.csv"
+log_file = "/gpfs/home/unalg01/jepa/src/datasets/overlapping_pretrain_subjects.log"
 
-out_train_csv = "/gpfs/home/unalg01/jepa/src/datasets/Prostate_downstream_train.csv"
-out_val_csv = "/gpfs/home/unalg01/jepa/src/datasets/Prostate_downstream_val.csv"
-out_test_csv = "/gpfs/home/unalg01/jepa/src/datasets/Prostate_downstream_test.csv"
+# Downstream sources
+downstream_files = {
+    "train": ["/gpfs/data/prostatelab/NIFTI_csv/Bx_train_set_2025_11_4.csv"],
+    "val": [
+        "/gpfs/data/prostatelab/NIFTI_csv/Prostate_validation_6May2025.csv",
+        "/gpfs/data/prostatelab/NIFTI_csv/Bx_val_set_2025_11_4.csv"
+    ],
+    "test": [
+        "/gpfs/data/prostatelab/NIFTI_csv/Prostate_test_6May2025.csv",
+        "/gpfs/data/prostatelab/NIFTI_csv/Bx_test_set_2025_17_1.csv"
+    ]
+}
 
-# ---- LOAD VALID SUBJECTS ----
-valid_subjects_df = pd.read_csv(valid_subjects_file, dtype=str)
-valid_acc_nums = set(valid_subjects_df["subject_id"].astype(str))
+# Output CSVs
+out_csvs = {
+    "train": "/gpfs/home/unalg01/jepa/src/datasets/Prostate_downstream_train.csv",
+    "val": "/gpfs/home/unalg01/jepa/src/datasets/Prostate_downstream_val.csv",
+    "test": "/gpfs/home/unalg01/jepa/src/datasets/Prostate_downstream_test.csv"
+}
 
-def load_and_filter_metadata(metadata_file, valid_acc_nums):
+# ---- LOAD PRETRAIN SUBJECTS ----
+pretrain_df = pd.read_csv(pretrain_file)
+pretrain_subjects = set(pretrain_df["acc_num"].astype(str))
+print(f"Loaded {len(pretrain_subjects)} subjects from pretraining set.")
+
+# ---- EXISTING SUBJECTS IN NIFTI ROOT ----
+available_subjects = set(s.strip().split(".")[0] for s in os.listdir(nifti_root) if os.path.isdir(os.path.join(nifti_root, s)))
+print(f"Detected {len(available_subjects)} available subject folders in {nifti_root}")
+
+# ---- HELPER FUNCTION ----
+def load_and_filter_metadata(metadata_file, available_subjects, pretrain_subjects, overlaps_log):
     df = pd.read_csv(metadata_file, dtype=str)
     rows = []
 
+    subject_col = 'AccessionNumber' if 'AccessionNumber' in df.columns else 'AccNum'
+    series_date_col = 'StudyDate' if 'StudyDate' in df.columns else 'SeriesDate'
+
     for _, row in df.iterrows():
-        acc_num = row["AccNum"]
-        if acc_num not in valid_acc_nums:
+        subject_id = row.get(subject_col)
+        if subject_id is None:
             continue
 
-        patient_id = row["PatientID"]
-        series_date = row["SeriesDate"]
-        age = row.get("Age", "")
-        max_pirads = row.get("MaxPIRADS", "")
+        # Normalize: remove decimals like 39021867.0 → 39021867 and strip whitespace
+        subject_id = str(subject_id).strip().split(".")[0]
 
-        subject_dir = os.path.join(nifti_root, acc_num)
+
+        if subject_id in pretrain_subjects:
+            overlaps_log.add(subject_id)
+            continue
+        if subject_id not in available_subjects:
+            continue
+
+        series_date = row.get(series_date_col, "")
+        age = row.get("Age", "")
+        max_pirads = row.get("MaxPIRADS") or row.get("maxPIRADS") or ""
+
+        subject_dir = os.path.join(nifti_root, subject_id)
         t2_file = os.path.join(subject_dir, "axt2.nii.gz")
         adc_file = os.path.join(subject_dir, "adc.nii.gz")
-
-        if not (os.path.isfile(t2_file) and os.path.isfile(adc_file)):
-            continue
+        b1500_file = os.path.join(subject_dir, "b1500.nii.gz")
 
         try:
-            label = int(float(max_pirads))  # handles '2.0', '3.0', etc.
+            label = int(float(max_pirads)) - 1
         except ValueError:
+            print(f"[SKIPPED] {subject_id}: invalid PIRADS value → {max_pirads}")
             continue
+
+        # Optional fields with safe fallbacks
+        def get_numeric(row, col):
+            try:
+                return float(row.get(col, -1))
+            except:
+                return -1
+
+        gleason_score = get_numeric(row, "MaxGleasonScore")
+        psa = get_numeric(row, "parsed_psa")
+        volume = get_numeric(row, "parsed_prostate_volume")
 
         rows.append({
             "label": label,
-            "patient_id": patient_id,
-            "acc_num": acc_num,
+            "subject_id": subject_id,
+            "acc_num": subject_id,
             "series_date": series_date,
             "age": age,
-            "t2_path": t2_file,
-            "adc_path": adc_file
+            "axt2_path": t2_file,
+            "adc_path": adc_file,
+            "b1500_path": b1500_file,
+            "psa": psa,
+            "gleason_score": gleason_score,
+            "prostate_volume": volume
         })
 
     return pd.DataFrame(rows)
 
-# ---- BUILD DOWNSTREAM VAL AND TEST SETS ----
-val_df = load_and_filter_metadata(val_metadata_file, valid_acc_nums)
-test_df = load_and_filter_metadata(test_metadata_file, valid_acc_nums)
-print(f"✅ Downstream val: {len(val_df)} rows")
-print(f"✅ Downstream test: {len(test_df)} rows")
+# ---- PROCESS EACH SPLIT ----
+overlapping_subjects = set()
 
-# ---- BUILD DOWNSTREAM TRAIN SET ----
-full_train_df = load_and_filter_metadata(train_metadata_file, valid_acc_nums)
+for split in ["train", "val", "test"]:
+    files = downstream_files[split]
+    combined_df = pd.concat(
+        [load_and_filter_metadata(f, available_subjects, pretrain_subjects, overlapping_subjects) for f in files],
+        ignore_index=True
+    )
+    combined_df.to_csv(out_csvs[split], index=False)
+    print(f" Saved {split} split with {len(combined_df)} subjects to {out_csvs[split]}")
 
-# Stratified sample ~4000 entries
-if len(full_train_df) > 4000:
-    full_train_df = full_train_df.groupby("label", group_keys=False).apply(
-        lambda x: x.sample(frac=1.0, random_state=42)
-    ).sample(n=4000, random_state=42)
+# ---- SAVE OVERLAP LOG ----
+with open(log_file, 'w') as f:
+    for acc in sorted(overlapping_subjects):
+        f.write(f"{acc}\n")
 
-print(f"✅ Downstream train: {len(full_train_df)} rows")
-
-# ---- SAVE TO CSV ----
-full_train_df.to_csv(out_train_csv, index=False)
-val_df.to_csv(out_val_csv, index=False)
-test_df.to_csv(out_test_csv, index=False)
-
-print("✅ CSVs saved to:")
-print(f"  Train → {out_train_csv}")
-print(f"  Val   → {out_val_csv}")
-print(f"  Test  → {out_test_csv}")
+print(f" Excluded {len(overlapping_subjects)} overlapping subjects")
+print(f" Logged overlaps to {log_file}")

@@ -6,9 +6,9 @@ conda activate gozdessl
 RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
 
-python -m evals.main_distributed \
-  --fname configs/evals/vitb16_mri_eval3class.yaml \
-  --time 4300 \
+python -m app.main_distributed \
+  --fname configs/pretrain/vitb16_mri_p.yaml \
+  --time 5400 \
   --nodes 1 \
   --folder /gpfs/home/unalg01/jepa \
-  --partition a100_short
+  --partition radiology

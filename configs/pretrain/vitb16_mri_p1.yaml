@@ -1,20 +1,20 @@
 app: vjepa
-nodes: 1
+nodes: 2
 tasks_per_node: 4
 tag: mjepa
 data:
   dataset_type: MRIDataset
   datasets: 
-  - src/datasets/Prostate_pretraining_multichannel.csv
+  - src/datasets/Prostate_pretraining_single.csv
   decode_one_clip: true  # unused
   batch_size: 32 
   num_clips: 1
-  num_frames: 32
+  num_frames: 32 #40 
   tubelet_size: 8
   sampling_rate: 1
   crop_size: 256
   patch_size: 8
-  in_channel_size: 3
+  in_channel_size: 1
   random_clip_sampling: false
   pin_mem: true
   num_workers: 8

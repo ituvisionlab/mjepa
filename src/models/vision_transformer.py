@@ -166,17 +166,16 @@ class VisionTransformer(nn.Module):
         return {}
 
     def forward(self, x, masks=None, **kwargs):
-
         """
-        :param x: input image/video
-        :param masks: indices of patch tokens to mask (remove)
-        :param return_early: whether to return early features for spectral loss
-        :param early_layer_idx: which block to take as "early" features
-
+        :param x: Input image/video tensor of shape [B, C, T, H, W]
+        :param masks: List of mask indices per sample (or single mask) to drop tokens
+        :param return_early: If True, return features from intermediate blocks
+        :param early_layer_idxs: List of layer indices to collect early features
         """
         return_early = kwargs.get("return_early", False)
         early_layer_idxs = kwargs.get("early_layer_idxs", [2, 3])
 
+        # Standardize mask format
         if masks is not None and not isinstance(masks, list):
             masks = [masks]
 
@@ -184,37 +183,32 @@ class VisionTransformer(nn.Module):
         pos_embed = self.pos_embed
         if pos_embed is not None:
             pos_embed = self.interpolate_pos_encoding(x, pos_embed)
-        x = self.patch_embed(x)
+
+        x = self.patch_embed(x)  # → [B, N, D]
         if pos_embed is not None:
             x += pos_embed
-        B, N, D = x.shape
 
-        # Mask away unwanted tokens (if masks provided)
-        # if masks is not None:
-        #     x = apply_masks(x, masks)
-        #     masks = torch.cat(masks, dim=0)
-        x_unmasked = x.clone()  # save full grid for early feature tracking
+        # Apply masking: drop tokens not in masks
         if masks is not None:
-            x_masked = apply_masks(x, masks)
+            x = apply_masks(x, masks)
             masks_cat = torch.cat(masks, dim=0)
         else:
-            x_masked = x
             masks_cat = None
 
+        if return_early:
+            masks_cat = None #bypass any masking at the encoder
 
+        # Forward pass through transformer blocks
         early_features = []
         outs = []
-
         for i, blk in enumerate(self.blocks):
-            # Use masked input only at the start
-            x = blk(x_masked if i == 0 else x, mask=masks_cat)
+            x = blk(x, mask=masks_cat) 
 
             if return_early and i in early_layer_idxs:
-                early_features.append(self.norm(x_unmasked))
+                early_features.append(self.norm(x))
 
             if self.out_layers is not None and i in self.out_layers:
                 outs.append(self.norm(x))
-
 
         if self.out_layers is not None:
             return outs

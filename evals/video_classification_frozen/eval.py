@@ -115,7 +115,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # Optional [for Video model]:
     tubelet_size = args_pretrain.get('tubelet_size', 2)
     pretrain_frames_per_clip = args_pretrain.get('frames_per_clip', 1)
-    in_chans = args_pretrain.get('in_channel_size', 3)
+    in_chans = args_pretrain.get('in_channel_size', 1)
     frozen = args_pretrain.get('frozen', True)
     encoder_warmup = args_pretrain.get('encoder_warmup', 1)
     use_pos_embed = args_pretrain.get('use_pos_embed', False)
@@ -468,6 +468,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     
     if pretrained_path == None:
         encoder_warmup = 0
+
+    # if rank == 0:
+    #     sanity_check(encoder, classifier, val_loader, device, num_classes)
 
     # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -850,6 +853,46 @@ def run_one_epoch(
         
     return top1_meter.avg, loss, recall, precision, f1, auc_score
 
+@torch.no_grad()
+def sanity_check(encoder, classifier, val_loader, device, num_classes):
+    print("\n Running Sanity Check on Evaluation Pipeline...")
+
+    encoder.eval()
+    classifier.eval()
+
+    loader_iter = iter(val_loader)
+    data = next(loader_iter)
+
+    # Format clips
+    clips = [
+        [dij.to(device) for dij in di] for di in data[0]
+    ]
+    labels = data[1].to(device)
+    clip_indices = [d.to(device) for d in data[2]]
+
+    # Encoder forward
+    outputs = encoder(clips, clip_indices)
+    print(f"[ENCODER] output[0] shape: {outputs[0].shape}")
+
+    # Classifier forward
+    if isinstance(outputs[0], torch.Tensor):  # attend_across_segments
+        preds = [classifier(o) for o in outputs]
+        probs = sum([F.softmax(p, dim=1) for p in preds]) / len(preds)
+    else:
+        preds = [[classifier(ost) for ost in os] for os in outputs]
+        probs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in preds]) / len(preds) / len(preds[0])
+
+    print(f"[CLASSIFIER] probs shape: {probs.shape}")
+
+    # Loss check
+    criterion = torch.nn.CrossEntropyLoss()
+    loss = criterion(probs, labels)
+    print(f"[LOSS] {loss.item()}")
+
+    # Prediction sanity
+    print(f"[LABELS] shape: {labels.shape}, min: {labels.min()}, max: {labels.max()}")
+    print(f"[PRED]  top-1 indices: {probs.argmax(dim=1)[:8]}")
+    print("Sanity check passed.\n")
 
 def load_checkpoint(
     device,
@@ -923,7 +966,7 @@ def make_dataloader(
     frames_per_clip=16,
     frame_step=4,
     num_clips=8,
-    in_chans=3,
+    in_chans=1,
     random_clip_sampling=False,
     auto_augment=False,
     eval_duration=None,
@@ -987,7 +1030,7 @@ def init_model(
     model_name,
     patch_size=16,
     crop_size=224,
-    in_chans=3,
+    in_chans=1,
     # Video specific parameters
     frames_per_clip=16,
     tubelet_size=2,

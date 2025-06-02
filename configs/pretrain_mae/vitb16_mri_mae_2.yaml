@@ -44,6 +44,9 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
+  spectral_coeff: 0.0 #1.0 #0.2
+  spec_loss_every_n_iter: 30
+  min_epoch_for_spectral: 10000 #to disable spectral loss
 mask:
   - aspect_ratio:
       - 1.0
@@ -79,10 +82,12 @@ optimization:
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 500
-  warmup: 5
+  warmup: 2
   start_lr: 1.0e-4 #1.0e-3 #3e-05
   lr: 5.0e-4 #2.0e-3 #1.0e-4
   final_lr: 1.0e-6 #1.0e-4 #1.0e-6
+  drop_rate: 0.0 #0.1 #default
+  attn_drop_rate: 0.0 #0.1 #default
   grad_accum_steps: 2 #4
   betas:
   - 0.9

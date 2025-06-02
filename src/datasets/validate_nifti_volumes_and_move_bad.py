@@ -1,8 +1,3 @@
-# Script that moves all invalid subject folders to /gpfs/data/prostatelab/NIFTI_BAD/ if they:
-# * Are missing either adc.nii.gz or axt2.nii.gz
-# * Contain a NIfTI file with the wrong shape (not 3D)
-# * Fail to load properly
-
 import os
 import shutil
 import nibabel as nib
@@ -11,9 +6,9 @@ import pandas as pd
 # === CONFIGURATION ===
 root_dir = "/gpfs/data/prostatelab/NIFTI"
 bad_dir = "/gpfs/data/prostatelab/NIFTI_BAD"
-expected_files = ['adc.nii.gz', 'axt2.nii.gz']
-output_csv = "/gpfs/home/unalg01/jepa/validation_logs/valid_subjects.csv"
-log_file = "/gpfs/home/unalg01/jepa/validation_logs/invalid_subjects.log"
+expected_files = ['adc.nii.gz', 'axt2.nii.gz', 'b1500.nii.gz']
+output_csv = "/gpfs/home/unalg01/jepa/validation_logs/valid_subjects_3channel.csv"
+log_file = "/gpfs/home/unalg01/jepa/validation_logs/invalid_subjects_3channel.log"
 
 os.makedirs(bad_dir, exist_ok=True)
 
@@ -31,6 +26,7 @@ for subject_id in subject_list:
 
     subject_path = os.path.join(root_dir, subject_id)
     has_error = False
+    subject_entry = {"subject_id": subject_id}
 
     for scan_type in expected_files:
         nii_path = os.path.join(subject_path, scan_type)
@@ -52,17 +48,16 @@ for subject_id in subject_list:
             has_error = True
             break
 
+        # Save path for valid entries
+        subject_entry[scan_type.split('.')[0]] = nii_path
+
     if has_error:
         dst_path = os.path.join(bad_dir, subject_id)
         if os.path.exists(dst_path):
             shutil.rmtree(dst_path)
         shutil.move(subject_path, dst_path)
     else:
-        valid_subjects.append({
-            'subject_id': subject_id,
-            'adc': os.path.join(subject_path, 'adc.nii.gz'),
-            'axt2': os.path.join(subject_path, 'axt2.nii.gz')
-        })
+        valid_subjects.append(subject_entry)
 
 # === SAVE OUTPUTS ===
 df = pd.DataFrame(valid_subjects)

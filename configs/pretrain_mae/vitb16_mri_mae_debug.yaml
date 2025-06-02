@@ -5,25 +5,25 @@ tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  - src/datasets/debug_nii_list64.csv
+  # - src/datasets/debug_nii_list64.csv
   # - src/datasets/oasis3_all_bet.csv
   # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
   # - src/datasets/brats24_all_nii.csv
-  # - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
   # - src/datasets/mood_all_nii_with_bbox.csv
   # - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv #- src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 16 #
+  batch_size: 2 #16
   num_clips: 1 #8
-  num_frames: 160 #128 #160 #16
+  num_frames: 128 #144 #160 #16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 160 #128 #192 #224
+  crop_size: 128 #160 #192 #224
   patch_size: 8
   in_channel_size: 1
-  random_clip_sampling: true
+  random_clip_sampling: true #false
   pin_mem: true
-  num_workers: 4 #12
+  num_workers: 0
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -41,17 +41,18 @@ data_aug:
   reprob: 0.0
 logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
-  write_tag: jepa
+  write_tag: mae
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 0.25 #1.0 #0.2
-  spec_loss_every_n: 5
+  spectral_coeff: 0.0 #1.0 #0.2
+  spec_loss_every_n_iter: 1000
+  min_epoch_for_spectral: 10000
 mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.85
+    num_blocks: 0.75
     spatial_scale:
       - 1
       - 1
@@ -62,7 +63,7 @@ mask:
     max_keep: null
 meta:
   load_checkpoint: false #true 
-  read_checkpoint: mae-latest.pth.tar #null # vitl16.pth.tar 
+  read_checkpoint: null #mae-latest.pth.tar #null # vitl16.pth.tar 
   ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__16_12_23/model_ckpt/latest-model/ 
@@ -85,7 +86,7 @@ optimization:
   weight_decay: 0.005
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 200
-  warmup: 5
+  warmup: 0
   start_lr: 1.0e-4 #1.0e-4 #3.0e-5 #5e-05
   lr: 5.0e-4 #1.0e-3 #2.0e-4 #1.0e-4
   final_lr: 1.0e-6 #1.0e-5 #5.0e-6 #1.0e-6

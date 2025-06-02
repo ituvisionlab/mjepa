@@ -44,7 +44,7 @@ class VisionTransformerDecoder(nn.Module):
         init_std=0.02,
         uniform_power=False,
         use_mask_tokens=False,
-        num_mask_tokens=2,
+        num_mask_tokens=1,
         zero_init_mask_tokens=True,
         in_chans=3,
         **kwargs
@@ -112,6 +112,10 @@ class VisionTransformerDecoder(nn.Module):
         self.predictor_norm = norm_layer(predictor_embed_dim)
         self.predictor_proj = nn.Linear(predictor_embed_dim, tubelet_size*(patch_size**2) * in_chans, bias=True)
 
+        #GU_DEBUG: May30
+        # print("proj out shape", self.predictor_proj.weight.shape)
+        # print("expected output dim", self.tubelet_size * self.patch_size**2 * in_chans)
+
         # ------ initialize weights
         if self.predictor_pos_embed is not None:
             self._init_pos_embed(self.predictor_pos_embed.data)  # sincos pos-embed
@@ -161,70 +165,79 @@ class VisionTransformerDecoder(nn.Module):
         :param masks_ctxt: indices of context tokens in input
         :params masks_tgt: indices of target tokens in input
         """
-
         assert (masks_ctxt is not None) and (masks_tgt is not None), 'Cannot run predictor without mask indices'
 
         if not isinstance(masks_ctxt, list):
             masks_ctxt = [masks_ctxt]
 
-        if not isinstance(masks_tgt, list):
+        if isinstance(masks_tgt, torch.Tensor):
             masks_tgt = [masks_tgt]
 
         # Batch Size
         B = len(ctxt) // len(masks_ctxt)
+        print(f"[DEBUG] ctxt shape: {ctxt.shape}, Batch size: {B}")
 
         # Map context tokens to decoder dimensions
         x = self.predictor_embed(ctxt)
         _, N_ctxt, D = x.shape
-        N_tgts = masks_tgt[0][1].shape[0]
+        N_tgts = masks_tgt[0].shape[1]
+
+        print(f"[DEBUG] Context tokens: N_ctxt={N_ctxt}, Target tokens: N_tgts={N_tgts}, Embed dim={D}")
 
         # Add positional embedding to ctxt tokens
         if self.predictor_pos_embed is not None:
             ctxt_pos_embed = self.predictor_pos_embed.repeat(B, 1, 1)
             x += apply_masks(ctxt_pos_embed, masks_ctxt)
 
-        # Map target tokens to decoder dimensions
+        # Mask token injection
         mask_index = mask_index % self.num_mask_tokens
-        pred_tokens = self.mask_tokens[mask_index]
+        pred_tokens = self.mask_tokens[mask_index]  # [1, 1, D]
         pred_tokens = pred_tokens.repeat(B, self.num_patches, 1)
         pred_tokens = apply_masks(pred_tokens, masks_tgt)
 
-        # Add positional embedding to target tokens
         if self.predictor_pos_embed is not None:
             pos_embs = self.predictor_pos_embed.repeat(B, 1, 1)
             pos_embs = apply_masks(pos_embs, masks_tgt)
             pos_embs = repeat_interleave_batch(pos_embs, B, repeat=len(masks_ctxt))
             pred_tokens += pos_embs
 
-        # Concatenate context & target tokens
+        # Concatenate context and masked tokens
         x = x.repeat(len(masks_tgt), 1, 1)
-        x = torch.cat([x, pred_tokens], dim=1) #x visible embed., pred_token: mask token.
+        x = torch.cat([x, pred_tokens], dim=1)
 
-        # FIXME: this implementation currently assumes masks_ctxt and masks_tgt
-        # are alligned 1:1 (ok with MultiMask wrapper on predictor but
-        # otherwise will break)
+        expected_tokens = N_ctxt + N_tgts
+        assert x.shape[1] == expected_tokens, (
+            f"[ERROR] Token count mismatch in decoder: {x.shape[1]} vs {expected_tokens}"
+        )
+        print(f"[DEBUG] Total decoder input tokens: {x.shape[1]}")
+
+        # Merge masks (currently assuming 1:1)
         masks_ctxt = torch.cat(masks_ctxt, dim=0)
         masks_tgt = torch.cat(masks_tgt, dim=0)
         masks = torch.cat([masks_ctxt, masks_tgt], dim=1)
 
-        # Fwd prop
+        # Transformer layers
         for blk in self.predictor_blocks:
             x = blk(x, mask=masks)
         x = self.predictor_norm(x)
 
+        assert x.shape[1] == expected_tokens, (
+            f"[ERROR] Output token count mismatch after transformer: {x.shape[1]} vs {expected_tokens}"
+        )
+
+        # Output processing
         if not return_all_tokens:
-            # Return output corresponding to target tokens
-            x = x[:, N_ctxt:]
-            x = self.predictor_proj(x)    
-            return x
+            x_target = x[:, N_ctxt:]
+            x_proj = self.predictor_proj(x_target)
+            print(f"[DEBUG] Returned target prediction shape: {x_proj.shape}")
+            return x_proj
         else:
-             # Return output corresponding to both context and target tokens
             x_context = x[:, :N_ctxt]
-            x_target = x[:, N_ctxt:N_ctxt + N_tgts]  # Exactly N_tgts elements
-            x_context = self.predictor_proj(x_context)   
-            x_target = self.predictor_proj(x_target)    
+            x_target = x[:, N_ctxt:N_ctxt + N_tgts]
+            x_context = self.predictor_proj(x_context)
+            x_target = self.predictor_proj(x_target)
+            print(f"[DEBUG] Returned full prediction: context {x_context.shape}, target {x_target.shape}")
             return x_context, x_target
-       
 
 
 def vit_decoder(**kwargs):

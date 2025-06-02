@@ -327,7 +327,7 @@ def make_transforms(
     random_noise=0.025,
     random_blur=(0.01, 0.02),
     num_views_per_clip=1,
-    in_chans=3,
+    in_chans=1,
     #normalize=((0.485, 0.456, 0.406),
     #           (0.229, 0.224, 0.225))
     normalize=((0.0),(1))

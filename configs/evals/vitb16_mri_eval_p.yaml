@@ -10,12 +10,12 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/Prostate_downstream_train.csv
+  - src/datasets/Prostate_downstream_train_binary.csv
   dataset_val: 
-  - src/datasets/Prostate_downstream_val.csv
+  - src/datasets/Prostate_downstream_val_binary.csv
   dataset_type: MRIDataset
-  num_classes: 5
-  frames_per_clip: 36
+  num_classes: 2
+  frames_per_clip: 32
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
   frame_step: 1
@@ -35,8 +35,8 @@ data_aug:
   rotation_degree: 10  
 optimization:
   attend_across_segments: true
-  num_epochs: 500
-  resolution: 224
+  num_epochs: 400
+  resolution: 256
   batch_size: 32
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
@@ -57,21 +57,22 @@ optimization:
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder
+  frozen: false
   clip_duration: null
-  frames_per_clip: 36
+  frames_per_clip: 32
   tubelet_size: 8
   uniform_power: true
   use_silu: false
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false
   clip_grad_encoder: 1.0
-  encoder_warmup: 3
+  encoder_warmup: 2
   use_pos_embed: false #true
-  in_channel_size: 2
+  in_channel_size: 3
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_19__17_02_13/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_28__17_25_37/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_23__10_39_25/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: jepa-latest.pth.tar #jepa-periodic-epoch-501.pth.tar  # name of pretrained encoder model file inside folder
 

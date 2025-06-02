@@ -36,7 +36,7 @@ def init_data(
     frame_sample_rate=1,
     duration=None,
     num_clips=1,
-    in_chans=3,
+    in_chans=1,
     crop_size=224,
     random_clip_sampling=True,
     allow_clip_overlap=True, #False,

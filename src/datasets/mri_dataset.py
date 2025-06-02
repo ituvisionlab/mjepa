@@ -168,12 +168,10 @@ class MRIDataset(torch.utils.data.Dataset):
                 if 'nii_file_path' in data.columns:
                 # brain data: single-channel
                     samples += data['nii_file_path'].tolist()
-                elif {'t2_path', 'adc_path'}.issubset(data.columns):
-                # prostate data: dual-channel
-                    samples += list(zip(data['t2_path'], data['adc_path']))
-                    # samples += list(zip(data['t2'], data['adc'], data['dwi']))  # for 3-channel input
+                elif {'axt2_path', 'adc_path', 'b1500_path'}.issubset(data.columns): # prostate data: tri-channel
+                    samples += list(zip(data['axt2_path'], data['adc_path'], data['b1500_path']))
                 else:
-                    raise ValueError("Unsupported data format: expected 'nii_file_path' or both 't2_path' and 'adc_path'")
+                    raise ValueError("Unsupported data format: expected 'nii_file_path' or three 'axt2_path', 'adc_path, 'b1500_path'")
                                
                 # Check for bounding box fields and add them if they exist
                 if {'xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'}.issubset(data.columns):
@@ -213,17 +211,19 @@ class MRIDataset(torch.utils.data.Dataset):
         volume = self.load_nifti_file(sample, bbox, self.in_chans)
         # GU_Debug_print
         # print(f'File name at {index}: ',sample)
-        # print("Before transform, volume.shape:", volume.shape, type(volume))
-       
+               
         #GU_ debug     
-        # nifti_image = nib.Nifti1Image(volume.numpy(),  affine = np.eye(4))
-        # nib.save(nifti_image, 'zVolume.nii')
-        #for a two channel volume
+        # print("Before transform, volume.shape:", volume.shape, type(volume))
+        # nifti_image = nib.Nifti1Image(volume,  affine = np.eye(4)) #volume.numpy()
+        # nib.save(nifti_image, 'ZVolume.nii')
+        # for a three channel volume
         # vol_np = np.transpose(volume, (1, 2, 0, 3))  #  # shape [T, H, W, C] → [H, W, T, C]
         # t2 = vol_np[..., 0]
         # adc = vol_np[..., 1]
+        # b1500 = vol_np[..., 2]
         # nib.save(nib.Nifti1Image(t2, affine=np.eye(4)), 'zT2.nii')
         # nib.save(nib.Nifti1Image(adc, affine=np.eye(4)), 'zADC.nii')
+        # nib.save(nib.Nifti1Image(b1500, affine=np.eye(4)), 'zb1500.nii')
 
         if volume is None:
             # Handle failed loading by skipping the sample
@@ -244,9 +244,9 @@ class MRIDataset(torch.utils.data.Dataset):
         if not isinstance(volume, list): #for pretrain, volume is a tensor
             volume = self.intensity_normalize(volume)
             buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
-             #GU_ debug
+            #GU_ debug
             # nifti_image = nib.Nifti1Image(buffer.numpy(), affine = np.eye(4))
-            # nib.save(nifti_image, 'buffer.nii')
+            # nib.save(nifti_image, 'Zbuffer.nii')
             buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
             buffer = self.split_into_clips(buffer)
 
@@ -258,16 +258,18 @@ class MRIDataset(torch.utils.data.Dataset):
             #     self.batchnum = 0
             #     self.batchtime = 0 
 
-            #GU_debug
-            # affine = np.eye(4)            
-            # for i in range(self.num_clips): # Assuming buffer is a PyTorch tensor of shape [C, T, W, H]
-            #     volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
-            #     nifti_image = nib.Nifti1Image(volume.numpy(), affine)
-            #     nib.save(nifti_image, f'buffer{i}_volume.nii')
+            #GU_debug        
+            for i in range(self.num_clips): # Assuming buffer is a PyTorch tensor of shape [C, T, W, H]
+                volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
+                # nifti_image = nib.Nifti1Image(volume.numpy(),  affine = np.eye(4))
+                # nib.save(nifti_image, f'Zclips{i}_volume.nii')
+                mid_slice_index = volume.shape[0] // 2  # Compute the middle slice index along the temporal axis
+                plt.imsave('ZmidSlice.png', volume[mid_slice_index, :, :].cpu().numpy(), cmap='gray')
+            #END_GU_debug   
             return buffer, label, clip_indices
         else: # for eval, volume is a list, this has to return a list of clips for clip aggregation in encoder to input to attentive pooler.
             if self.vol_type is None: #eval case
-                volume = self.intensity_normalize(volume[0]) #cancels volume list to a tensor
+                volume = self.intensity_normalize(volume[0]) #cancels volume list to a tensor T H W C
                 buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
                 # buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
                 buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
@@ -302,37 +304,39 @@ class MRIDataset(torch.utils.data.Dataset):
     def load_nifti_file(self, file_path, bbox, in_chans=1):
         if in_chans == 1:
             volume = self._load_single_nifti(file_path, bbox)
+
         elif in_chans == 2:
             t2_path, adc_path = file_path
             t2_vol = self._load_single_nifti(t2_path, bbox)
             adc_vol = self._load_single_nifti(adc_path, bbox)
 
+            if t2_vol is None or adc_vol is None:
+                return None
             if t2_vol.shape != adc_vol.shape:
                 raise ValueError(f"Mismatch in volume shapes: T2 {t2_vol.shape} vs ADC {adc_vol.shape}")
 
             volume = np.stack([t2_vol, adc_vol], axis=-1)  # [T, H, W, 2]
+
+        elif in_chans == 3:
+            t2_path, adc_path, b1500_path = file_path
+            t2_vol = self._load_single_nifti(t2_path, bbox)
+            adc_vol = self._load_single_nifti(adc_path, bbox)
+            b1500_vol = self._load_single_nifti(b1500_path, bbox)
+
+            if t2_vol is None or adc_vol is None or b1500_vol is None:
+                return None
+            if not (t2_vol.shape == adc_vol.shape == b1500_vol.shape):
+                raise ValueError(f"Mismatch in volume shapes: T2 {t2_vol.shape}, ADC {adc_vol.shape}, B1500 {b1500_vol.shape}")
+
+            volume = np.stack([t2_vol, adc_vol, b1500_vol], axis=-1)  # [T, H, W, 3]
+
         else:
             raise NotImplementedError(f"in_chans={in_chans} not supported")
 
-        # Apply preprocessing for consistency
+        # Common preprocessing for all channels
         volume = self.preprocess_volume(volume, in_chans)
 
-        return volume  # always return [T, H, W, C]
-
-# Note1: to extend to in_chans > 2, the following logic is needed in load_nifti_file
-# Note2: also in __init__(), samples += line should be changed to read from the csv multiple paths
-# if isinstance(file_path, (list, tuple)):
-#     vols = [self._load_single_nifti(p, bbox) for p in file_path]
-
-#     if not all(v.shape == vols[0].shape for v in vols):
-#         raise ValueError("Input modalities have mismatched shapes")
-
-#     volume = np.stack(vols, axis=-1)  # [T, H, W, C]
-# else:
-#     volume = self._load_single_nifti(file_path, bbox)
-
-# volume = self.preprocess_volume(volume, in_chans)
-# return volume
+        return volume  # shape [T, H, W, C]
 
     def _load_single_nifti(self, file_path, bbox):
         if not os.path.exists(file_path):
