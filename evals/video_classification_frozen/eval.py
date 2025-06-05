@@ -98,7 +98,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     print('Entry to main in eval')
     # -- PRETRAIN
     args_pretrain = args_eval.get('pretrain')
-    checkpoint_key = args_pretrain.get('checkpoint_key', 'target_encoder')
+    checkpoint_key = args_pretrain.get('checkpoint_key', 'encoder')
     model_name = args_pretrain.get('model_name', None)
     patch_size = args_pretrain.get('patch_size', None)
     pretrain_folder = args_pretrain.get('folder', None)
@@ -126,7 +126,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # train_data_path = [args_data.get('dataset_train')]
     train_data_path = args_data.get('dataset_train', [])
     val_data_path = args_data.get('dataset_val', []) #[args_data.get('dataset_val')]
-    dataset_type = args_data.get('dataset_type', 'VideoDataset')
+    dataset_type = args_data.get('dataset_type', 'MRIDataset')
     num_classes = args_data.get('num_classes')
     eval_num_clips = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
@@ -168,8 +168,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     layer_decay = args_opt.get('layer_decay', None)
     classifier_depth = args_opt.get('classifier_depth', 1) 
     dropout = args_opt.get('dropout', None)
-    drop_rate = args_opt.get('drop_rate', 0.1)
-    attn_drop_rate = args_opt.get('attn_drop_rate', 0.1) 
+    drop_rate = args_opt.get('drop_rate', 0.0)
+    attn_drop_rate = args_opt.get('attn_drop_rate', 0.0) 
     accumulation_steps = args_opt.get('grad_accum_steps', 2)  # Define the number of steps before updating the optimizer 
 
    
@@ -961,7 +961,7 @@ def make_dataloader(
     batch_size,
     world_size,
     rank,
-    dataset_type='VideoDataset',
+    dataset_type='MRIDataset',
     resolution=224,
     frames_per_clip=16,
     frame_step=4,
@@ -1039,8 +1039,8 @@ def init_model(
     tight_SiLU=True,
     uniform_power=False,
     checkpoint_key='encoder', #'target_encoder',
-    drop_rate=0.1,
-    attn_drop_rate=0.1
+    drop_rate=0.0,
+    attn_drop_rate=0.0
 ):
     encoder = vit.__dict__[model_name](
         img_size=crop_size,
@@ -1150,74 +1150,3 @@ def init_opt(
     #         print(f"Name: {name} | Shape: {param.shape} | Requires Grad: {param.requires_grad}")
 
     return optimizer, scaler, scheduler, wd_scheduler
-
-# def init_opt(
-#     classifier,
-#     encoder,
-#     iterations_per_epoch,
-#     start_lr,
-#     ref_lr,
-#     warmup,
-#     num_epochs,
-#     wd=1e-6,
-#     final_wd=1e-6,
-#     final_lr=0.0,
-#     use_bfloat16=False,
-#     frozen=True,
-#     betas=(0.9, 0.999),
-#     eps=1e-8,
-# ):
-#     param_groups = [
-#         {
-#             'params': (p for n, p in classifier.named_parameters()
-#                        if ('bias' not in n) and (len(p.shape) != 1))
-#         }, 
-#         {
-#             'params': (p for n, p in classifier.named_parameters()
-#                        if ('bias' in n) or (len(p.shape) == 1)),
-#             'WD_exclude': True,
-#             'weight_decay': 0
-#         }
-#     ]
-    
-#     if not frozen:
-#         param_groups.extend(
-#                 [
-#                     {
-#                         'params': (p for n, p in encoder.named_parameters()
-#                                 if ('bias' not in n) and (len(p.shape) != 1))
-#                     },
-#                     {
-#                         'params': (p for n, p in encoder.named_parameters()
-#                                 if ('bias' in n) or (len(p.shape) == 1)),
-#                         'WD_exclude': True,
-#                         'weight_decay': 0,
-#                     }
-#                 ]
-#             )
-        
-
-#     logger.info('Using AdamW')
-#     optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
-#     scheduler = WarmupCosineSchedule(
-#         optimizer,
-#         warmup_steps=int(warmup*iterations_per_epoch),
-#         start_lr=start_lr,
-#         ref_lr=ref_lr,
-#         final_lr=final_lr,
-#         T_max=int(num_epochs*iterations_per_epoch))
-#     wd_scheduler = CosineWDSchedule(
-#         optimizer,
-#         ref_wd=wd,
-#         final_wd=final_wd,
-#         T_max=int(num_epochs*iterations_per_epoch))
-    
-#     # scaler = torch.GradScaler("cuda") if use_bfloat16 else None
-#     scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None 
-    
-#     #GU_Debug
-#     for group in optimizer.param_groups:
-#         for param in group['params']:
-#             print(f"Param: {param.shape}, Requires Grad: {param.requires_grad}")
-
-#     return optimizer, scaler, scheduler, wd_scheduler

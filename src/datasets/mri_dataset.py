@@ -263,8 +263,8 @@ class MRIDataset(torch.utils.data.Dataset):
                 volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
                 # nifti_image = nib.Nifti1Image(volume.numpy(),  affine = np.eye(4))
                 # nib.save(nifti_image, f'Zclips{i}_volume.nii')
-                mid_slice_index = volume.shape[0] // 2  # Compute the middle slice index along the temporal axis
-                plt.imsave('ZmidSlice.png', volume[mid_slice_index, :, :].cpu().numpy(), cmap='gray')
+                #mid_slice_index = volume.shape[0] // 2  # Compute the middle slice index along the temporal axis
+                # plt.imsave('ZmidSlice.png', volume[mid_slice_index, :, :].cpu().numpy(), cmap='gray')
             #END_GU_debug   
             return buffer, label, clip_indices
         else: # for eval, volume is a list, this has to return a list of clips for clip aggregation in encoder to input to attentive pooler.

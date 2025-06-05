@@ -69,7 +69,6 @@ write_img_freq = 10 #20 # every other x epochs, save reconstructed images period
 # --
 
 global_step = 0 # global counter for spectral warmup
-global_grad_enc = 0.0
 
 _GLOBAL_SEED = 0
 #np.random.seed(_GLOBAL_SEED)
@@ -161,6 +160,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     spectral_coeff = cfgs_loss.get('spectral_coeff',0.01)
     spec_loss_every_n_iter = cfgs_loss.get('spec_loss_every_n_iter',25)    
     min_epoch_for_spectral = cfgs_loss.get('min_epoch_for_spectral',10)
+    high_pass_flag = cfgs_loss.get('high_pass_flag',False)
+    cutoff_ratio = cfgs_loss.get('cutoff_ratio',0.3) #For HighPass mask in spectral loss
 
     # -- OPTIMIZATION
     cfgs_opt = args.get('optimization')
@@ -255,6 +256,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         device = torch.device('cuda', rank % torch.cuda.device_count())  # safer for multi-GPU
         torch.cuda.set_device(device)
 
+    global prev_loss_spec_val #for periodic spectral loss calculations
+    prev_loss_spec_val = 0.0
+    global spectral_coeff_eff    
+    spectral_coeff_eff = 0.0
+
     # -- load pretrained model path
     load_path = None
     if load_model:
@@ -314,6 +320,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             ('%.5f', 'loss-mae'),
             ('%.5f', 'loss-spec'),
             ('%.5f', 'loss-reg'),
+            ('%.5f', 'gpu-mem-alloc'),
             ('%.5f', 'enc-grad-norm'),
             ('%.5f', 'pred-grad-norm'),
             ('%d', 'gpu-time(ms)'),
@@ -490,7 +497,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata = next(loader)
 
     epoch_losses = []
-    warmup_iters = 500 #for spectral loss
+    warmup_epochs = 10 #for spectral loss
 
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -550,13 +557,20 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
 
-            # e.g. cutoff_ratio = 0.3 keeps top 70% of high frequencies, masks bottom 30%
             def make_highpass_mask(shape, cutoff_ratio=0.5, device='cpu'):
                 """
-                Create a high-pass mask for FFT volumes.
+                Create a high-pass mask for 3D or 4D FFT volumes.
                 `cutoff_ratio`: e.g., 0.5 retains upper 50% of frequencies (along each axis)
+                Supports input of shape [B, D, H, W] or [B, T, H, W]
                 """
-                B, D, X, Y, Z = shape
+                if len(shape) == 5:
+                    B, D, X, Y, Z = shape
+                elif len(shape) == 4:
+                    B, X, Y, Z = shape
+                    D = 1  # dummy channel dimension
+                else:
+                    raise ValueError(f"Expected shape of length 4 or 5, got {len(shape)}")
+
                 fx = torch.fft.fftfreq(X, d=1).to(device)
                 fy = torch.fft.fftfreq(Y, d=1).to(device)
                 fz = torch.fft.fftfreq(Z, d=1).to(device)
@@ -565,13 +579,27 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 grid_fx, grid_fy, grid_fz = torch.meshgrid(fx, fy, fz, indexing="ij")
                 freq_magnitude = torch.sqrt(grid_fx ** 2 + grid_fy ** 2 + grid_fz ** 2)
 
-                # Normalize and mask
+                # Normalize and create high-pass mask
                 freq_norm = freq_magnitude / freq_magnitude.max()
                 mask = (freq_norm >= cutoff_ratio).float()
-                mask = mask.unsqueeze(0).unsqueeze(0)  # [1,1,X,Y,Z] to broadcast over B and D
+                mask = mask.unsqueeze(0)  # --> [1, T, H, W]
+
                 return mask.to(device)
 
-            def spectral_loss_images(img_recon, img_gt, mode='complex', cutoff_ratio=0.5):
+            
+            # Apply a soft frequency mask to emphasize mid-range frequencies (not too low or too high)
+            def make_bandpass_mask(shape, low=0.1, high=0.9, device='cpu'):
+                B, _, X, Y, Z = shape
+                fx = torch.fft.fftfreq(X, d=1).to(device)
+                fy = torch.fft.fftfreq(Y, d=1).to(device)
+                fz = torch.fft.fftfreq(Z, d=1).to(device)
+                grid_fx, grid_fy, grid_fz = torch.meshgrid(fx, fy, fz, indexing="ij")
+                freq_norm = torch.sqrt(grid_fx ** 2 + grid_fy ** 2 + grid_fz ** 2)
+                freq_norm /= freq_norm.max()
+                mask = ((freq_norm > low) & (freq_norm < high)).float()
+                return mask[None, None].to(device)  # [1,1,X,Y,Z]
+
+            def spectral_loss_images(img_recon, img_gt, cutoff_ratio=0.5, mode='logmag'):
 
                 """
                 Computes 3D FFT spectral loss between reconstructed and original volumes.
@@ -589,11 +617,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 img_recon = normalize(img_recon)
                 img_gt = normalize(img_gt)
 
-                if rank == 0  and (epoch % write_img_freq == 0):
-                    recon_np = img_recon[0].detach().cpu().numpy()
-                    target_np = img_gt[0].detach().cpu().numpy()
-                    nib.save(nib.Nifti1Image(recon_np, affine=np.eye(4)), f"Zdebug_recon_step{global_step}.nii.gz")
-                    nib.save(nib.Nifti1Image(target_np, affine=np.eye(4)), f"Zdebug_target_step{global_step}.nii.gz")
+                # if rank == 0  and (epoch % write_img_freq == 0): # DEBUG_GU
+                #     recon_np = img_recon[0].detach().cpu().numpy()
+                #     target_np = img_gt[0].detach().cpu().numpy()
+                #     nib.save(nib.Nifti1Image(recon_np, affine=np.eye(4)), f"Zdebug_recon_step{global_step}.nii.gz")
+                #     nib.save(nib.Nifti1Image(target_np, affine=np.eye(4)), f"Zdebug_target_step{global_step}.nii.gz")
 
 
                 # Optional: clamp and stabilize inputs before FFT
@@ -605,28 +633,51 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 fft_target = torch.fft.fftn(img_gt, dim=(-3, -2, -1))
 
                 # Optional: high-pass filtering
-                # f_mask = make_highpass_mask(fft_recon.shape, cutoff_ratio=cutoff_ratio, device=recon.device)
-                # fft_recon *= f_mask
-                # fft_target *= f_mask
+                if high_pass_flag == True:
+                    f_mask = make_highpass_mask(fft_recon.shape, cutoff_ratio=cutoff_ratio, device=fft_recon.device)
+                    fft_recon *= f_mask
+                    fft_target *= f_mask
+                
+                # Band-pass filtering: Ignore extreme low or high frequencies, focus on structure
+                # could be good for models struggling with checkerboard effects or sharp boundaries
+                # band_mask = make_bandpass_mask(fft_recon.shape, low=0.1, high=0.9, device=fft_recon.device)
+                # fft_recon *= band_mask
+                # fft_target *= band_mask
 
                 # Optional: Normalize each FFT volume by its norm across spatial dims
                 # fft_recon = fft_recon / (torch.linalg.vector_norm(fft_recon, dim=(-3, -2, -1), keepdim=True) + 1e-6)
                 # fft_target = fft_target / (torch.linalg.vector_norm(fft_target, dim=(-3, -2, -1), keepdim=True) + 1e-6)
 
-                # Debug: Monitor magnitudes before loss
+                debug_visualize_spectra = False # DEBUG: set this to False when not debugging
+                # DEBUG: Monitor magnitudes and log-magnitudes before loss
                 with torch.no_grad():
-                    if rank == 0  and (epoch % write_img_freq == 0):
-                        spec_r = torch.abs(fft_recon[0]).log1p()
-                        spec_t = torch.abs(fft_target[0]).log1p()
-                        plt.imsave(f"Zspec_recon_xy_{global_step}.png", spec_r[:, :, spec_r.shape[-1]//2].cpu().numpy(), cmap='gray')
-                        plt.imsave(f"Zspec_target_xy_{global_step}.png", spec_t[:, :, spec_t.shape[-1]//2].cpu().numpy(), cmap='gray')
-                        mag_recon = torch.abs(fft_recon).max().item()
-                        mag_target = torch.abs(fft_target).max().item()
-                        mean_r = torch.abs(fft_recon).mean().item()
-                        mean_t = torch.abs(fft_target).mean().item()
-                        if mag_recon > 1e2 or mag_target > 1e2:
-                            logger.warning(f"[SpectralLoss Debug] High FFT magnitude! max_r={mag_recon:.2e}, max_t={mag_target:.2e}")
-                            logger.info(f"[SpectralLoss Debug] mean_r={mean_r:.2e}, mean_t={mean_t:.2e}")
+                    if debug_visualize_spectra == True and rank == 0 and (epoch % write_img_freq == 0):
+                        # Shifted FFTs
+                        mag_recon = torch.fft.fftshift(torch.abs(fft_recon[0]))
+                        mag_target = torch.fft.fftshift(torch.abs(fft_target[0]))
+
+                        # Log-magnitudes
+                        logmag_recon = torch.log1p(mag_recon)
+                        logmag_target = torch.log1p(mag_target)
+
+                        # Middle slice along time (T) axis
+                        mid_t = mag_recon.shape[0] // 2
+
+                        # Save both linear and log-magnitude images
+                        plt.imsave(f"Zspec_recon_mag_xy_{global_step}.png", mag_recon[mid_t].cpu().numpy(), cmap='gray')
+                        plt.imsave(f"Zspec_target_mag_xy_{global_step}.png", mag_target[mid_t].cpu().numpy(), cmap='gray')
+
+                        plt.imsave(f"Zspec_recon_logmag_xy_{global_step}.png", logmag_recon[mid_t].cpu().numpy(), cmap='gray')
+                        plt.imsave(f"Zspec_target_logmag_xy_{global_step}.png", logmag_target[mid_t].cpu().numpy(), cmap='gray')
+
+                        # Print stats
+                        max_r = mag_recon.max().item()
+                        max_t = mag_target.max().item()
+                        mean_r = mag_recon.mean().item()
+                        mean_t = mag_target.mean().item()
+                        if max_r > 1e2 or max_t > 1e2:
+                            logger.warning(f"[SpectralLoss Debug] High FFT magnitude! max_r={max_r:.2e}, max_t={max_t:.2e}")
+                        logger.info(f"[SpectralLoss Debug] mean_r={mean_r:.2e}, mean_t={mean_t:.2e}")
 
                 # Compute spectral loss
                 if mode == 'complex':
@@ -647,63 +698,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
                 return loss
 
-
-            def train_step_dummy():
-                # Replace these lines with dummy computation
-                B, C, T, H, W = 2, 1, 128, 128, 128
-                dummy_clips = torch.rand(B, C, T, H, W, device=device)
-                z= encoder(dummy_clips, masks_enc)
-                c_hat = decoder(z[0], masks_enc[0], masks_pred[0]) #returns a tensor
-                patches = patchify_image(dummy_clips, patch_size) #returns a tensor
-                target_patches = apply_masks(patches, masks_pred, concat=False) #returns a list
-
-                loss_mae = sum(F.l1_loss(pi, ti) for pi, ti in zip(c_hat, target_patches[0])) / len(c_hat)
-
-                loss = loss_mae  # No spec or reg
-                loss_spec = torch.tensor(0.0, device=device)
-                loss_reg = torch.tensor(0.0, device=device)
-                _new_lr = optimizer.param_groups[0]["lr"]
-                _new_wd = optimizer.param_groups[0]["weight_decay"]
-                spectral_coeff_eff = 0.0
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                   # Log loss to file
-                log_path = "/gpfs/home/unalg01/jepa/dummy_train_maeloss_log.txt"
-                with open(log_path, "a") as f:
-                    f.write(f"Loss: {loss.item():.6f}, MAE: {loss_mae.item():.6f}\n")
-
-
-                grad_stats = None
-                grad_stats_pred = None
-                optim_stats = None
-
-                return (
-                    loss.item(),  # scalar
-                    loss_mae.item(),
-                    loss_spec.item(),
-                    loss_reg.item(),
-                    _new_lr,
-                    _new_wd,
-                    grad_stats,
-                    grad_stats_pred,
-                    optim_stats,
-                    spectral_coeff_eff
-                ), 0.0  # dummy GPU time
-
-
-
-
             def train_step():
                 global global_step
-                global global_grad_enc #DEBUG May30
-                if global_step % spec_loss_every_n_iter == 0:
-                    spectral_coeff_eff = min(spectral_coeff * min(1.0, global_step / warmup_iters)* spec_loss_every_n_iter, 0.1) #cap to 0.1
-                else:
-                    spectral_coeff_eff = 0.0
-                #spectral_coeff_eff = spectral_coeff * min(1.0, global_step / warmup_iters)
+                global prev_loss_spec_val
+                global spectral_coeff_eff
+
+                if epoch >= min_epoch_for_spectral and global_step % spec_loss_every_n_iter == 0:
+                    spectral_warmup_factor = min(1.0, (epoch - min_epoch_for_spectral + 1) / warmup_epochs)
+                    spectral_coeff_eff = min(spectral_coeff * spectral_warmup_factor, 0.5) # cap to 0.5
+
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
                 # --
@@ -714,13 +717,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     """
                     z = encoder(c, masks_enc)
                     c_pred = decoder(z[0], masks_enc[0],  masks_pred[0]) #decoder is not multimask wrapped, so strip out of list
-                    
-                    # logger.info(f"[DEBUG] z[0] shape: {z[0].shape}") #Debug May30
-                    # logger.info(f"[DEBUG] c_pred shape: {c_pred[0].shape}") #Debug May30
-                    # logger.info(f"[DEBUG] decoder output mean: {c_pred[0].mean().item():.4f}, std: {c_pred[0].std().item():.4f}")
-                    # logger.info(f"[DEBUG] Num masked tokens: {masks_pred[0].shape}")
-                    # logger.info(f"[DEBUG] c_pred requires_grad: {c_pred.requires_grad}")
-                    # logger.info(f"[DEBUG] z requires_grad: {z[0].requires_grad}")
 
                     return c_pred, z
 
@@ -731,34 +727,15 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     ctxt_tokens, tgt_tokens = decoder(z[0], masks_enc[0],  masks_pred[0], return_all_tokens=True)
                     
                     return ctxt_tokens, tgt_tokens
-                
+
                 def loss_fn(c_hat, c):
                     patches = patchify_image(c, patch_size)
-                    # get only target patches
-                    target_patches = apply_masks(patches, masks_pred, concat=False) #returns a list w/concat false
+                    target_patches = apply_masks(patches, masks_pred, concat=False)  # returns a list of tensors
+                    target = target_patches[0]  # shape [B, N, D]
 
-                    # Check apply_masks Alignment
-                    # logger.info(f"[DEBUG] target shape: {target_patches[0].shape}") #Debug May30
-                    # logger.info(f"[DEBUG] c_hat requires_grad: {c_hat.requires_grad}")
-                    # make sure loss gradients can flow back through decoder → encoder:
-                    # c_hat[0, 0, 0].backward(retain_graph=True) # REMOVE THIS AFTER DEBUG!!!
-                    # if encoder.module.backbone.patch_embed.proj.weight.grad is not None:
-                    #     logger.info(f"[DEBUG] c_hat Grad norm: {encoder.module.backbone.patch_embed.proj.weight.grad.abs().sum().item():.4e}")
-                    # else:
-                    #     logger.warning("[DEBUG] No grad: encoder.module.backbone.patch_embed.proj.weight")
-                    # logger.info(f"[DEBUG] Num masked target tokens: {masks_pred[0].numel()}")
-                    # logger.info(f"[DEBUG] Target patch std: {target_patches[0].std().item():.4f}")
-                    # logger.info(f"[DEBUG] Pred patch std: {c_hat.std().item():.4f}")
-                    # logger.info(f"[DEBUG] mask_enc size: {masks_enc[0].shape}, mask_pred size: {masks_pred[0].shape}")
-
-
-                    loss = 0.
-                    # Compute loss and accumulate for each mask-enc/mask-pred pair
-                    for pi, ti in zip(c_hat, target_patches[0]):
-                        loss += torch.mean(torch.abs(pi - ti)**loss_exp) / loss_exp
-                    loss /= len(masks_pred)                   
+                    loss = torch.mean(torch.abs(c_hat - target) ** loss_exp) / loss_exp  # shape-preserving
                     return loss
-
+                
                 def reg_var_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
                
@@ -866,13 +843,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     
                     return volumes
 
-                # Step 1. Forward
                 #DEBUG: MAY30 Patchify/Unpatchify Round Trip Check
                 # img = clips[0:1]  # single sample
                 # patches = patchify_image(img, patch_size)
                 # recon_img = unpatchify_image_from_full(patches, patch_size, tubelet_size, num_frames, in_chans, crop_size)
                 # logger.info(f"[DEBUG] patchify→unpatchify diff: {(recon_img - img).abs().mean()}")
 
+                # Step 1. Forward
                 loss_mae, loss_spec, loss_reg = 0., 0., 0.
                 imgs_full = None 
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
@@ -884,33 +861,40 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # ---- Spectral Loss calculation -periodical -full tokens ----
                 spec_loss_active = spectral_coeff > 0 and epoch >= min_epoch_for_spectral and global_step % spec_loss_every_n_iter == 0
                 if spec_loss_active:
-                    with torch.no_grad():
-                        ctxt_tokens, tgt_tokens = forward_context_full(clips, z)
-                        enc_mask  = masks_enc[0].long()
-                        pred_mask = masks_pred[0].long()
-                        B, _, D = ctxt_tokens.shape
-                        L_total = enc_mask.shape[1] + pred_mask.shape[1]
+                    ctxt_tokens, tgt_tokens = forward_context_full(clips, z)
+                    enc_mask  = masks_enc[0].long()
+                    pred_mask = masks_pred[0].long()
+                    B, _, D = ctxt_tokens.shape
+                    L_total = enc_mask.shape[1] + pred_mask.shape[1]
 
-                        tokens_full = torch.zeros(B, L_total, D, device=ctxt_tokens.device, dtype=ctxt_tokens.dtype)
-                        tokens_full.scatter_(1, enc_mask.unsqueeze(-1).expand_as(ctxt_tokens), ctxt_tokens)
-                        tokens_full.scatter_(1, pred_mask.unsqueeze(-1).expand_as(tgt_tokens), tgt_tokens)
+                    tokens_full = torch.zeros(B, L_total, D, device=ctxt_tokens.device, dtype=ctxt_tokens.dtype)
+                    tokens_full.scatter_(1, enc_mask.unsqueeze(-1).expand_as(ctxt_tokens), ctxt_tokens)
+                    tokens_full.scatter_(1, pred_mask.unsqueeze(-1).expand_as(tgt_tokens), tgt_tokens)
 
-                        imgs_full = reconstruct_image_full([tokens_full])  # list of [B, C, T, H, W]
+                    imgs_full = reconstruct_image_full([tokens_full])  # list of [B, C, T, H, W]
+                    img_gt  = clips     # tensor of [B, C, T, H, W]
+                    # spectral loss calculation
+                    for img_rec in imgs_full:  
+                        assert img_rec.shape == img_gt.shape, "Mismatch in reconstructed and target image shapes"
+                        B, C, T, H, W = img_rec.shape
+                        for c in range(C):
+                            # Compute spectral loss on each channel separately across the batch
+                            loss_spec += spectral_loss_images(img_rec[:, c], img_gt[:, c], cutoff_ratio, mode='logmag', )
+                    #for i in range(len(imgs_full)):
+                    #    img_rec = imgs_full[i]  # [B, C, T, H, W]                        
 
-                    # spectral loss summed over the batch
-                    for i in range(len(imgs_full)):
-                        img_rec = imgs_full[i]  # [B, C, T, H, W]
-                        img_gt  = clips          # [B, C, T, H, W]
-                        for c in range(img_rec.shape[1]): #sum over channels separately for all the batch samples
-                            loss_spec += spectral_loss_images(img_rec[:, c], img_gt[:, c], mode='complex')
+                    loss_spec /= B * in_chans #equivalent to loss_spec /= len(imgs_full) * img_rec.shape[1]
 
-                    # if loss_spec.item() > 1e3:
+                    prev_loss_spec_val = loss_spec.item() #save current spec loss scalar to use in next n-1 iter
+                    # if loss_spec.item() > 1e3: #DEBUG
                     #     logger.warning(f"[SpectralLoss Warning] High loss_spec={loss_spec.item():.2e} at step {global_step}")
+                else:
+                    loss_spec = torch.tensor(prev_loss_spec_val, device=device)  # reuse last computed value
 
-                    loss_spec /= len(imgs_full) * img_rec.shape[1]
+                # logger.info(f"[DEBUG] prev_loss_spec value: {prev_loss_spec_val}")
 
                 # Accumulate loss before stepping optimizer
-                loss = (loss_mae + reg_coeff * loss_reg + spectral_coeff_eff * loss_spec) / accumulation_steps  # Normalize loss
+                loss = (loss_mae + reg_coeff * loss_reg + (spectral_coeff_eff / spec_loss_every_n_iter) * loss_spec) / accumulation_steps  # Normalize loss
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -934,53 +918,18 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         optimizer.step()
                         torch.cuda.synchronize()
                         loss = AllReduce.apply(loss)  # Average loss across GPUs
-                
-                # GU_DEBUG: May30 - 
-                # ema_beta = 0.95
-                # global_grad_enc= ema_beta * global_grad_enc + (1 - ema_beta) * _enc_norm
-                # logger.info(f"[DEBUG] Encoder grad norm EMA: {global_grad_enc:.4f}")
-                # logger.info(f"[DEBUG] MAE Loss: {loss:.4f}")
 
                 grad_stats = grad_logger(encoder.named_parameters())
                 grad_stats.global_norm = float(_enc_norm)
                 grad_stats_pred = grad_logger(decoder.named_parameters())
                 grad_stats_pred.global_norm = float(_pred_norm)                
                 optim_stats = adamw_logger(optimizer)
-
-                # GU_DEBUG: May30 - Condensed version
-                if rank == 100:
-                    verbose_grad_debug = False  # Set to True for full param scan
-
-                    def print_grad_info(module, name, keys_to_log=None, max_blocks=[0, -1]):
-                        logged = set()
-                        for pname, param in module.named_parameters():
-                            log_this = False
-                            # Always show selected block indices or top-level names
-                            if keys_to_log and any(key in pname for key in keys_to_log):
-                                log_this = True
-                            if any(f".blocks.{i}." in pname for i in max_blocks):
-                                log_this = True
-                            if "proj" in pname or "norm" in pname:
-                                log_this = True
-                            if verbose_grad_debug:
-                                log_this = True
-
-                            if log_this and pname not in logged:
-                                logged.add(pname)
-                                if param.grad is None:
-                                    logger.warning(f"[DEBUG] {name} param {pname} has no grad!")
-                                else:
-                                    logger.info(f"[DEBUG] {name} param {pname} grad norm: {param.grad.norm().item():.4e}")
-
-                    print_grad_info(encoder, "Encoder", keys_to_log=["patch_embed", "pos_embed"])
-                    print_grad_info(decoder, "Decoder", keys_to_log=["predictor_proj", "predictor_norm", "mask_tokens"])
-
                 
                 if (itr + 1) % accumulation_steps == 0:
                     optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
                 #optimizer.zero_grad()  # Only zero gradients after step
 
-                #gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
+                # gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
                 # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
     
                 # VISUALIZATION: Reconstruct images & masks to visualize at every write_img_freq epochs
@@ -995,7 +944,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     # Reconstruct mosaic image: predicted patches + original pathces
                     imgs = reconstruct_image(c_hat, clips)
                     imgs_vis = imgs[0]  # [C, T, H, W]
-                    logger.info(f"[DEBUG] recon image mean: {imgs_vis.mean().item():.4f}") #DEBUG: May30
+                    #logger.info(f"[DEBUG] recon image mean: {imgs_vis.mean().item():.4f}") #DEBUG: May30
                     for c in range(imgs_vis.shape[0]):  # iterate over channels
                             recon_vol = imgs_vis[c].cpu().detach().float().numpy()  # shape: [T, H, W]
                             nib.save(nib.Nifti1Image(recon_vol, affine=np.eye(4)),
@@ -1022,11 +971,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     optim_stats,
                     spectral_coeff_eff,
                 )
-            use_dummy = False  #DEBUG May30
-            if use_dummy:
-                (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats, spectral_coeff_eff,), gpu_etime_ms = train_step_dummy()
-            else:
-                (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats, spectral_coeff_eff,), gpu_etime_ms = gpu_timer(train_step)
+            
+            (loss, loss_mae, loss_spec, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats, spectral_coeff_eff,), gpu_etime_ms = gpu_timer(train_step)
 
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
@@ -1043,6 +989,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             spec_loss_active = spectral_coeff > 0 and epoch >= min_epoch_for_spectral and global_step % spec_loss_every_n_iter == 0
             global_step += 1 #for warmup of spectral loss coef
 
+            gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
+            # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
+
             # Release memory
             del clips
             torch.cuda.empty_cache()
@@ -1052,7 +1001,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # Handle inactive spectral loss logging
                 loss_spec_val = loss_spec if spec_loss_active else float('-1.0')
 
-                # CSV log (writes everything — still useful to see 'nan' in skipped steps)
                 csv_logger.log(
                     epoch,
                     itr,
@@ -1060,24 +1008,12 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     loss_mae,
                     loss_spec_val,
                     loss_reg,
+                    gpu_memory_alloc,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
                     gpu_etime_ms,
                     iter_elapsed_time_ms
-                )
-
-                
-                # Tensorboard logging
-                # log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/loss_mae', loss_mae, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/loss_reg', loss_reg, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/global_norm', grad_stats.global_norm, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/pred_global_norm', grad_stats_pred.global_norm, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/gpu_etime_ms', gpu_etime_ms, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/iter_elapsed_time_ms', iter_elapsed_time_ms, (epoch * ipe) + itr)
-                # log_writer.add_scalar('train/memory', torch.cuda.max_memory_allocated() / 1024.0**2, (epoch * ipe) + itr)
-                # log_writer.flush()
-                
+                )                
                 
                 # Wandb logging
                 if run != None and rank == 0:
@@ -1089,7 +1025,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         'train/pred_global_norm': grad_stats_pred.global_norm,
                         'train/gpu_etime_ms': gpu_etime_ms,
                         'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
-                        'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                        'train/memory': gpu_memory_alloc,
                         'train/lr': _new_lr,
                         'train/wd': _new_wd,
                     }
@@ -1109,7 +1045,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     #         'train/pred_global_norm': grad_stats_pred.global_norm,
                     #         'train/gpu_etime_ms': gpu_etime_ms,
                     #         'train/iter_elapsed_time_ms': iter_elapsed_time_ms,
-                    #         'train/memory': torch.cuda.max_memory_allocated() / 1024.0**2,
+                    #         'train/memory': gpu_memory_alloc,
                     #         'train/lr': _new_lr,
                     #         'train/wd': _new_wd
                     #     })
@@ -1118,7 +1054,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
-                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | '
+                        '[%d, %5d] loss: %.3f | mae: %.3f reg: %.3f | '
                         'input_var: %.3f %.3f | '
                         'masks: %s '
                         '[wd: %.2e] [lr: %.2e] '
@@ -1134,7 +1070,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                            '[' + ', '.join(['%.1f' % m.avg for m in mask_meters]) + ']',
                            _new_wd,
                            _new_lr,
-                           torch.cuda.max_memory_allocated() / 1024.0**2,
+                           gpu_memory_alloc,
                            gpu_time_meter.avg,
                            wall_time_meter.avg))
 

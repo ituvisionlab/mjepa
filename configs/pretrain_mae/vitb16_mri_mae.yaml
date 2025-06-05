@@ -1,5 +1,5 @@
 app: mae
-nodes: 2
+nodes: 1
 tasks_per_node: 4  #1
 tag: mae
 data:
@@ -12,12 +12,12 @@ data:
   - src/datasets/mood_all_nii_with_bbox.csv
   - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv
   decode_one_clip: true  # unused
-  batch_size: 16
+  batch_size: 10 #16
   num_clips: 1 #8
-  num_frames: 160 #128 #160
+  num_frames: 144 #128 #160
   tubelet_size: 8 #16
   sampling_rate: 1
-  crop_size: 160 #128 #224
+  crop_size: 144 #128 #160
   patch_size: 8 #16
   in_channel_size: 1
   random_clip_sampling: false
@@ -44,9 +44,11 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 0.0 #1.0 #0.2
-  spec_loss_every_n_iter: 30
-  min_epoch_for_spectral: 20 #to disable spectral loss
+  spectral_coeff: 0.5 #0.25 #capped to 0.5 in the code
+  spec_loss_every_n_iter: 20
+  min_epoch_for_spectral: 5 #to disable spectral loss, set to a very large value
+  high_pass_flag: true #false
+  cutoff_ratio: 0.3 # used if high_pass_flag is on
 mask:
   - aspect_ratio:
       - 1.0
@@ -63,7 +65,7 @@ mask:
 meta:
   load_checkpoint: false
   read_checkpoint: null # mae-latest.pth.tar # vitl16.pth.tar # null #r_file
-  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ 
   seed: 1881 #234
   eval_freq: 100
   use_sdpa: true

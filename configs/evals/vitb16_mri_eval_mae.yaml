@@ -64,7 +64,7 @@ optimization:
   attn_drop_rate: 0.1
 pretrain:
   model_name: vit_base
-  checkpoint_key: target_encoder #encoder
+  checkpoint_key: encoder #encoder
   frozen: false #true
   clip_duration: null
   frames_per_clip: 144

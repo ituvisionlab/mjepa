@@ -175,14 +175,14 @@ class VisionTransformerDecoder(nn.Module):
 
         # Batch Size
         B = len(ctxt) // len(masks_ctxt)
-        print(f"[DEBUG] ctxt shape: {ctxt.shape}, Batch size: {B}")
+        #print(f"[DEBUG] ctxt shape: {ctxt.shape}, Batch size: {B}")
 
         # Map context tokens to decoder dimensions
         x = self.predictor_embed(ctxt)
         _, N_ctxt, D = x.shape
         N_tgts = masks_tgt[0].shape[1]
 
-        print(f"[DEBUG] Context tokens: N_ctxt={N_ctxt}, Target tokens: N_tgts={N_tgts}, Embed dim={D}")
+        #print(f"[DEBUG] Context tokens: N_ctxt={N_ctxt}, Target tokens: N_tgts={N_tgts}, Embed dim={D}")
 
         # Add positional embedding to ctxt tokens
         if self.predictor_pos_embed is not None:
@@ -209,12 +209,13 @@ class VisionTransformerDecoder(nn.Module):
         assert x.shape[1] == expected_tokens, (
             f"[ERROR] Token count mismatch in decoder: {x.shape[1]} vs {expected_tokens}"
         )
-        print(f"[DEBUG] Total decoder input tokens: {x.shape[1]}")
+        #print(f"[DEBUG] Total decoder input tokens: {x.shape[1]}")
 
         # Merge masks (currently assuming 1:1)
         masks_ctxt = torch.cat(masks_ctxt, dim=0)
         masks_tgt = torch.cat(masks_tgt, dim=0)
         masks = torch.cat([masks_ctxt, masks_tgt], dim=1)
+
 
         # Transformer layers
         for blk in self.predictor_blocks:
@@ -229,14 +230,14 @@ class VisionTransformerDecoder(nn.Module):
         if not return_all_tokens:
             x_target = x[:, N_ctxt:]
             x_proj = self.predictor_proj(x_target)
-            print(f"[DEBUG] Returned target prediction shape: {x_proj.shape}")
+            # print(f"[DEBUG] Returned target prediction shape: {x_proj.shape}")
             return x_proj
         else:
             x_context = x[:, :N_ctxt]
             x_target = x[:, N_ctxt:N_ctxt + N_tgts]
             x_context = self.predictor_proj(x_context)
             x_target = self.predictor_proj(x_target)
-            print(f"[DEBUG] Returned full prediction: context {x_context.shape}, target {x_target.shape}")
+            # print(f"[DEBUG] Returned full prediction: context {x_context.shape}, target {x_target.shape}")
             return x_context, x_target
 
 

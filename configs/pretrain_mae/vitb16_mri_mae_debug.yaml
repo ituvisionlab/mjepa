@@ -5,25 +5,26 @@ tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
-  # - src/datasets/debug_nii_list64.csv
+  #- src/datasets/debug_nii_list1024.csv
+  - src/datasets/debug_nii_list64.csv
   # - src/datasets/oasis3_all_bet.csv
   # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
   # - src/datasets/brats24_all_nii.csv
-  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  # - src/datasets/ixi_all_bet_nii_with_bbox.csv
   # - src/datasets/mood_all_nii_with_bbox.csv
   # - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv #- src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 2 #16
+  batch_size: 10 #16
   num_clips: 1 #8
-  num_frames: 128 #144 #160 #16
+  num_frames: 144 #128 #144 #160 #16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 128 #160 #192 #224
+  crop_size: 144 #128 #160 #192 #224
   patch_size: 8
   in_channel_size: 1
-  random_clip_sampling: true #false
+  random_clip_sampling: false
   pin_mem: true
-  num_workers: 0
+  num_workers: 4
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -45,9 +46,11 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 0.0 #1.0 #0.2
-  spec_loss_every_n_iter: 1000
-  min_epoch_for_spectral: 10000
+  spectral_coeff: 0.5 #capped to 0.5 in the code
+  spec_loss_every_n_iter: 2
+  min_epoch_for_spectral: 0
+  high_pass_flag: true #false
+  cutoff_ratio: 0.3 # used if high_pass_flag is on
 mask:
   - aspect_ratio:
       - 1.0
@@ -63,8 +66,9 @@ mask:
     max_keep: null
 meta:
   load_checkpoint: false #true 
-  read_checkpoint: null #mae-latest.pth.tar #null # vitl16.pth.tar 
-  ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/
+  read_checkpoint: null #mae-latest.pth.tar # vitl16.pth.tar 
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_47/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__16_12_23/model_ckpt/latest-model/ 
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/

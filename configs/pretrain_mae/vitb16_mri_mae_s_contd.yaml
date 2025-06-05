@@ -45,10 +45,8 @@ loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
   spectral_coeff: 0.5 #0.25 #capped to 0.5 in the code
-  spec_loss_every_n_iter: 1
+  spec_loss_every_n_iter: 25
   min_epoch_for_spectral: 5 #to disable spectral loss, set to a very large value
-  high_pass_flag: false
-  cutoff_ratio: 0.3 # used if high_pass_flag is on
 mask:
   - aspect_ratio:
       - 1.0
@@ -63,9 +61,9 @@ mask:
     max_temporal_keep: 1.0
     max_keep: null
 meta:
-  load_checkpoint: false
-  read_checkpoint: null # mae-latest.pth.tar # vitl16.pth.tar # null #r_file
-  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ 
+  load_checkpoint: true #false
+  read_checkpoint: mae-latest.pth.tar #null # vitl16.pth.tar #r_file
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/
   seed: 1881 #234
   eval_freq: 100
   use_sdpa: true
@@ -81,12 +79,12 @@ model:
 optimization:
   ipe: null #300
   clip_grad: 1.0
-  weight_decay: 0.005
+  weight_decay: 0.001
   final_weight_decay: 0.001 #0.1 #for large dataset
   epochs: 700
-  warmup: 5
-  start_lr: 1.0e-4 #1.0e-3 #3e-05
-  lr: 5.0e-4 #2.0e-3 #1.0e-4
+  warmup: 0
+  start_lr: 8.0e-4 #1.0e-3 #3e-05
+  lr: 8.0e-4 #2.0e-3 #1.0e-4
   final_lr: 1.0e-6 #1.0e-4 #1.0e-6
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default

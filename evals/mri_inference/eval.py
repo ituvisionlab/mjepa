@@ -74,8 +74,6 @@ from evals.video_classification_frozen.utils import (
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-checkpoint_freq = 1
-save_ckpt_epoch_freq = 10
 _GLOBAL_SEED = 0
 #np.random.seed(_GLOBAL_SEED)
 #torch.manual_seed(_GLOBAL_SEED)
@@ -91,7 +89,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     print('Entry to main in eval')
     # -- PRETRAIN
     args_pretrain = args_eval.get('pretrain')
-    checkpoint_key = args_pretrain.get('checkpoint_key', 'target_encoder')
+    checkpoint_key = args_pretrain.get('checkpoint_key', 'encoder')
     model_name = args_pretrain.get('model_name', None)
     patch_size = args_pretrain.get('patch_size', None)
     pretrain_folder = args_pretrain.get('folder', None)
@@ -115,7 +113,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     num_classes = args_data.get('num_classes')
     eval_num_clips = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
-    eval_frame_step = args_pretrain.get('frame_step', 4)
+    eval_frame_step = args_pretrain.get('frame_step', 1)
     eval_duration = args_pretrain.get('clip_duration', None)
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
     num_workers=args_data.get('num_workers',1)
@@ -228,7 +226,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     seed_everything(seed)
 
     # Initialize model
-    # -- pretrained encoder (frozen) or unfrozen
+    # -- pretrained encoder (frozen)
     encoder = init_model(
         crop_size=resolution,
         device=device,
@@ -266,6 +264,12 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     print(f'Classifier number of parameters: {count_parameters(classifier)}')
     
+    # Freeze + eval
+    for p in encoder.parameters(): p.requires_grad = False
+    for p in classifier.parameters(): p.requires_grad = False
+    encoder.eval()
+    classifier.eval()
+
     test_loader, test_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=test_data_path,
@@ -295,11 +299,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
     
     # ---- MODEL SETUP ----
-    encoder.eval()
-    classifier.eval()
-
-    encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
-    classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
+# RuntimeError: DistributedDataParallel is not needed when a module doesn't have any parameter that requires a gradient.
+    # encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
+    # classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
     # -- load classifier checkpoint
     if classifier_checkpoint:
@@ -311,45 +313,47 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             scaler=None)
 
     #DEBUG
-    model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
+    debug_mode = True
+    if debug_mode == True:
+        model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
 
-    print("== Keys in classifier_dict (checkpoint) ==")
-    for k in list(classifier_dict.keys())[:5]:
-        print(k)
+        print("== Keys in classifier_dict (checkpoint) ==")
+        for k in list(classifier_dict.keys())[:5]:
+            print(k)
 
-    print("== Keys in model_sd (loaded model) ==")
-    for k in list(model_sd.keys())[:5]:
-        print(k)
+        print("== Keys in model_sd (loaded model) ==")
+        for k in list(model_sd.keys())[:5]:
+            print(k)
 
-    # Check if prefix mismatch exists
-    ckpt_keys = set(classifier_dict.keys())
-    model_keys = set(model_sd.keys())
+        # Check if prefix mismatch exists
+        ckpt_keys = set(classifier_dict.keys())
+        model_keys = set(model_sd.keys())
 
-    # Strip "module." prefix from checkpoint keys if needed
-    if not ckpt_keys & model_keys:  # no overlap
-        classifier_dict = {
-            (k.replace("module.", "", 1) if k.startswith("module.") else k): v
-            for k, v in classifier_dict.items()
-        }
-        print("Stripped 'module.' prefix from checkpoint keys.")
-    elif not model_keys & ckpt_keys:
-        model_sd = {
-            (k.replace("module.", "", 1) if k.startswith("module.") else k): v
-            for k, v in model_sd.items()
-        }
-        print("Stripped 'module.' prefix from model state dict keys.")
+        # Strip "module." prefix from checkpoint keys if needed
+        if not ckpt_keys & model_keys:  # no overlap
+            classifier_dict = {
+                (k.replace("module.", "", 1) if k.startswith("module.") else k): v
+                for k, v in classifier_dict.items()
+            }
+            print("Stripped 'module.' prefix from checkpoint keys.")
+        elif not model_keys & ckpt_keys:
+            model_sd = {
+                (k.replace("module.", "", 1) if k.startswith("module.") else k): v
+                for k, v in model_sd.items()
+            }
+            print("Stripped 'module.' prefix from model state dict keys.")
 
-    key = list(classifier_dict.keys())[0]
-    print(f"Checkpoint [{key}]: {classifier_dict[key].shape}")
+        key = list(classifier_dict.keys())[0]
+        print(f"Checkpoint [{key}]: {classifier_dict[key].shape}")
 
-    if key in model_sd:
-        print(f"Model      [{key}]: {model_sd[key].shape}")
-        param_diff = (model_sd[key] - classifier_dict[key].to(model_sd[key].device)).norm()
-        print(f"Difference norm for [{key}]: {param_diff.item():.4f}")
-    else:
-        print(f"Key '{key}' not found in model state_dict. Available keys:")
-        for mk in list(model_sd.keys())[:10]:
-            print(f"  - {mk}")
+        if key in model_sd:
+            print(f"Model      [{key}]: {model_sd[key].shape}")
+            param_diff = (model_sd[key] - classifier_dict[key].to(model_sd[key].device)).norm()
+            print(f"Difference norm for [{key}]: {param_diff.item():.4f}")
+        else:
+            print(f"Key '{key}' not found in model state_dict. Available keys:")
+            for mk in list(model_sd.keys())[:10]:
+                print(f"  - {mk}")
     # END_DEBUG
 
     # INFERENCE
@@ -397,10 +401,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             with torch.no_grad():
                 outputs = encoder(clips, clip_indices)
                 
-            if attend_across_segments:
-                outputs = [classifier(o) for o in outputs]
-            else:
-                outputs = [[classifier(ost) for ost in os] for os in outputs]
+                if attend_across_segments:
+                    outputs = [classifier(o) for o in outputs]
+                else:
+                    outputs = [[classifier(ost) for ost in os] for os in outputs]
 
         # GU_Debug: outputs tensor shape: Batchsize x num_classes
         # print(f"Classifier Outputs require grad: {outputs[0].requires_grad}")
@@ -447,15 +451,11 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         #loss = loss / accumulation_steps
         torch.cuda.synchronize()
         
-        if not torch.isfinite(loss):
-            logger.warning(f"[Rank {rank}] Non-finite loss detected: {loss}")
-            loss = torch.tensor(0.0, device=loss.device)
-        loss = AllReduce.apply(loss)  # Average loss across GPUs  
-        
+        test_acc = top1_meter.avg         
         # Wandb logging
         if run != None and rank == 0:            
             run.log({
-                    'test/acc': top1_meter.avg,
+                    'test/acc': test_acc,
                     'test/loss': loss,
             #         'test/auroc': auroc_meter.avg,
                     'test/recall': recall_meter.avg,
@@ -466,10 +466,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 })
         if rank == 0:
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
-                        % (itr, top1_meter.avg, loss,
+                        % (itr, test_acc, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
   
-    test_acc = top1_meter.avg
     auc_score=0
     if rank == 0:
         logger.info('test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (test_acc, recall, precision, f1, auc_score))
@@ -694,9 +693,9 @@ def init_model(
     use_SiLU=False,
     tight_SiLU=True,
     uniform_power=False,
-    checkpoint_key='encoder', #'target_encoder',
-    drop_rate=0.1,
-    attn_drop_rate=0.1
+    checkpoint_key='encoder',
+    drop_rate=0.0,
+    attn_drop_rate=0.0
 ):
     encoder = vit.__dict__[model_name](
         img_size=crop_size,
