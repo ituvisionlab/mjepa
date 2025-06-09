@@ -224,13 +224,13 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         #    torch.use_deterministic_algorithms(True)
 
     seed_everything(seed)
-
+    # ---- MODEL SETUP ----
     # Initialize model
     # -- pretrained encoder (frozen)
     encoder = init_model(
         crop_size=resolution,
         device=device,
-        pretrained=pretrained_path,
+        pretrained=None, #skip loading
         model_name=model_name,
         patch_size=patch_size,
         tubelet_size=tubelet_size,
@@ -263,7 +263,14 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     print(f'Classifier number of parameters: {count_parameters(classifier)}')
-    
+
+    # -- Load both encoder and classifier from downstream fine-tuned checkpoint
+    if classifier_checkpoint:
+        encoder, classifier = load_encoder_and_classifier(
+            encoder=encoder,
+            classifier=classifier,
+            ckpt_path=cls_checkpoint_path)
+
     # Freeze + eval
     for p in encoder.parameters(): p.requires_grad = False
     for p in classifier.parameters(): p.requires_grad = False
@@ -298,22 +305,13 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     ipe = len(test_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
     
-    # ---- MODEL SETUP ----
-# RuntimeError: DistributedDataParallel is not needed when a module doesn't have any parameter that requires a gradient.
+    # RuntimeError: DistributedDataParallel is not needed when a module doesn't have any parameter that requires a gradient.
     # encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
     # classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
-    # -- load classifier checkpoint
-    if classifier_checkpoint:
-        classifier, _, _, _, classifier_dict= load_checkpoint(
-            device=device,
-            r_path=cls_checkpoint_path,
-            classifier=classifier,
-            opt=None,
-            scaler=None)
 
     #DEBUG
-    debug_mode = True
+    debug_mode = False
     if debug_mode == True:
         model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
 
@@ -359,17 +357,15 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # INFERENCE
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
-    auroc_meter = AverageMeter()
     recall_meter = AverageMeter()
-    #specificity_meter = AverageMeter()
     f1_meter = AverageMeter()
     precision_meter = AverageMeter()
     ipe = len(test_loader)
-    auc_score = 0 #AUC Calculations are cancelled!!!! SET TO ZERO!!!
+    auc_score = 0  # AUC not calculated
 
     loader = iter(test_loader)
     test_sampler.set_epoch(1)
-    
+
     loss = None
     all_outputs = []
     all_labels = []
@@ -380,108 +376,90 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         except Exception:
             logger.info('Exhausted data loaders. Refreshing...')
             torch.cuda.empty_cache()
-                
-            loader = iter(test_loader) #resets the loader iterator again
+            loader = iter(test_loader)
             data = next(loader)
-   
-        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
-        #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
 
-            # Load data and put on GPU: move frames to GPU
+        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
             clips = [
-                [dij.to(device, non_blocking=True) for dij in di]  # iterate over spatial views of clip
-                for di in data[0]  # iterate over temporal index of clip
+                [dij.to(device, non_blocking=True) for dij in di]
+                for di in data[0]
             ]
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             labels = data[1].to(device)
             batch_size = len(labels)
 
-            # Forward and prediction
-            outputs = None
             with torch.no_grad():
                 outputs = encoder(clips, clip_indices)
-                
                 if attend_across_segments:
                     outputs = [classifier(o) for o in outputs]
                 else:
                     outputs = [[classifier(ost) for ost in os] for os in outputs]
-
-        # GU_Debug: outputs tensor shape: Batchsize x num_classes
-        # print(f"Classifier Outputs require grad: {outputs[0].requires_grad}")
 
         # Compute loss
         if attend_across_segments:
             loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
         else:
             loss = sum([sum([criterion(ost, labels) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
+
         with torch.no_grad():
             if attend_across_segments:
                 outputs = sum([F.softmax(o, dim=1) for o in outputs]) / len(outputs)
             else:
                 outputs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
-            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum() / batch_size
-            top1_acc = float(AllReduce.apply(top1_acc))
+
+            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum().item() / batch_size
             top1_meter.update(top1_acc)
-            
-            # Compute additional metrics per batch
-            preds = outputs.max(dim=1).indices
-           # Use macro average for multiclass classification
-            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro') # average over all classes
-            # recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average=None) # per class average
+
+            preds = outputs.argmax(dim=1)
+            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
             precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
             f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
-           
-           # cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
-           # tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
-           # specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-            
-            # Append current batch results for AUC calculations during val
+
             all_outputs.append(outputs.detach().cpu())
             all_labels.append(labels.detach().cpu())
-    
-            recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
-            precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
-            #specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
-            f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
+
             recall_meter.update(recall)
             precision_meter.update(precision)
-            # specificity_meter.update(specificity)
             f1_meter.update(f1)
-        
-        #loss = loss / accumulation_steps
+
         torch.cuda.synchronize()
-        
-        test_acc = top1_meter.avg         
+        gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.**2
+
         # Wandb logging
-        if run != None and rank == 0:            
+        if run is not None:
             run.log({
-                    'test/acc': test_acc,
-                    'test/loss': loss,
-            #         'test/auroc': auroc_meter.avg,
-                    'test/recall': recall_meter.avg,
-                    'test/precision': precision_meter.avg,
-                    # 'test/specificity': specificity_meter.avg,
-                    'test/f1': f1_meter.avg,
-                    'test/mem': torch.cuda.max_memory_allocated() / 1024.**2
-                })
-        if rank == 0:
-            logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
-                        % (itr, test_acc, loss,
-                           torch.cuda.max_memory_allocated() / 1024.**2))
-  
-    auc_score=0
-    if rank == 0:
-        logger.info('test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (test_acc, recall, precision, f1, auc_score))
-    
-    # if rank == 0:
-    if csv_logger != None:
-        csv_logger.log(test_acc, loss, recall, precision, f1, auc_score)
-            
+                'test/acc_batch': top1_acc,  # Per-batch accuracy
+                'test/acc': top1_meter.avg,  # Running average
+                'test/loss': loss.item(),
+                'test/recall': recall_meter.avg,
+                'test/precision': precision_meter.avg,
+                'test/f1': f1_meter.avg,
+                'test/mem': gpu_memory_alloc
+            })
+
+        logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]' % (
+            itr, top1_acc, loss.item(), gpu_memory_alloc))
+
+    # Final stats
+    test_acc = top1_meter.avg
+    if run is not None:
+        run.log({
+            'test/acc_final': test_acc,
+            'test/f1_final': f1_meter.avg,
+            'test/recall_final': recall_meter.avg,
+            'test/precision_final': precision_meter.avg,
+            'test/auc_final': auc_score
+        })
+
+    logger.info('FINAL: test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
+        test_acc, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score))
+
+    if csv_logger is not None:
+        csv_logger.log(test_acc, loss.item(), recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score)
+
     torch.cuda.empty_cache()
-
-    if run != None:
+    if run is not None:
         run.finish()
-
 
 @torch.no_grad()
 def sanity_check(encoder, classifier, val_loader, device, num_classes):
@@ -523,6 +501,66 @@ def sanity_check(encoder, classifier, val_loader, device, num_classes):
     print(f"[LABELS] shape: {labels.shape}, min: {labels.min()}, max: {labels.max()}")
     print(f"[PRED]  top-1 indices: {probs.argmax(dim=1)[:8]}")
     print("Sanity check passed.\n")
+
+def load_encoder_and_classifier(encoder, classifier, ckpt_path):
+
+    try:
+        logger.info(f"Loading fine-tuned encoder + classifier from {ckpt_path}")
+        checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
+        epoch = checkpoint['epoch']
+        print("Print the pretrained model")
+        print(checkpoint.keys())
+
+        # Load encoder
+        encoder_dict = checkpoint['encoder']
+        encoder_dict = {k.replace("module.", ""): v for k, v in encoder_dict.items()}
+        encoder_dict = {k.replace("backbone.", ""): v for k, v in encoder_dict.items()}
+        for k, v in encoder.state_dict().items():
+            if k not in encoder_dict:
+                logger.info(f'key "{k}" could not be found in loaded state dict')
+            elif encoder_dict[k].shape != v.shape:
+                logger.info(f'key "{k}" is of different shape in model and loaded state dict')
+                encoder_dict[k] = v
+        encoder_msg = encoder.load_state_dict(encoder_dict, strict=False) #strict=True)
+        print(encoder)
+        logger.info(f'loaded encoder model with msg: {encoder_msg}')
+        logger.info(f'loaded pretrained encoder from epoch: {checkpoint["epoch"]}\n path: {ckpt_path}')
+
+
+        # Load classifier
+        classifier_dict = checkpoint['classifier']
+        model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
+        # Check if keys match; if not, patch "module." prefix
+        classifier_keys = set(classifier_dict.keys())
+        model_keys = set(model_sd.keys())
+
+        if not classifier_keys & model_keys:
+            # Likely a prefix mismatch
+            if all(k.startswith("module.") for k in classifier_dict.keys()):
+                # Remove "module." from checkpoint keys
+                classifier_dict = {k.replace("module.", "", 1): v for k, v in classifier_dict.items()}
+                logger.info("Stripped classifier 'module.' from checkpoint keys.")
+            elif all(not k.startswith("module.") for k in classifier_dict.keys()):
+                # Add "module." prefix to checkpoint keys
+                classifier_dict = {f"module.{k}": v for k, v in classifier_dict.items()}
+                logger.info("Added classifier 'module.' to checkpoint keys.")
+
+        # Load weights into the actual model
+        if hasattr(classifier, 'module'):
+            classifier_msg = classifier.module.load_state_dict(classifier_dict, strict=True)
+        else:
+            classifier_msg = classifier.load_state_dict(classifier_dict, strict=True)
+        logger.info(f"Loaded classifier with msg: {classifier_msg}")
+        logger.info(f'  Missing keys: {classifier_msg.missing_keys}')
+        logger.info(f'  Unexpected keys: {classifier_msg.unexpected_keys}')
+        del checkpoint
+
+    except Exception as e:
+        logger.info(f'Encountered exception when loading checkpoint: {e}')
+
+    logger.info(f"Checkpoint epoch: {epoch}")
+    return encoder, classifier
+
 
 def load_checkpoint(
     device,

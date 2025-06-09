@@ -44,7 +44,9 @@ logging:
   write_tag: jepa
 loss:
   loss_exp: 1.0 #2.0
-  reg_coeff: 0.01
+  reg_coeff: 0.1
+  alpha_vcr: 1.0
+  beta_vcr: 0.1
 mask:
   - aspect_ratio:
       - 1.0

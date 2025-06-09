@@ -702,10 +702,10 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 global global_step
                 global prev_loss_spec_val
                 global spectral_coeff_eff
-
+                cap_spec_coeff = 1.0 #0.5
                 if epoch >= min_epoch_for_spectral and global_step % spec_loss_every_n_iter == 0:
                     spectral_warmup_factor = min(1.0, (epoch - min_epoch_for_spectral + 1) / warmup_epochs)
-                    spectral_coeff_eff = min(spectral_coeff * spectral_warmup_factor, 0.5) # cap to 0.5
+                    spectral_coeff_eff = min(spectral_coeff * spectral_warmup_factor, cap_spec_coeff) # cap to 0.5
 
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()

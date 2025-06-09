@@ -28,7 +28,7 @@ data:
   num_views_per_segment: 1
   frame_step: 1
   num_workers: 8
-  random_clip_sampling: true #false
+  random_clip_sampling: false
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -44,7 +44,7 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 160
+  resolution: 144
   batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
@@ -53,15 +53,15 @@ optimization:
   final_lr: 1.0e-6 #1.0e-6 
   warmup: 2
   use_bfloat16: true
-  clip_grad_classifier: 10.0
+  clip_grad_classifier: 1.0
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: 0.6 #0.75 #null to turn it off
+  layer_decay: null #0.75 #null to turn it off
   classifier_depth: 1
-  dropout: 0.1 #0.25 #null to turn off
-  drop_rate: 0.1
-  attn_drop_rate: 0.1
+  dropout: null #0.25 #null to turn off
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #encoder
@@ -74,12 +74,14 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  clip_grad_encoder: 10.0
+  clip_grad_encoder: 1.0
   encoder_warmup: 0
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_05_30__16_06_20/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_05__10_46_25/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_05_30__16_06_20/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/ #BEST Before
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
