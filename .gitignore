@@ -166,7 +166,8 @@ build/
 dist/
 job_*
 .submission*
-.vscode/
 src/datasets/BraTS2020
 src/datasets/MOOD
 wandb/
+*.nii
+*.nii.gz

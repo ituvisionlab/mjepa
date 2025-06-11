@@ -10,9 +10,10 @@
 
 import os
 import platform
-
+import socket
 import torch
 import torch.distributed as dist
+import random
 
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import label_binarize
@@ -42,8 +43,24 @@ def init_distributed(port=37123, rank_and_world_size=(None, None)):
             return world_size, rank
 
     try:
-        os.environ['MASTER_PORT'] = str(port)
-        
+        #os.environ['MASTER_PORT'] = str(port) #comment this line to replace with the following
+        # GU_DEBUG: Set MASTER_PORT: use env if already set, otherwise try random port if default is taken
+        if 'MASTER_PORT' not in os.environ:
+            def is_port_available(p):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(('localhost', p)) != 0
+
+            found = False
+            for attempt in range(10):
+                try_port = random.randint(10000, 60000)
+                if is_port_available(try_port):
+                    os.environ['MASTER_PORT'] = str(try_port)
+                    found = True
+                    break
+
+            if not found:
+                os.environ['MASTER_PORT'] = str(port)
+     
         hostname = platform.node()
         backend_engine = "nccl"
         if hostname == "panther": # nccl backend doesn't work on panther machine for now
