@@ -50,6 +50,8 @@ import math
 
 import src.models.vision_transformer as vit
 from src.models.attentive_pooler import AttentiveClassifier
+from src.models.attentive_pooler import AttentionPooling
+
 from src.datasets.data_manager import (
     init_data,
 )
@@ -75,6 +77,8 @@ from evals.video_classification_frozen.utils import (
     FrameAggregation
 )
 from src.utils.tensors import trunc_normal_
+
+from contextlib import nullcontext
 
 # logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
@@ -120,6 +124,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     encoder_warmup = args_pretrain.get('encoder_warmup', 1)
     use_pos_embed = args_pretrain.get('use_pos_embed', False)
     clip_grad_encoder = args_pretrain.get('clip_grad_encoder',1.0)
+    eval_frame_step = args_pretrain.get('frame_step', 4)
+    eval_duration = args_pretrain.get('clip_duration', None)
 
     # -- DATA
     args_data = args_eval.get('data')
@@ -130,8 +136,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     num_classes = args_data.get('num_classes')
     eval_num_clips = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
-    eval_frame_step = args_pretrain.get('frame_step', 4)
-    eval_duration = args_pretrain.get('clip_duration', None)
+    eval_in_chans = args_data.get('eval_in_channel_size', 1)
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
     num_workers=args_data.get('num_workers',1)
     random_clip_sampling = args_data.get('random_clip_sampling', False)
@@ -331,6 +336,11 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             use_pos_embed=use_pos_embed
         ).to(device)
 
+    # for multi-channel inputs
+    attn_pooler = AttentionPooling(embed_dim=encoder.model.embed_dim).to(device)
+    print("Print the attention pooler")
+    print(attn_pooler)
+
     # -- init classifier
     classifier = AttentiveClassifier(
         embed_dim=encoder.embed_dim,
@@ -356,7 +366,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         eval_duration=eval_duration,
         num_clips=eval_num_clips, #if attend_across_segments else 1,
         num_views_per_segment=1,
-        in_chans=in_chans,
+        in_chans=eval_in_chans,
         random_clip_sampling=random_clip_sampling,
         auto_augment=auto_augment,
         allow_segment_overlap=True,
@@ -379,7 +389,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         frames_per_clip=eval_frames_per_clip,
         frame_step=eval_frame_step,
         num_clips=eval_num_clips,
-        in_chans=in_chans,
+        in_chans=eval_in_chans,
         random_clip_sampling=random_clip_sampling,
         eval_duration=eval_duration,
         num_views_per_segment=eval_num_views_per_segment,
@@ -489,6 +499,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             num_spatial_views=1,
             encoder=encoder,
             classifier=classifier,
+            attn_pooler=attn_pooler,
             scaler=scaler,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -507,35 +518,38 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             clip_grad_encoder=clip_grad_encoder,
             clip_grad_classifier=clip_grad_classifier,
             accumulation_steps=accumulation_steps,
-            log_dir=log_dir)
+            log_dir=log_dir,
+            eval_in_chans=eval_in_chans,)
 
         val_acc, val_loss, val_recall, val_precision, val_f1, auc_score = run_one_epoch(
-             device=device,
-             training=False,
-             num_temporal_views=eval_num_clips,
-             attend_across_segments=attend_across_segments,
-             num_spatial_views=eval_num_views_per_segment,
-             encoder=encoder,
-             classifier=classifier,
-             scaler=scaler,
-             optimizer=optimizer,
-             scheduler=scheduler,
-             wd_scheduler=wd_scheduler,
-             data_loader=val_loader,
-             data_sampler=val_sampler,
-             use_bfloat16=use_bfloat16,
-             frozen=encoder_frozen,
-             log_writer=log_writer,
-             epoch=epoch,
-             eval_freq=val_eval_freq,
-             rank=rank,
-             run=run,
-             num_classes=num_classes,
-             warmup=warmup,
-             clip_grad_encoder=clip_grad_encoder,
-             clip_grad_classifier=clip_grad_classifier,
-             accumulation_steps=accumulation_steps,
-             log_dir=log_dir)
+            device=device,
+            training=False,
+            num_temporal_views=eval_num_clips,
+            attend_across_segments=attend_across_segments,
+            num_spatial_views=eval_num_views_per_segment,
+            encoder=encoder,
+            classifier=classifier,
+            attn_pooler=attn_pooler,
+            scaler=scaler,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            wd_scheduler=wd_scheduler,
+            data_loader=val_loader,
+            data_sampler=val_sampler,
+            use_bfloat16=use_bfloat16,
+            frozen=encoder_frozen,
+            log_writer=log_writer,
+            epoch=epoch,
+            eval_freq=val_eval_freq,
+            rank=rank,
+            run=run,
+            num_classes=num_classes,
+            warmup=warmup,
+            clip_grad_encoder=clip_grad_encoder,
+            clip_grad_classifier=clip_grad_classifier,
+            accumulation_steps=accumulation_steps,
+            log_dir=log_dir,
+            eval_in_chans=eval_in_chans,)
 
         #GU_ DEBUG
         #if not math.isnan(auc_score):
@@ -575,6 +589,7 @@ def run_one_epoch(
     training,
     encoder,
     classifier,
+    attn_pooler,
     scaler,
     optimizer,
     scheduler,
@@ -597,6 +612,7 @@ def run_one_epoch(
     clip_grad_classifier,
     accumulation_steps,
     log_dir,
+    eval_in_chans,
 ):
 
     classifier.train(mode=training)
@@ -643,31 +659,69 @@ def run_one_epoch(
 
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
         #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
-
             # Load data and put on GPU: move frames to GPU
-            clips = [
-                [dij.to(device, non_blocking=True) for dij in di]  # iterate over spatial views of clip
-                for di in data[0]  # iterate over temporal index of clip
-            ]
-            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             labels = data[1].to(device)
+            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             batch_size = len(labels)
+            if eval_in_chans > 1:
+                # MULTI-CONTRAST INPUT (e.g., prostate MRI)
+                full_clip = data[0][0][0]  # shape: [B, 3, T, H, W]
+
+                # Split channels : contrasts[i]: B, 1, T, H, W
+                contrasts = [full_clip[:, i:i+1].to(device, non_blocking=True) for i in range(eval_in_chans)]
+
+                # Wrap as [[ [Tensor] ]] for each contrast to match expected encoder input structure
+                inputs_per_contrast = [[[contrast]] for contrast in contrasts]
+            else:
+                # SINGLE-CHANNEL INPUT
+                clips = [
+                    [dij.to(device, non_blocking=True) for dij in di] # iterate over spatial views of clip
+                    for di in data[0] # iterate over temporal index of clip
+                ]
+
 
             # clips list: len = no_of_clips 
             # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
             # clips[1][0].shape ""
             # Forward and prediction
             outputs = None
-            if not frozen:
-                if training:
-                    outputs = encoder(clips, clip_indices)
+            if eval_in_chans > 1:
+                # Multi-contrast evaluation
+                context = torch.no_grad() if frozen or not training else torch.enable_grad()
+                with context:
+                    encoded_contrasts = [ #encoded_contrasts[i=0:2].shape: B, N, D
+                        encoder(inp, clip_indices)[0]
+                        for inp in inputs_per_contrast if inp is not None
+                    ]
+
+                    # encoded_contrasts = [
+                    #     encoder(inp, clip_indices)
+                    #     for inp in inputs_per_contrast if inp is not None
+                    # ]  # list of [B, N, D]  
+            
+                outputs = [attn_pooler(encoded_contrasts)]  # list of one [B, N, D]
+            else:
+                # Original single-channel pipeline
+                if not frozen:
+                    if training:
+                        outputs = encoder(clips, clip_indices)
+                    else:
+                        with torch.no_grad():
+                            outputs = encoder(clips, clip_indices)
                 else:
                     with torch.no_grad():
                         outputs = encoder(clips, clip_indices)
 
-            with torch.no_grad():
-                if frozen:
-                    outputs = encoder(clips, clip_indices) #outputs[0].shape= torch.Size([4, 3136, 1024])
+            # if not frozen:
+            #     if training:
+            #         outputs = encoder(clips, clip_indices)
+            #     else:
+            #         with torch.no_grad():
+            #             outputs = encoder(clips, clip_indices)
+
+            # with torch.no_grad():
+            #     if frozen:
+            #         outputs = encoder(clips, clip_indices) #outputs[0].shape= torch.Size([4, 3136, 1024])
                 
                 if not training:
                     if attend_across_segments:

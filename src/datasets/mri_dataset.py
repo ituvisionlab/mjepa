@@ -259,9 +259,9 @@ class MRIDataset(torch.utils.data.Dataset):
             #     self.batchtime = 0 
 
             #GU_debug        
-            for i in range(self.num_clips): # Assuming buffer is a PyTorch tensor of shape [C, T, W, H]
-                volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
-                # nifti_image = nib.Nifti1Image(volume.numpy(),  affine = np.eye(4))
+            # for i in range(self.num_clips): # Assuming buffer is a PyTorch tensor of shape [C, T, W, H]
+            #     volume = buffer[i].squeeze(0)  # Remove the channel dimension (C)
+            #     # nifti_image = nib.Nifti1Image(volume.numpy(),  affine = np.eye(4))
                 # nib.save(nifti_image, f'Zclips{i}_volume.nii')
                 #mid_slice_index = volume.shape[0] // 2  # Compute the middle slice index along the temporal axis
                 # plt.imsave('ZmidSlice.png', volume[mid_slice_index, :, :].cpu().numpy(), cmap='gray')
@@ -274,6 +274,14 @@ class MRIDataset(torch.utils.data.Dataset):
                 # buffer, clip_indices = self.split_volume(volume[0])  # [T H W 1]
                 buffer = buffer.permute(3, 0, 1, 2) # T H W C -> C T H W
                 buffer = self.split_into_clips(buffer)
+
+                # GU_Debug: save each channel as a separate .nii file
+                tensor = buffer[0]  # since we only have one clip
+                for i in range(tensor.shape[0]):  # loop over channels
+                    contrast = tensor[i]  # shape: [T, H, W]
+                    nifti_image = nib.Nifti1Image(contrast.numpy(), affine=np.eye(4))
+                    nib.save(nifti_image, f'Zcontrast_{i}.nii')
+                #end_debug
                 return [[clip] for clip in buffer], label, clip_indices,
             else: #DINO pretraining
                 volume_out = []
@@ -345,9 +353,9 @@ class MRIDataset(torch.utils.data.Dataset):
 
         try:
             img = nib.load(file_path)
-            volume = img.get_fdata()
+            volume = img.get_fdata() # H, W, T assumed
 
-            if -1 in bbox:
+            if -1 in bbox or len(bbox) != 6:
                 bbox = [0, volume.shape[0], 0, volume.shape[1], 0, volume.shape[2]]
             volume = self.crop_volume_bbox(volume, bbox, delta_box=6)
 

@@ -207,3 +207,33 @@ class LinearClassifier(nn.Module):
         x = self.linear3(x)
 
         return x
+    
+class AttentionPooling(nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.query = nn.Parameter(torch.randn(1, 1, embed_dim))
+        self.key_proj = nn.Linear(embed_dim, embed_dim)
+        self.value_proj = nn.Linear(embed_dim, embed_dim)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, embeddings):
+        """
+        embeddings: list of [B, N, D] from each contrast
+        returns: [B, N, D] pooled embedding
+        """
+        x = torch.stack(embeddings, dim=1)  # [B, C, N, D]
+        B, C, N, D = x.shape
+
+        query = self.query.expand(B, 1, D)  # [B, 1, D]
+        keys = self.key_proj(x)            # [B, C, N, D]
+        values = self.value_proj(x)        # [B, C, N, D]
+
+        scores = torch.einsum("bqd,bknd->bqkn", query, keys)  # [B, 1, C, N]
+        attn_weights = self.softmax(scores)                   # [B, 1, C, N]
+
+        values = values.unsqueeze(1)                          # [B, 1, C, N, D]
+        weighted = attn_weights.unsqueeze(-1) * values        # [B, 1, C, N, D]
+        pooled = torch.sum(weighted, dim=2)                   # [B, 1, N, D]
+
+        return pooled.squeeze(1)                              # [B, N, D]
+

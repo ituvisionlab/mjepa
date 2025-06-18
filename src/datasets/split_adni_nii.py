@@ -90,7 +90,7 @@ def generate_stratified_folds(task_name, label_pair, pos_label):
             vols = data[(data['subject_id'] == sid) & (data['label'].isin(label_pair))]
             if not vols.empty:
                 valid_downval_ids.append(sid)
-        downval_subjects = pd.DataFrame({'subject_id': valid_downval_ids})
+        downval_subjects = pd.DataFramæe({'subject_id': valid_downval_ids})
 
         # === Save VAL and TEST
         for split, subjects_df in zip(["downval", "downtest"], [downval_subjects, test_subjects]):
