@@ -43,6 +43,7 @@ def init_data(
     filter_short_videos=False,
     filter_long_videos=int(1e9),
     decode_one_clip=True,
+    threshold_isotropy=1.4,
     datasets_weights=None,
     persistent_workers=False,
     repeat_wds=False,
@@ -98,6 +99,7 @@ def init_data(
         from src.datasets.mri_dataset import make_mridataset
         dataset, data_loader, dist_sampler = make_mridataset(
             data_paths=root_path,
+            collator=collator,
             batch_size=batch_size,
             frames_per_clip=clip_len,
             frame_step=frame_sample_rate,
@@ -112,7 +114,7 @@ def init_data(
             shared_transform=shared_transform,
             transform=transform,
             datasets_weights=datasets_weights,
-            collator=collator,
+            threshold_isotropy=threshold_isotropy,
             num_workers=num_workers,
             world_size=world_size,
             rank=rank,

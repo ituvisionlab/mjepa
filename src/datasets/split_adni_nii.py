@@ -8,18 +8,19 @@ output_dir = "adni_cv_folds_stratified"
 os.makedirs(output_dir, exist_ok=True)
 
 # === LOAD DATA ===
-data = pd.read_csv(file_path)
-data = data[data['label'].isin([0, 1, 2])]  # Only NC, MCI, AD
-total_volume_count = len(data)
-total_subject_count = data["subject_id"].nunique()
+data_all = pd.read_csv(file_path)
+data_all["subject_id"] = data_all["subject_id"].astype(str)
 
-# === SUBJECT SUMMARY (INCLUDE ALL SUBJECTS FROM DATA) ===
-unique_subjects = data[['subject_id', 'label']].drop_duplicates('subject_id')
+# Use only [0, 1, 2] for downstream logic
+data_cv = data_all[data_all['label'].isin([0, 1, 2])].copy()
+
+# === SUBJECT SUMMARY (INCLUDE ALL SUBJECTS FROM DATA_CV) ===
+unique_subjects = data_cv[['subject_id', 'label']].drop_duplicates('subject_id')
 subject_summary_full = unique_subjects.groupby('subject_id').agg(label=('label', lambda x: x.mode()[0])).reset_index()
 subject_summary_full = subject_summary_full.sample(frac=1, random_state=42)
 
 # === IDENTIFY LOW-VOLUME SUBJECTS FOR CV SPLITS (≤ 24 volumes) ===
-volume_counts = data.groupby('subject_id').size().reset_index(name='volume_count')
+volume_counts = data_cv.groupby('subject_id').size().reset_index(name='volume_count')
 low_volume_subjects = volume_counts[volume_counts['volume_count'] <= 24]['subject_id']
 cv_candidates = subject_summary_full[subject_summary_full['subject_id'].isin(low_volume_subjects)]
 
@@ -37,10 +38,13 @@ subject_summary.to_csv(os.path.join(output_dir, "adni_subject_split_map.csv"), i
 print("✅ Saved subject split map.")
 
 # === SAVE PRETRAIN AND DOWNSTREAM CSVs ===
-pretrain_data = data[data['subject_id'].isin(pretrain_subject_summary['subject_id'])]
+cv_ids_all = set(cv_subject_summary['subject_id'])
+pretrain_ids_all = set(data_all['subject_id']) - cv_ids_all
+
+pretrain_data = data_all[data_all['subject_id'].isin(pretrain_ids_all)]
 pretrain_data.to_csv(os.path.join(output_dir, "adni_pretrain.csv"), index=False)
 
-downstream_data = data[data['subject_id'].isin(cv_subject_summary['subject_id'])]
+downstream_data = data_all[data_all['subject_id'].isin(cv_ids_all) & data_all['label'].isin([0, 1, 2])]
 downstream_data.to_csv(os.path.join(output_dir, "adni_downstream.csv"), index=False)
 
 print(f"✅ Saved adni_pretrain.csv: {pretrain_data['subject_id'].nunique()} subjects, {len(pretrain_data)} volumes")
@@ -48,8 +52,17 @@ print(f"✅ Saved adni_downstream.csv: {downstream_data['subject_id'].nunique()}
 
 # === FINAL SANITY CHECK ===
 total_split_volume_count = len(pretrain_data) + len(downstream_data)
-assert total_split_volume_count == total_volume_count, f"⚠️ Volume mismatch: got {total_split_volume_count}, expected {total_volume_count}"
+assert total_split_volume_count == len(data_all), f"⚠️ Volume mismatch: got {total_split_volume_count}, expected {len(data_all)}"
 print(f"✅ Total volume accounting OK: {total_split_volume_count} volumes across pretrain + downstream")
+
+# === SAVE SPLIT SUMMARY ===
+split_summary = {
+    "Split": ["Pretraining", "Downstream"],
+    "Subjects": [pretrain_data['subject_id'].nunique(), downstream_data['subject_id'].nunique()],
+    "Volumes": [len(pretrain_data), len(downstream_data)]
+}
+pd.DataFrame(split_summary).to_csv(os.path.join(output_dir, "adni_split_summary.csv"), index=False)
+print("✅ Saved adni_split_summary.csv")
 
 # === HELPER: Extract and optionally balance binary volumes ===
 def extract_binary_split(data, subject_ids, label_pair, pos_label, balance_by_volume=False):
@@ -87,15 +100,15 @@ def generate_stratified_folds(task_name, label_pair, pos_label):
         # === VALIDATE DOWNVAL SUBJECTS HAVE VOLUMES
         valid_downval_ids = []
         for sid in downval_subjects['subject_id']:
-            vols = data[(data['subject_id'] == sid) & (data['label'].isin(label_pair))]
+            vols = data_all[(data_all['subject_id'] == sid) & (data_all['label'].isin(label_pair))]
             if not vols.empty:
                 valid_downval_ids.append(sid)
-        downval_subjects = pd.DataFramæe({'subject_id': valid_downval_ids})
+        downval_subjects = pd.DataFrame({'subject_id': valid_downval_ids})
 
         # === Save VAL and TEST
         for split, subjects_df in zip(["downval", "downtest"], [downval_subjects, test_subjects]):
             ids = subjects_df['subject_id'].values
-            df = extract_binary_split(data, ids, label_pair, pos_label)
+            df = extract_binary_split(data_all, ids, label_pair, pos_label)
             out_path = os.path.join(output_dir, f"adni_fold{fold}_{split}_{task_name}.csv")
             df.to_csv(out_path, index=False)
             print(f"✅ Saved: {out_path} ({len(df)} volumes, {len(ids)} subjects)")
@@ -103,7 +116,7 @@ def generate_stratified_folds(task_name, label_pair, pos_label):
 
         # === Save full downtrain (volume-balanced)
         train_ids = downtrain_subjects['subject_id'].values
-        df = extract_binary_split(data, train_ids, label_pair, pos_label, balance_by_volume=True)
+        df = extract_binary_split(data_all, train_ids, label_pair, pos_label, balance_by_volume=True)
         df.to_csv(os.path.join(output_dir, f"adni_fold{fold}_downtrain_{task_name}.csv"), index=False)
         print(f"✅ Saved: fold{fold}_downtrain_{task_name} ({len(df)} volumes, {len(train_ids)} subjects)")
         print(df['label'].value_counts().to_dict())
@@ -119,7 +132,7 @@ def generate_stratified_folds(task_name, label_pair, pos_label):
             fewshot_subjects = pd.concat(fewshot_parts)
 
             ids = fewshot_subjects['subject_id'].values
-            df = extract_binary_split(data, ids, label_pair, pos_label)
+            df = extract_binary_split(data_all, ids, label_pair, pos_label)
             out_path = os.path.join(output_dir, f"adni_fold{fold}_downtrain_k{k}_{task_name}.csv")
             df.to_csv(out_path, index=False)
             print(f"✅ Saved: fold{fold}_downtrain_k{k}_{task_name} ({len(df)} volumes, {len(ids)} subjects)")

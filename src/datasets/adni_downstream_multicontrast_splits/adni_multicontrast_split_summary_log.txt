@@ -1,0 +1,8 @@
+==== NC_AD ====
+Train: 903 samples (62.15%), 248 subjects (63.75%), Class dist: {0: 538, 1: 365}
+Val: 241 samples (16.59%), 63 subjects (16.20%), Class dist: {0: 158, 1: 83}
+Test: 309 samples (21.27%), 78 subjects (20.05%), Class dist: {0: 197, 1: 112}
+==== NC_MCI ====
+Train: 768 samples (62.24%), 198 subjects (63.87%), Class dist: {0: 559, 1: 209}
+Val: 206 samples (16.69%), 50 subjects (16.13%), Class dist: {0: 137, 1: 69}
+Test: 260 samples (21.07%), 62 subjects (20.00%), Class dist: {0: 197, 1: 63}

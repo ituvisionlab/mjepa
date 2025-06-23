@@ -10,16 +10,19 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  - src/datasets/debug_nii_list64.csv
+  #- src/datasets/debug_nii_list64.csv
+  - src/datasets/adni_downstream_splits/nc_ad_train.csv
   #- src/datasets/adni_all_2class_bet_train.csv 
   dataset_val: 
-  - src/datasets/debug_nii_list64.csv
+  #- src/datasets/debug_nii_list64.csv
+  - src/datasets/adni_downstream_splits/nc_ad_val.csv
   #- src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 160 #128  #176 does not work due to memory!
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
+  eval_in_channel_size: 3
   frame_step: 1
   num_workers: 0 #4
   random_clip_sampling: false
@@ -73,7 +76,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_19__15_06_31/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_02_07__18_54_57/model_ckpt/periodic-model/

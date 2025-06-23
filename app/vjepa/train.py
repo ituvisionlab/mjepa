@@ -588,13 +588,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     Returns list of tensors of shape [B, N, D], one for each mask-pred.
                     """
                     with torch.no_grad():
-                        h = target_encoder(c)
+                        h = target_encoder(c) #already normalized in ViT
+                        # h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]: This is double normalization?
                         # -- create target embeddings (masked regions of h)
                         h = apply_masks(h, masks_pred, concat=False)
                         return h                        
-                        # h = target_encoder(c) #already returns normalized!
-                        # h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]: This is !!! double normalization!
-
 
                 def forward_context(c, h):
                     """

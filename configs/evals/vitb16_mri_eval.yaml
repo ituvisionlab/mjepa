@@ -26,6 +26,7 @@ data:
   frames_per_clip: 192
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
+  eval_in_channel_size: 1
   frame_step: 1
   num_workers: 8
   random_clip_sampling: false #true

@@ -40,7 +40,7 @@ data_aug:
   - 0.9
   - 1.0
   rotation_degree: 10
-  reprob: 0.0
+  threshold_isotropy: 1.4
 logging:
   folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
   write_tag: mae

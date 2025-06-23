@@ -147,6 +147,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     random_bias = args_data_aug.get('random_bias', 0.2)
     intensity_gamma = args_data_aug.get('intensity_gamma', 0.2)
     rot_degree = args_data_aug.get('rotation_degree', 0.0)
+    threshold_isotropy = args_data_aug.get('threshold_isotropy', 1.4)
     random_resize_aspect_ratio = args_data_aug.get('random_resize_aspect_ratio', [1, 1])
     random_resize_scale = args_data_aug.get('random_resize_scale', [0.9, 1.0])
     random_horizontal_flip = args_data_aug.get('random_horizontal_flip', True)
@@ -360,6 +361,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     train_loader, train_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=train_data_path,
+        collator=None,
         resolution=resolution,
         frames_per_clip=eval_frames_per_clip,
         frame_step=eval_frame_step,
@@ -375,6 +377,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         random_resize_aspect_ratio=random_resize_aspect_ratio,
         random_resize_scale=random_resize_scale,
         rot_degree=rot_degree,
+        threshold_isotropy=threshold_isotropy,
         intensity_gamma=intensity_gamma,
         random_bias=random_bias,
         random_noise=random_noise,
@@ -385,6 +388,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     val_loader, val_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=val_data_path,
+        collator=None,
         resolution=resolution,
         frames_per_clip=eval_frames_per_clip,
         frame_step=eval_frame_step,
@@ -399,6 +403,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         random_resize_aspect_ratio=random_resize_aspect_ratio,
         random_resize_scale=random_resize_scale,
         rot_degree=rot_degree,
+        threshold_isotropy=threshold_isotropy,
         intensity_gamma=intensity_gamma,
         random_bias=random_bias,
         random_noise=random_noise,
@@ -552,16 +557,32 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             eval_in_chans=eval_in_chans,)
 
         #GU_ DEBUG
-        #if not math.isnan(auc_score):
-        #    print(f"Val AUC: {auc_score:.4f} at epoch: {epoch}")
-        auc_score=0
         if rank == 0:
             logger.info('[%5d] train: %.3f%% test: %.3f%% AUC: %.3f' % (epoch, train_acc, val_acc, auc_score))
         
+        logger.info(f"Validation Metrics:")
+        logger.info(f"Accuracy: {val_acc:.4f}")
+        logger.info(f"Sensitivity (Recall): {val_recall:.4f}")
+        logger.info(f"Precision: {val_precision:.4f}")
+        logger.info(f"F1-score: {val_f1:.4f}")
+        logger.info(f"AUC: {auc_score if not np.isnan(auc_score) else 'Undefined (single class)'}")
+
         # if rank == 0:
         if csv_logger != None:
             csv_logger.log(epoch, train_acc, val_acc, train_loss, val_loss, train_recall, val_recall, train_precision, val_precision, train_f1, val_f1, auc_score)
-        
+
+        # Wandb logging
+        if run != None and rank == 0:
+            run.log({
+                    'val/acc': val_acc,
+                    'val/loss': val_loss,
+                    'val/auroc': auc_score,
+                    'val/recall': val_recall,
+                    'val/precision': val_precision,
+                    'val/f1': val_f1,
+                    'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
+                })
+                
         #if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
         if log_dir != None: # at the end of every epoch       
             if not os.path.exists(latest_path):
@@ -631,7 +652,7 @@ def run_one_epoch(
     ipe = len(data_loader)
     if eval_freq > ipe:
         eval_freq = 1
-    auc_score = 0 #AUC Calculations are cancelled!!!! SET TO ZERO!!!
+    auc_score = 0 #AUC initialize to 0
 
     loader = iter(data_loader)
     data_sampler.set_epoch(epoch)
@@ -650,7 +671,17 @@ def run_one_epoch(
                 
             loader = iter(data_loader) #resets the loader iterator again
             data = next(loader)
-   
+
+        #clips = data[0]  # [ [clip], [clip], ... ] 
+        # labels = data[1]
+        #clip_indices = data[2]
+        # DEBUG
+        # contrast_names_batch = data[3]  # list of lists: [contrast][batch_idx]
+        # contrast_names_per_sample = [list(x) for x in zip(*contrast_names_batch)]
+        # logger.info(f"Contrast names per sample (batch size = {len(contrast_names_per_sample)}):")
+        # for i, contrast_list in enumerate(contrast_names_per_sample):
+        #     logger.info(f"  Sample {i}: {contrast_list}")
+
         new_lr = None
         new_wd = None
         if training:
@@ -660,116 +691,98 @@ def run_one_epoch(
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
         #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
             # Load data and put on GPU: move frames to GPU
-            labels = data[1].to(device)
+            labels = data[1].to(device) # [B]
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
-            batch_size = len(labels)
-            if eval_in_chans > 1:
-                # MULTI-CONTRAST INPUT (e.g., prostate MRI)
-                full_clip = data[0][0][0]  # shape: [B, 3, T, H, W]
+            contrast_masks = data[3].to(device)  # [B, max_contrasts]
+            batch_size = labels.size(0)
 
-                # Split channels : contrasts[i]: B, 1, T, H, W
-                contrasts = [full_clip[:, i:i+1].to(device, non_blocking=True) for i in range(eval_in_chans)]
+            # unwrap the data correctly to a tensor of [B, C, T, H, W]
+            full_clip = data[0][0].to(device, non_blocking=True)  # explicitly unwrap list: [B,C,T,H,W]
 
-                # Wrap as [[ [Tensor] ]] for each contrast to match expected encoder input structure
-                inputs_per_contrast = [[[contrast]] for contrast in contrasts]
-            else:
-                # SINGLE-CHANNEL INPUT
-                clips = [
-                    [dij.to(device, non_blocking=True) for dij in di] # iterate over spatial views of clip
-                    for di in data[0] # iterate over temporal index of clip
-                ]
+            encoder_requires_grad = (not frozen and training)
+            encoder_context = torch.enable_grad() if encoder_requires_grad else torch.no_grad()
 
+            with encoder_context:
+                if eval_in_chans > 1:
+                    # Multi-contrast logic explicitly handling each contrast batch-wise
+                    encoded_contrasts = []
+                    for c in range(eval_in_chans):
+                        contrast_mask = contrast_masks[:, c]  # [B] mask to show which samples in the batch have contrast c
+                        valid_indices = contrast_mask.nonzero(as_tuple=True)[0]
 
-            # clips list: len = no_of_clips 
-            # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
-            # clips[1][0].shape ""
-            # Forward and prediction
-            outputs = None
-            if eval_in_chans > 1:
-                # Multi-contrast evaluation
-                context = torch.no_grad() if frozen or not training else torch.enable_grad()
-                with context:
-                    encoded_contrasts = [ #encoded_contrasts[i=0:2].shape: B, N, D
-                        encoder(inp, clip_indices)[0]
-                        for inp in inputs_per_contrast if inp is not None
-                    ]
+                        if len(valid_indices) == 0:
+                            continue  # explicitly skip if no valid contrasts in batch
 
-                    # encoded_contrasts = [
-                    #     encoder(inp, clip_indices)
-                    #     for inp in inputs_per_contrast if inp is not None
-                    # ]  # list of [B, N, D]  
-            
-                outputs = [attn_pooler(encoded_contrasts)]  # list of one [B, N, D]
-            else:
-                # Original single-channel pipeline
-                if not frozen:
-                    if training:
-                        outputs = encoder(clips, clip_indices)
-                    else:
-                        with torch.no_grad():
-                            outputs = encoder(clips, clip_indices)
+                        contrast_tensor = full_clip[valid_indices, c:c+1]  # [B_valid, 1, T, H, W] for a given contrast, hence ,1,
+
+                        # explicitly wrap contrast tensor to match expected encoder input [[[B,C,T,H,W]]], ie for ClipAggregation
+                        encoder_input = [[contrast_tensor]]  # [[[B_valid,1,T,H,W]]]
+                        encoded_output = encoder(encoder_input, clip_indices)[0]  # [B_valid, N, D] valid samples in the batch for contrast c
+
+                        # explicitly create full-batch tensor initialized to zeros to maintain order
+                        batch_encoded_contrast = torch.zeros(batch_size, *encoded_output.shape[1:], device=device, dtype=encoded_output.dtype)
+                        batch_encoded_contrast[valid_indices] = encoded_output
+
+                        encoded_contrasts.append(batch_encoded_contrast)
+
+                    if len(encoded_contrasts) == 0:
+                        raise ValueError("No valid contrasts in entire batch.")
+
+                    # explicitly aggregate contrasts using attention pooling: [B, N, D]
+                    outputs = attn_pooler(encoded_contrasts)
                 else:
-                    with torch.no_grad():
-                        outputs = encoder(clips, clip_indices)
+                    # Single-contrast logic
+                    encoder_input = [[full_clip]]  # explicitly correct nesting: [[[B,C=1,T,H,W]]]
+                    outputs = encoder(encoder_input, clip_indices)[0]  # [B, N, D]
 
-            # if not frozen:
-            #     if training:
-            #         outputs = encoder(clips, clip_indices)
-            #     else:
-            #         with torch.no_grad():
-            #             outputs = encoder(clips, clip_indices)
+            classifier_requires_grad = training  # classifier explicitly trainable during training
+            classifier_context = torch.enable_grad() if classifier_requires_grad else torch.no_grad()
 
-            # with torch.no_grad():
-            #     if frozen:
-            #         outputs = encoder(clips, clip_indices) #outputs[0].shape= torch.Size([4, 3136, 1024])
-                
-                if not training:
-                    if attend_across_segments:
-                        outputs = [classifier(o) for o in outputs]
-                    else:
-                        outputs = [[classifier(ost) for ost in os] for os in outputs]
-            if training:
-                
-                # print(f"Outputs = Clip embeddings require grad: {outputs[0].requires_grad}")
-                # print(f"Outputs = Clip embeddings require grad: {outputs[0][0].requires_grad}") #for not attend_across_segments
+            with classifier_context:
                 if attend_across_segments:
-                    outputs = [classifier(o) for o in outputs]
+                    classifier_outputs = [classifier(outputs)]  # list of B,num_classes tensor: i.e. [B, num_classes]
                 else:
-                    outputs = [[classifier(ost) for ost in os] for os in outputs]
-        # outputs tensor shape: Batchsize x num_classes
-        #GU_Debug
-        # print(f"Classifier Outputs require grad: {outputs[0].requires_grad}")
+                    classifier_outputs = [[classifier(outputs)]]
 
-        # Compute loss
-        if attend_across_segments:
-            loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
-        else:
-            loss = sum([sum([criterion(ost, labels) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
-        with torch.no_grad():
+            # Loss calculation
             if attend_across_segments:
-                outputs = sum([F.softmax(o, dim=1) for o in outputs]) / len(outputs)
+                loss = sum([criterion(o, labels) for o in classifier_outputs]) / len(classifier_outputs)
             else:
-                outputs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
-            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum() / batch_size
+                loss = sum(
+                    [sum([criterion(ost, labels) for ost in os]) for os in classifier_outputs]
+                ) / len(classifier_outputs) / len(classifier_outputs[0])
+
+            with torch.no_grad():
+                if attend_across_segments:
+                    classifier_outputs = sum([F.softmax(o, dim=1) for o in classifier_outputs]) / len(classifier_outputs)
+                else:
+                    classifier_outputs = sum(
+                        [sum([F.softmax(ost, dim=1) for ost in os]) for os in classifier_outputs]
+                    ) / len(classifier_outputs) / len(classifier_outputs[0])
+
+            # Metric calculations: classifier_outputs: [B, num_classes] at this point
+            preds = classifier_outputs.max(dim=1).indices
+
+            # Top-1 Accuracy
+            top1_acc = 100. * preds.eq(labels).sum() / batch_size
             top1_acc = float(AllReduce.apply(top1_acc))
             top1_meter.update(top1_acc)
-            
-            # Compute additional metrics per batch
-            preds = outputs.max(dim=1).indices
-           # Use macro average for multiclass classification
-            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro') # average over all classes
-            # recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average=None) # per class average
+
+            # Additional Metrics
+            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
             precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
             f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
-           
-           # cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
-           # tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
-           # specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-            
-            # Append current batch results for AUC calculations during val
+
+            # (Specificity is commented out, activate if needed)
+            # cm = confusion_matrix(labels.cpu().numpy(), preds.cpu().numpy())
+            # tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+            # specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+
+            # Collect results for AUC during validation
             if not training:
-                all_outputs.append(outputs.detach().cpu())
+                all_outputs.append(classifier_outputs.detach().cpu())
                 all_labels.append(labels.detach().cpu())
+
     
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
             precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
@@ -886,22 +899,37 @@ def run_one_epoch(
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
 
-    #end of one epoch
-    # if rank == 0 and not training:
-    #     auc_score = compute_distributed_auc(
-    #         all_outputs, all_labels, num_classes,
-    #         save_path=os.path.join(log_dir, "auc_debug") if log_dir else None,
-    #         step=epoch
-    #     )
-    # else:
-    #     auc_score = 0 #float('nan')
-
-    # # log AUC after one epoch is completed for validation set
-    # if run is not None and rank == 0 and not training:
-    #     if isinstance(auc_score, float) and not np.isnan(auc_score):
-    #         run.log({'val/auc': auc_score})
-    #     else:
-    #         logger.warning(f"[Rank {rank}] Skipping AUC log due to NaN")
+    #end of one epoch : AUC Calculation
+    if rank == 0 and not training:
+        # Concatenate all outputs and labels
+        all_outputs_tensor = torch.cat(all_outputs, dim=0)  # shape: [total_samples, num_classes]
+        all_labels_tensor = torch.cat(all_labels, dim=0)    # shape: [total_samples]
+        # Convert to numpy arrays
+        all_outputs_np = all_outputs_tensor.numpy()
+        all_labels_np = all_labels_tensor.numpy()
+    
+        unique_labels = np.unique(all_labels_np)
+        if len(unique_labels) < 2:
+            logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
+            auc_score = float('nan')
+        else:
+            try:           
+                number_classes = all_outputs_np.shape[1] # num_classes already available
+                if number_classes == 2: # Binary classification case
+                    auc_score = roc_auc_score(all_labels_np, all_outputs_np[:, 1])
+                else:
+                    # Multi-class classification (one-vs-rest)
+                    auc_score = roc_auc_score(
+                        all_labels_np,
+                        all_outputs_np,
+                        multi_class='ovr',
+                        average='macro'
+                    )
+            except ValueError as e:
+                logger.warning(f"Could not compute AUC: {e}")
+                auc_score = float('nan')
+            # Log and print AUC
+        logger.info(f"AUC Score (validation) inside run_one_epoch: {auc_score:.4f}")
         
     torch.cuda.empty_cache()
         
@@ -925,7 +953,7 @@ def sanity_check(encoder, classifier, val_loader, device, num_classes):
     clip_indices = [d.to(device) for d in data[2]]
 
     # Encoder forward
-    outputs = encoder(clips, clip_indices)
+    outputs = encoder(clips, clip_indices) #why does the encoder need clip_indices
     print(f"[ENCODER] output[0] shape: {outputs[0].shape}")
 
     # Classifier forward
@@ -1009,13 +1037,13 @@ def load_pretrained(
     del checkpoint
     return encoder
 
-
 def make_dataloader(
     root_path,
     batch_size,
     world_size,
     rank,
     dataset_type='MRIDataset',
+    collator=None,
     resolution=224,
     frames_per_clip=16,
     frame_step=4,
@@ -1031,6 +1059,7 @@ def make_dataloader(
     random_resize_aspect_ratio=(1.0,1.0), #(0.75, 4/3),
     random_resize_scale=(0.9, 1.0),
     rot_degree=10,
+    threshold_isotropy=1.4,
     intensity_gamma=0.2,
     random_bias=0.2,
     random_noise=0.025,
@@ -1058,6 +1087,7 @@ def make_dataloader(
     data_loader, data_sampler = init_data(
         data=dataset_type,
         root_path=root_path,
+        collator=collator,
         transform=transform,
         batch_size=batch_size,
         world_size=world_size,
@@ -1070,6 +1100,7 @@ def make_dataloader(
         crop_size=resolution,
         random_clip_sampling=random_clip_sampling, 
         allow_clip_overlap=allow_segment_overlap,
+        threshold_isotropy=threshold_isotropy,
         num_workers=num_workers,
         copy_data=False,
         drop_last=False,
