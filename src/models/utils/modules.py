@@ -140,7 +140,7 @@ class CrossAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.use_sdpa = use_sdpa
 
-    def forward(self, q, x):
+    def forward(self, q, x, attn_mask=None):
         B, n, C = q.shape
         q = self.q(q).reshape(B, n, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
@@ -150,9 +150,14 @@ class CrossAttention(nn.Module):
 
         if self.use_sdpa:
             with torch.backends.cuda.sdp_kernel():
-                q = F.scaled_dot_product_attention(q, k, v)
+                if attn_mask is not None:
+                    q = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+                else:
+                    q = F.scaled_dot_product_attention(q, k, v)
         else:
             xattn = (q @ k.transpose(-2, -1)) * self.scale
+            if attn_mask is not None:
+                xattn = xattn.masked_fill(attn_mask == 0, float('-inf'))
             xattn = xattn.softmax(dim=-1)  # (batch_size, num_heads, query_len, seq_len)
             q = (xattn @ v)
 
@@ -179,8 +184,8 @@ class CrossAttentionBlock(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer)
 
-    def forward(self, q, x):
-        y = self.xattn(q, self.norm1(x))
+    def forward(self, q, x, attn_mask=None):
+        y = self.xattn(q, self.norm1(x), attn_mask=attn_mask)
         q = q + y
         q = q + self.mlp(self.norm2(q))
         return q

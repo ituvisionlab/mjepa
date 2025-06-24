@@ -175,8 +175,9 @@ class MRIDataset(torch.utils.data.Dataset):
                     self.contrast_names = ['single_channel']
                     self.in_chans = 1
                 else:
-                    # Auto-detect all *_path columns as contrast paths
-                    contrast_cols = [col for col in data.columns if col.endswith('_path')]
+                    # Auto-detect all *_path columns as contrast paths, but limit to in_chans contrasts
+                    contrast_cols = [col for col in data.columns if col.endswith('_path')][:self.in_chans]
+                    #contrast_cols = [col for col in data.columns if col.endswith('_path')]
                     if len(contrast_cols) == 0:
                         raise ValueError("No *_path columns found for multi-contrast MRI input.")
                     samples += list(zip(*[data[col] for col in contrast_cols]))  # List of tuples

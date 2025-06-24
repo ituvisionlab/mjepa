@@ -11,8 +11,8 @@ data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
   #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_train.csv
-  #- src/datasets/adni_downstream_splits/nc_ad_train.csv
-  - src/datasets/debug_nii_list64.csv
+  - src/datasets/adni_downstream_splits/nc_ad_train.csv
+  #- src/datasets/debug_nii_list64.csv
   #- src/datasets/adni_cv_folds_stratified/adni_fold0_downtrain_nc_ad.csv
   #- src/datasets/adni_all_2class_bet_valtrain.csv
   #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
@@ -21,8 +21,8 @@ data:
   #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
   #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_val.csv
-  #- src/datasets/adni_downstream_splits/nc_ad_val.csv
-  - src/datasets/debug_nii_list64.csv
+  - src/datasets/adni_downstream_splits/nc_ad_val.csv
+  #- src/datasets/debug_nii_list64.csv
   #- src/datasets/adni_cv_folds_stratified/adni_fold0_downval_nc_ad.csv
   #- src/datasets/adni_all_2class_bet_valtest.csv
   #- src/datasets/adni_all_3class_bet_valtest.csv
@@ -32,10 +32,11 @@ data:
   frames_per_clip: 144
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
-  eval_in_channel_size: 1 #6 #max # allowed contrasts
+  eval_in_channel_size: 1 #3 #max no allowed contrasts
   frame_step: 1
-  num_workers: 0
+  num_workers: 8
   random_clip_sampling: false
+  pin_mem: true
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -53,7 +54,7 @@ optimization:
   attend_across_segments: true
   num_epochs: 400
   resolution: 144
-  batch_size: 4
+  batch_size: 8 # 8 is the max memory allowed for multicontrast
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
   start_lr: 1.0e-5 #1.0e-5
@@ -67,9 +68,10 @@ optimization:
   val_log_iter_freq: 1
   layer_decay: null #0.75 #null to turn it off
   classifier_depth: 1
-  dropout: null #0.25 #null to turn off
+  dropout: null #0.1 #null to turn off
   drop_rate: 0.0
   attn_drop_rate: 0.0
+  attn_pooler_flag: false #for multicontrast input, optional attn pooler before classifier
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #encoder
@@ -83,7 +85,7 @@ pretrain:
   use_sdpa: true
   patch_size: 8
   clip_grad_encoder: 1.0
-  encoder_warmup: 0
+  encoder_warmup: 4
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added

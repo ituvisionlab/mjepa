@@ -165,6 +165,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     final_lr = args_opt.get('final_lr')
     warmup = args_opt.get('warmup')
     use_bfloat16 = args_opt.get('use_bfloat16')
+    attn_pooler_flag = args_opt.get('attn_pooler_flag',False)
     seed = args_opt.get('seed', _GLOBAL_SEED)
     train_eval_freq = args_opt.get('train_log_iter_freq')
     val_eval_freq = args_opt.get('val_log_iter_freq')
@@ -337,8 +338,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             use_pos_embed=use_pos_embed
         ).to(device)
 
-    # for multi-channel inputs
-    attn_pooler = AttentionPooling(embed_dim=encoder.model.embed_dim).to(device)
+    if eval_in_chans > 1 and attn_pooler_flag is True:
+        attn_pooler = AttentionPooling(embed_dim=encoder.model.embed_dim).to(device)  # for multi-channel inputs
+    else:
+        attn_pooler = None  # Explicitly None for single contrast and multicontrast by default
     print("Print the attention pooler")
     print(attn_pooler)
 
@@ -451,17 +454,19 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # -- load training checkpoint
     start_epoch = 0
     if resume_checkpoint:
-        classifier, optimizer, scaler, start_epoch = load_checkpoint(
+        classifier, optimizer, scaler, start_epoch, attn_pooler = load_checkpoint(
             device=device,
             r_path=cls_checkpoint_path,
             classifier=classifier,
             opt=optimizer,
-            scaler=scaler)
+            scaler=scaler,
+            attn_pooler=attn_pooler if (eval_in_chans > 1 and attn_pooler_flag is True) else None
+        )
         for _ in range(start_epoch*ipe):
             scheduler.step()
             wd_scheduler.step()
 
-    def save_checkpoint(epoch, train_acc, val_acc, path, info_path):
+    def save_checkpoint(epoch, train_acc, val_acc, path, info_path, attn_pooler=None):
         save_dict = {
             'encoder': encoder.state_dict(),  # Save encoder state
             'classifier': classifier.state_dict(),
@@ -472,10 +477,13 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             'world_size': world_size,
             'lr': lr
         }
+        if attn_pooler is not None:
+            save_dict['attn_pooler'] = attn_pooler.state_dict()
         if rank == 0:
             torch.save(save_dict, path) #rather than to save on latest_path pretrained classifier
             with open(info_path, "w") as info_f:
                 info_f.write(f"Model path: {path},\nEpoch: {epoch+1},\ntrain acc: {train_acc}, val acc: {val_acc}, lr: {lr}")
+            logger.info(f"Checkpoint successfully saved at epoch {epoch} to {path}")
                 
     epoch_accs = []
     epoch_val_accs = []
@@ -586,17 +594,17 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         #if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
         if log_dir != None: # at the end of every epoch       
             if not os.path.exists(latest_path):
-                save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path)
+                save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path, attn_pooler=attn_pooler)
             else:
                 if len(epoch_accs) > 0:
                     if val_acc > max(epoch_val_accs) and epoch > 4: #if train_acc > max(epoch_accs) and epoch > 4:
-                        save_checkpoint(epoch, train_acc, val_acc, best_path, best_info_path)
+                        save_checkpoint(epoch, train_acc, val_acc, best_path, best_info_path, attn_pooler=attn_pooler)
                     else:
-                        save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path)
+                        save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path, attn_pooler=attn_pooler)
                     if epoch% save_ckpt_epoch_freq ==0:
                         periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch}.pth.tar')
                         periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
-                        save_checkpoint(epoch, train_acc, val_acc, periodic_path, periodic_info_path)
+                        save_checkpoint(epoch, train_acc, val_acc, periodic_path, periodic_info_path, attn_pooler=attn_pooler)
         if epoch >= 4:
             epoch_accs.append(train_acc)
             epoch_val_accs.append(val_acc)
@@ -728,10 +736,13 @@ def run_one_epoch(
                     if len(encoded_contrasts) == 0:
                         raise ValueError("No valid contrasts in entire batch.")
 
-                    # explicitly aggregate contrasts using attention pooling: [B, N, D]
-                    outputs = attn_pooler(encoded_contrasts)
+                    # 1. Cancelled this: explicitly aggregate multiple contrasts using attention pooling: [B, N, D]
+                    #if attn_pooler is not None: #not needed, this is already checked in initialization
+                    # outputs = attn_pooler(encoded_contrasts, contrast_masks) #list of len:B, each with tensors NxD
+                    # 2. Concatenate encoded contrasts along token dimension: [B, C*N, D]
+                    outputs = torch.cat(encoded_contrasts, dim=1)
                 else:
-                    # Single-contrast logic
+                    # Single-contrast: no pooling
                     encoder_input = [[full_clip]]  # explicitly correct nesting: [[[B,C=1,T,H,W]]]
                     outputs = encoder(encoder_input, clip_indices)[0]  # [B, N, D]
 
@@ -740,8 +751,11 @@ def run_one_epoch(
 
             with classifier_context:
                 if attend_across_segments:
-                    classifier_outputs = [classifier(outputs)]  # list of B,num_classes tensor: i.e. [B, num_classes]
-                else:
+                    if eval_in_chans > 1: # masked attention pooling
+                        classifier_outputs = [classifier(outputs, contrast_masks)]  # list of B,num_classes tensor: i.e. [B, num_classes]
+                    else:
+                        classifier_outputs = [classifier(outputs)]  # single contrast, no masking                   
+                else: # FIX_ME_Not_needed: Does not handle multicontrast case for attend_across_segments is false
                     classifier_outputs = [[classifier(outputs)]]
 
             # Loss calculation
@@ -981,30 +995,41 @@ def load_checkpoint(
     r_path,
     classifier,
     opt,
-    scaler
+    scaler,
+    attn_pooler=None  # Optional attn_pooler for multi-contrast evaluation, None for single-contrast case
 ):
     try:
         checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
         epoch = checkpoint['epoch']
 
-        # -- loading encoder
-        pretrained_dict = checkpoint['classifier']
-        msg = classifier.load_state_dict(pretrained_dict)
-        logger.info(f'loaded pretrained classifier from epoch {epoch} with msg: {msg}')
+        # Load classifier
+        classifier_dict = checkpoint.get('classifier', {})
+        msg_cls = classifier.load_state_dict(classifier_dict, strict=True)
+        logger.info(f'Loaded pretrained classifier from epoch {epoch} with message: {msg_cls}')
 
-        # -- loading optimizer
+        # Load attn_pooler if it exists and is provided
+        if attn_pooler is not None and 'attn_pooler' in checkpoint:
+            attn_msg = attn_pooler.load_state_dict(checkpoint['attn_pooler'])
+            logger.info(f'loaded attn_pooler with msg: {attn_msg}')
+        else:
+            attn_pooler = None  # Explicitly set to None if single-contrast or no attn_pooler saved
+            logger.info('No attn_pooler loaded (single-contrast eval or missing from checkpoint)')
+
+        # Load optimizer and scaler
         opt.load_state_dict(checkpoint['opt'])
-        if scaler is not None:
+        if scaler is not None and 'scaler' in checkpoint:
             scaler.load_state_dict(checkpoint['scaler'])
-        logger.info(f'loaded optimizers from epoch {epoch}')
-        logger.info(f'read-path: {r_path}')
+        logger.info(f'Loaded optimizer and scaler from epoch {epoch}')
+        logger.info(f'Checkpoint read from: {r_path}')
         del checkpoint
 
     except Exception as e:
-        logger.info(f'Encountered exception when loading checkpoint {e}')
+        logger.info(f'Encountered exception when loading checkpoint: {e}')
         epoch = 0
 
-    return classifier, opt, scaler, epoch
+    # Return updated models and optimizer states explicitly
+    return classifier, opt, scaler, epoch, attn_pooler
+
 
 
 def load_pretrained(

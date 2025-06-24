@@ -135,7 +135,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     in_chans = cfgs_data.get('in_channel_size', 3)
     random_clip_sampling = cfgs_data.get('random_clip_sampling', False)
     patch_size = cfgs_data.get('patch_size')
-    pin_mem = cfgs_data.get('pin_mem', False)
+    pin_mem = cfgs_data.get('pin_mem', True)
     num_workers = cfgs_data.get('num_workers', 1)
     filter_short_videos = cfgs_data.get('filter_short_videos', False)
     decode_one_clip = cfgs_data.get('decode_one_clip', True)

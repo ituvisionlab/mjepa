@@ -34,6 +34,7 @@ data:
   frame_step: 1
   num_workers: 8
   random_clip_sampling: false
+  pin_mem: true
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -80,7 +81,7 @@ pretrain:
   use_sdpa: true
   patch_size: 8
   clip_grad_encoder: 1.0
-  encoder_warmup: 0
+  encoder_warmup: 4
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added

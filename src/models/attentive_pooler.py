@@ -94,9 +94,16 @@ class AttentivePooler(nn.Module):
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x):
-        q = self.query_tokens.repeat(len(x), 1, 1)
-        q = self.cross_attention_block(q, x)
+    def forward(self, x, mask=None):
+        q = self.query_tokens.repeat(len(x), 1, 1) #x: [B, num_tokens, D]
+        # Compute cross-attention scores
+        attn_mask = None
+        if mask is not None:
+            # token_mask: [B, tokens], shape attn_mask [B, num_queries, tokens]
+            attn_mask = mask.unsqueeze(1).expand(-1, q.size(1), -1).unsqueeze(1)  # [B,1,num_queries,tokens]
+            
+        q = self.cross_attention_block(q, x, attn_mask=attn_mask)
+
         if self.blocks is not None:
             for blk in self.blocks:
                 q = blk(q)
@@ -149,8 +156,20 @@ class AttentiveClassifier(nn.Module):
             self.drop_head = nn.Dropout(dropout)
 
 
-    def forward(self, x):
-        x = self.pooler(x).squeeze(1)
+    def forward(self, x, contrast_mask=None):
+        
+        # x: [B, num_tokens, D]
+        # contrast_mask: [B, C], to be expanded to [B, tokens] (matching x)
+
+        mask = None
+        if contrast_mask is not None:
+            # Repeat contrast mask along tokens: expanded contrastMask to mask [B, num_tokens]
+            B, num_tokens, _ = x.shape
+            C = contrast_mask.shape[1]
+            tokens_per_contrast = num_tokens // C
+            mask = contrast_mask.bool().unsqueeze(-1).repeat(1, 1, tokens_per_contrast).view(B, num_tokens) #tensor of B,NxC
+
+        x = self.pooler(x, mask=mask).squeeze(1)
         
         # if dropout layer is defined
         if self.drop_head is not None:
@@ -214,26 +233,44 @@ class AttentionPooling(nn.Module):
         self.query = nn.Parameter(torch.randn(1, 1, embed_dim))
         self.key_proj = nn.Linear(embed_dim, embed_dim)
         self.value_proj = nn.Linear(embed_dim, embed_dim)
-        self.softmax = nn.Softmax(dim=1)
+        self.softmax = nn.Softmax(dim=2) #softmax over contrast dimension
 
-    def forward(self, embeddings):
+    def forward(self, embeddings, contrast_mask=None):
         """
-        embeddings: list of [B, N, D] from each contrast
+        embeddings: list of [B, N, D] from each contrast (C elements)
+        contrast_mask: [B, C], 1 for available, 0 for missing contrasts
         returns: [B, N, D] pooled embedding
         """
         x = torch.stack(embeddings, dim=1)  # [B, C, N, D]
         B, C, N, D = x.shape
 
+        contrast_mask = contrast_mask[:, :C]  # Trim to match current contrasts present 
+        #b/c contrast_mask might sometimes have fewer than C_max contrasts (e.g., [B,4] instead of [B,6]) 
+        # as the pipeline skips contrasts entirely when no sample has them in a batch.
+
         query = self.query.expand(B, 1, D)  # [B, 1, D]
-        keys = self.key_proj(x)            # [B, C, N, D]
-        values = self.value_proj(x)        # [B, C, N, D]
+        keys = self.key_proj(x)             # [B, C, N, D]
+        values = self.value_proj(x)         # [B, C, N, D]
 
         scores = torch.einsum("bqd,bknd->bqkn", query, keys)  # [B, 1, C, N]
+
+        # Masking invalid contrasts: ensure mask dimensions match scores dimensions
+        if contrast_mask is not None:
+            expanded_mask = contrast_mask.unsqueeze(-1).unsqueeze(1).expand_as(scores)  # [B, 1, C, N]
+            scores.masked_fill_(expanded_mask == 0, float('-inf'))
+
+        # Stability fix (avoid potential overflow in fp16)
+        scores = scores.clamp(min=-1e4)
+
         attn_weights = self.softmax(scores)                   # [B, 1, C, N]
+    
+        # DEBUG PRINT: Mean attention over tokens for first sample
+        print("Attention weights first sample (mean over tokens):", attn_weights[0, 0].mean(dim=-1).detach())
+        print("Contrast mask for first sample:", contrast_mask[0])
 
         values = values.unsqueeze(1)                          # [B, 1, C, N, D]
         weighted = attn_weights.unsqueeze(-1) * values        # [B, 1, C, N, D]
-        pooled = torch.sum(weighted, dim=2)                   # [B, 1, N, D]
+        pooled = weighted.sum(dim=2)                 # [B, 1, N, D]
 
         return pooled.squeeze(1)                              # [B, N, D]
 
