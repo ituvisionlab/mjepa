@@ -5,8 +5,10 @@ tag: mae
 data:
   dataset_type: MRIDataset
   datasets: # Relative path instead of abs path
+  #- src/datasets/debug_nii_list_scan.csv
+  # - src/datasets/scan_pretraining.csv
   #- src/datasets/debug_nii_list1024.csv
-  # - src/datasets/debug_nii_list64.csv
+  #- src/datasets/debug_nii_list64.csv
   - src/datasets/debug_nii_list1.csv
   # - src/datasets/oasis3_all_bet.csv
   # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
@@ -15,7 +17,7 @@ data:
   # - src/datasets/mood_all_nii_with_bbox.csv
   # - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv #- src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 2 #10 #16
+  batch_size: 1 #10 #16
   num_clips: 1 #8
   num_frames: 144 #128 #144 #160 #16
   tubelet_size: 8
@@ -47,7 +49,7 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 0.5 #capped to 0.5 in the code
+  spectral_coeff: 2.0
   spec_loss_every_n_iter: 2
   min_epoch_for_spectral: 0
   high_pass_flag: true #false

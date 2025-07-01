@@ -257,11 +257,9 @@ class AttentionPooling(nn.Module):
         # Masking invalid contrasts: ensure mask dimensions match scores dimensions
         if contrast_mask is not None:
             expanded_mask = contrast_mask.unsqueeze(-1).unsqueeze(1).expand_as(scores)  # [B, 1, C, N]
-            scores.masked_fill_(expanded_mask == 0, float('-inf'))
-
-        # Stability fix (avoid potential overflow in fp16)
-        scores = scores.clamp(min=-1e4)
-
+            scores.masked_fill_(expanded_mask == 0, float('-inf'))                   
+            scores = scores.clamp(min=-1e4) # Stability fix (avoid potential overflow in fp16)
+ 
         attn_weights = self.softmax(scores)                   # [B, 1, C, N]
     
         # DEBUG PRINT: Mean attention over tokens for first sample

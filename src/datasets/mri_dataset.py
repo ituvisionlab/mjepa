@@ -241,7 +241,7 @@ class MRIDataset(torch.utils.data.Dataset):
         bbox = self.bbox[index]  # Bounding box for this sample
        
         # Load MRI volume w/potentially missing contrasts (if in_chans > 1)
-        volume, contrast_names_used = self.load_nifti_file(sample, bbox, self.in_chans)
+        volume, contrast_names_used = self.load_nifti_file(sample, bbox, self.in_chans) #T,H,W volume returns
 
         C_max = self.in_chans #defines max # of allowed contrasts in multi-contrast case
 
@@ -254,7 +254,7 @@ class MRIDataset(torch.utils.data.Dataset):
         #     contrast = volume[..., i]  # shape: [T, H, W]
         #     # Save full volume as .nii
         #     # nib.save(nib.Nifti1Image(contrast, affine=np.eye(4)), f"Zdebug_contrast_{i}.nii")
-        #     # Save mid-slice as image
+        #     #Save mid-slice as image
         #     mid_slice = contrast[contrast.shape[0] // 2, :, :]  # [H, W]
         #     plt.imsave(f"Zmidslice_contrast_{i}.png", mid_slice, cmap='gray')
 
@@ -281,8 +281,21 @@ class MRIDataset(torch.utils.data.Dataset):
         # Apply transforms explicitly
         if self.transform is not None:  #even if auto_augment is false, converts the volume to a tensor
             padded_volume = self.transform(padded_volume)  # for pretrain, transform returns a tensor, for eval returns list of T x H x W x C tensor
+        
         #For debug: save transformed volume
-
+        # for i in range(padded_volume.shape[-1]):
+        #     contrast = padded_volume[..., i]  # shape: [T, H, W]
+        #     #Save mid-slice as image
+        #     mid_slice = contrast[contrast.shape[0] // 2, :, :]  # [H, W]
+        #     plt.imsave(f"ZmidsliceXformed_contrast_{i}.png", mid_slice, cmap='gray')
+        #     # Save full volume as .nii
+        #     # Ensure contrast is a numpy array explicitly
+        #     if isinstance(contrast, torch.Tensor):
+        #         contrast_np = contrast.cpu().numpy()
+        #     else:
+        #         contrast_np = contrast
+        #     nib.save(nib.Nifti1Image(contrast_np, affine=np.eye(4)), f"ZdebugXformed_contrast_{i}.nii")
+           
         if not isinstance(padded_volume, list): #for pretrain, volume is already tensor
             volume = self.intensity_normalize(padded_volume)
             buffer, clip_indices = self.split_volume(volume)  # [T H W 1]
@@ -396,7 +409,7 @@ class MRIDataset(torch.utils.data.Dataset):
             return None
 
         try:
-            img = nib.load(file_path)
+            img = nib.load(file_path) # H, W, T assumed
             volume = img.get_fdata()
 
             # Validate bbox
@@ -405,7 +418,7 @@ class MRIDataset(torch.utils.data.Dataset):
 
             volume = self.crop_volume_bbox(volume, bbox, delta_box=6)
             # enforce orientation
-            volume = volume.transpose(2, 0, 1) # [T, H, W]
+            volume = volume.transpose(2, 0, 1) # from [H, W, T] → [T, H, W]
 
             dims = np.array(volume.shape)
             temporal_axis = np.argsort(dims)[0]
@@ -441,60 +454,6 @@ class MRIDataset(torch.utils.data.Dataset):
         except Exception as e:
             warnings.warn(f'Error loading {file_path}: {e}')
             return None
-
-    # def _load_single_nifti(self, file_path, bbox):
-    #     if not os.path.exists(file_path):
-    #         warnings.warn(f'File not found: {file_path}')
-    #         return None
-
-    #     try:
-    #         img = nib.load(file_path)
-    #         volume = img.get_fdata() # H, W, T assumed
-
-    #         if -1 in bbox or len(bbox) != 6:
-    #             bbox = [0, volume.shape[0], 0, volume.shape[1], 0, volume.shape[2]]
-    #         volume = self.crop_volume_bbox(volume, bbox, delta_box=6)
-
-    #         # Enforce orientation
-    #         volume = volume.transpose(2, 0, 1) # from [H, W, T] → [T, H, W]
-
-    #         if self.in_chans == 1: #for brain: do select random view/orientation
-    #             dims = np.array(volume.shape)
-    #             temporal_axis = np.argsort(dims)[0]
-
-    #             # Select orientation
-    #             threshold_isotropy = 1.4 
-    #             if self.training and np.max(dims) / np.min(dims) < threshold_isotropy:
-    #                 orientation = random.choice(['axial', 'sagittal', 'coronal'])
-    #                 if orientation == 'axial':
-    #                     volume = volume.transpose(2, 0, 1)
-    #                 elif orientation == 'sagittal':
-    #                     volume = volume.transpose(0, 1, 2)
-    #                 elif orientation == 'coronal':
-    #                     volume = volume.transpose(1, 0, 2)
-    #             else:
-    #                 if temporal_axis == 1:
-    #                     volume = volume.transpose(1, 0, 2)
-    #                 elif temporal_axis == 2:
-    #                     volume = volume.transpose(2, 0, 1)
-
-    #         # Square crop
-    #         h, w = volume.shape[1:3]
-    #         if h != w:
-    #             min_dim = min(h, w)
-    #             start_h = random.randint(0, h - min_dim) if h > w else 0
-    #             start_w = random.randint(0, w - min_dim) if w > h else 0
-    #             volume = volume[:, start_h:start_h + min_dim, start_w:start_w + min_dim]
-
-    #         volume = self.clip_intensity_percentile(volume, lower_percentile=1, upper_percentile=99)
-    #         volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size}, target_slices=self.frames_per_clip)
-
-    #         return volume
-
-    #     except Exception as e:
-    #         warnings.warn(f'Error loading {file_path}: {e}')
-    #         return None
-
 
     def crop_volume_bbox(self, volume, bbox, delta_box=5):
         """

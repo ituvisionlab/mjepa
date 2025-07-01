@@ -55,7 +55,8 @@ from app.mae.utils import (
     init_opt,
     patchify_image,
     unpatchify_image,
-    unpatchify_image_from_full
+    unpatchify_image_from_full,
+    save_volume_with_log,
 )
 from app.mae.transforms import make_transforms
 
@@ -129,7 +130,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     num_clips = cfgs_data.get('num_clips')
     num_frames = cfgs_data.get('num_frames')
     tubelet_size = cfgs_data.get('tubelet_size')
-    sampling_rate = cfgs_data.get('sampling_rate')
+    sampling_rate = cfgs_data.get('sampling_rate',1)
     duration = cfgs_data.get('clip_duration', None)
     crop_size = cfgs_data.get('crop_size', 224)
     in_chans = cfgs_data.get('in_channel_size', 3)
@@ -497,7 +498,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 udata = next(loader)
 
     epoch_losses = []
-    warmup_epochs = 10 #for spectral loss
+    warmup_epochs = 20 #for spectral loss
 
     # -- TRAINING LOOP
     for epoch in range(start_epoch, num_epochs):
@@ -691,21 +692,17 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 else:
                     raise ValueError("Mode must be 'complex', 'magnitude', or 'logmag'")
 
-                # Final safeguard, clip huge losses!!!
-                if not torch.isfinite(loss) or loss > 1e3:
-                    #logger.warning(f"[SpectralLoss] Clipping extreme value: {loss.item():.2e}")
-                    loss = torch.tensor(0.0, device=loss.device)
-
                 return loss
 
             def train_step():
                 global global_step
                 global prev_loss_spec_val
                 global spectral_coeff_eff
-                cap_spec_coeff = 1.0 #0.5
+                cap_spec_coeff =  1.0
                 if epoch >= min_epoch_for_spectral and global_step % spec_loss_every_n_iter == 0:
                     spectral_warmup_factor = min(1.0, (epoch - min_epoch_for_spectral + 1) / warmup_epochs)
-                    spectral_coeff_eff = min(spectral_coeff * spectral_warmup_factor, cap_spec_coeff) # cap to 0.5
+                    #spectral_coeff_eff = min(spectral_coeff * spectral_warmup_factor, cap_spec_coeff) # cap to a max value
+                    spectral_coeff_eff = spectral_coeff * spectral_warmup_factor 
 
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
@@ -883,6 +880,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     #for i in range(len(imgs_full)):
                     #    img_rec = imgs_full[i]  # [B, C, T, H, W]                        
 
+                    # Safeguard: log and clip nan or huge losses!!!
+                    if torch.isnan(loss_spec) or torch.isinf(loss_spec) or loss_spec > 1e3:
+                        logger.warning(f"NaN/Inf spectral loss at epoch {epoch}, step {global_step}, clipping to 0")
+                        loss_spec = torch.tensor(0.0, device=device)
+
                     loss_spec /= B * in_chans #equivalent to loss_spec /= len(imgs_full) * img_rec.shape[1]
 
                     prev_loss_spec_val = loss_spec.item() #save current spec loss scalar to use in next n-1 iter
@@ -936,11 +938,22 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 if (itr == 0) and (epoch % write_img_freq == 0):
                     if imgs_full is not None:
                         imgs_vis = imgs_full[0][0]  #imgs_full: list of [B, C, T, H, W] → take first sample [C, T, H, W]
+                        logger.info(f"Memory Allocated before full_recons save: {torch.cuda.memory_allocated() / (1024 ** 2)} MB")
+                        logger.info(f"Max Memory Allocated before full_recons save: {torch.cuda.max_memory_allocated() / (1024 ** 2)} MB")
                         # Save each channel of reconstructed volume as a separate .nii.gz file
                         for c in range(imgs_vis.shape[0]):  # iterate over channels
                             recon_vol = imgs_vis[c].cpu().detach().float().numpy()  # shape: [T, H, W]
-                            nib.save(nib.Nifti1Image(recon_vol, affine=np.eye(4)),
-                                    f'ZReconstructed_full_volume_c{c}-epoch{epoch}.nii.gz')
+                            if np.isnan(recon_vol).any() or np.isinf(recon_vol).any():
+                                logger.warning(f"Epoch {epoch}, channel {c}: Found NaN/Inf in reconstructed volume!")
+                                recon_vol = torch.nan_to_num(recon_vol, nan=0.0, posinf=0.0, neginf=0.0)
+
+                            success = save_volume_with_log(
+                                    volume=recon_vol,
+                                    affine=np.eye(4),
+                                    save_path=f'ZReconstructed_full_volume_c{c}-epoch{epoch}.nii.gz',
+                                    log_path="debug_save_log.txt")
+                            if not success:
+                                logger.warning(f"Failed full-recons volume saving epoch {epoch}, channel {c}")
                     # Reconstruct mosaic image: predicted patches + original pathces
                     imgs = reconstruct_image(c_hat, clips)
                     imgs_vis = imgs[0]  # [C, T, H, W]

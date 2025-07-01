@@ -124,7 +124,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     encoder_warmup = args_pretrain.get('encoder_warmup', 1)
     use_pos_embed = args_pretrain.get('use_pos_embed', False)
     clip_grad_encoder = args_pretrain.get('clip_grad_encoder',1.0)
-    eval_frame_step = args_pretrain.get('frame_step', 4)
+    eval_frame_step = args_pretrain.get('frame_step', 1)
     eval_duration = args_pretrain.get('clip_duration', None)
 
     # -- DATA

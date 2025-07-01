@@ -7,8 +7,8 @@ RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
 
 python -m evals.main_distributed \
-  --fname configs/evals/vitb16_mri_eval_mae1.12.yaml \
+  --fname configs/evals/vitb16_mri_eval_mae2.2.yaml \
   --time 3400 \
   --nodes 1 \
   --folder /gpfs/home/unalg01/jepa \
-  --partition a100_long
+  --partition radiology

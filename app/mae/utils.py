@@ -17,6 +17,10 @@ import time
 
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
+import nibabel as nib
+from datetime import datetime
+from scipy.stats import entropy
 
 import src.models.vision_transformer as video_vit
 import src.models.decoder as vit_decoder
@@ -390,3 +394,73 @@ def visualize_fft_3d_spectrum(feature, grid_shape, channel_idx=0, slice_dim=2, t
     plt.axis('off')
     plt.tight_layout()
     plt.show()
+
+# saving of fully-reconstructed volumes
+def save_volume_with_log(volume, affine, save_path, log_path):
+    try:
+        with open(log_path, "a") as log_file:
+            log_file.write(f"\n--- Saving Volume: {save_path} ---\n")
+            log_file.write(f"Timestamp: {datetime.now().isoformat()}\n")
+
+            # Check for NaNs or Infs
+            has_nan = np.isnan(volume).any()
+            has_inf = np.isinf(volume).any()
+            if has_nan or has_inf:
+                log_file.write(f"[WARNING] Volume has NaNs: {has_nan}, Infs: {has_inf}. Replaced with 0.\n")
+                volume = np.nan_to_num(volume, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Check dtype
+            if volume.dtype not in [np.float32, np.float64, np.int16, np.uint8]:
+                log_file.write(f"[WARNING] Unsupported dtype {volume.dtype}. Converting to float32.\n")
+                volume = volume.astype(np.float32)
+
+            # Check shape
+            if volume.ndim != 3:
+                log_file.write(f"[ERROR] Invalid shape: {volume.shape}. Must be 3D.\n")
+                return False
+
+            # Save volume
+            img = nib.Nifti1Image(volume, affine)
+            nib.save(img, save_path)
+
+            # Reload immediately and validate
+            try:
+                img_reloaded = nib.load(save_path)
+                consistent_shape = img_reloaded.shape == volume.shape
+                consistent_affine = np.allclose(img_reloaded.affine, affine)
+
+                if not consistent_shape:
+                    log_file.write(f"[ERROR] Shape mismatch after reload: Original {volume.shape}, Reloaded {img_reloaded.shape}\n")
+                    return False
+                if not consistent_affine:
+                    log_file.write(f"[ERROR] Affine mismatch after reload.\n")
+                    return False
+
+                log_file.write("[SUCCESS] Volume saved, reloaded, and verified successfully.\n")
+                return True
+
+            except Exception as reload_exc:
+                log_file.write(f"[ERROR] Reload failed: {reload_exc}\n")
+                return False
+
+    except Exception as exc:
+        with open(log_path, "a") as log_file:
+            log_file.write(f"[CRITICAL ERROR] Unexpected failure: {exc}\n")
+        return False
+
+def sanity_check_recons_volumes(volume, affine, save_path, log_path):
+
+    vol_full_recon = nib.load('ZReconstructed_full_volume.nii.gz').get_fdata()
+    vol_mosaic_recon = nib.load('ZReconstructed_mosaic_volume.nii.gz').get_fdata()
+
+    hist_full, _ = np.histogram(vol_full_recon, bins=256, density=True)
+    hist_mosaic, _ = np.histogram(vol_mosaic_recon, bins=256, density=True)
+
+    entropy_full = entropy(hist_full)
+    entropy_mosaic = entropy(hist_mosaic)
+
+    print(f"Full Recon Entropy: {entropy_full}")
+    print(f"Mosaic Recon Entropy: {entropy_mosaic}")
+
+    nib.save(vol_full_recon, 'full_uncompressed.nii')
+    nib.save(vol_mosaic_recon, 'mosaic_uncompressed.nii')

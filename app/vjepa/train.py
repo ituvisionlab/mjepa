@@ -127,7 +127,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     num_clips = cfgs_data.get('num_clips')
     num_frames = cfgs_data.get('num_frames')
     tubelet_size = cfgs_data.get('tubelet_size')
-    sampling_rate = cfgs_data.get('sampling_rate')
+    sampling_rate = cfgs_data.get('sampling_rate',1)
     duration = cfgs_data.get('clip_duration', None)
     crop_size = cfgs_data.get('crop_size', 224)
     in_chans = cfgs_data.get('in_channel_size', 3)
@@ -589,7 +589,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     """
                     with torch.no_grad():
                         h = target_encoder(c) #already normalized in ViT
-                        # h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]: This is double normalization?
+                        h = F.layer_norm(h, (h.size(-1),))  # normalize over feature-dim  [B, N, D]: double normalization kept in vjepa code
                         # -- create target embeddings (masked regions of h)
                         h = apply_masks(h, masks_pred, concat=False)
                         return h                        

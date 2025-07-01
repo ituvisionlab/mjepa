@@ -52,7 +52,7 @@ mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.75
+    num_blocks: 0.89
     spatial_scale:
       - 1
       - 1

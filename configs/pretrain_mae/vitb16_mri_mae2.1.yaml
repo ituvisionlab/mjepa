@@ -22,7 +22,7 @@ data:
   patch_size: 8 #16
   in_channel_size: 1
   random_clip_sampling: false
-  pin_mem: true
+  pin_mem: false
   num_workers: 8 #8 #12
   filter_short_videos: false
   clip_duration: null
@@ -45,11 +45,11 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 1 #capped to 1.0 in the code
+  spectral_coeff: 2.5 #1 
   spec_loss_every_n_iter: 20
   min_epoch_for_spectral: 5 #to disable spectral loss, set to a very large value
   high_pass_flag: true #false
-  cutoff_ratio: 0.3 # used if high_pass_flag is on
+  cutoff_ratio: 0.6 #0.5 #0.3  #used if high_pass_flag is on
 mask:
   - aspect_ratio:
       - 1.0
@@ -83,7 +83,7 @@ optimization:
   ipe: null #300
   clip_grad: 1.0
   weight_decay: 0.005
-  final_weight_decay: 0.001 #0.1 #for large dataset
+  final_weight_decay: 0.0005 #0.001 #0.1 #for large dataset
   epochs: 700
   warmup: 5
   start_lr: 1.0e-4 #1.0e-3 #3e-05

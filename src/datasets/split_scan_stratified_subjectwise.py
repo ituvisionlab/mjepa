@@ -3,7 +3,8 @@ from sklearn.model_selection import train_test_split
 from collections import Counter
 
 # --- Paths ---
-MASTER_CSV = "SCAN_NIFTI_all_final.csv"
+# MASTER_CSV = "SCAN_NIFTI_all_final.csv"
+MASTER_CSV = "SCAN_NIFTI_all_filtered.csv" #filtered files w/ names containing _ME_ and _3TE_ -> derive MRI maps!
 PRETRAIN_CSV = "scan_pretraining.csv"
 DOWNSTREAM_POOL_CSV = "scan_downstream_pool.csv"
 LOG_FILE = "scan_split_summary.log"
