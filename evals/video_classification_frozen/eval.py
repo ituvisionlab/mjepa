@@ -76,9 +76,8 @@ from evals.video_classification_frozen.utils import (
     ClipAggregation,
     FrameAggregation
 )
-from src.utils.tensors import trunc_normal_
-
-from contextlib import nullcontext
+#from src.utils.tensors import trunc_normal_
+#from contextlib import nullcontext
 
 # logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
@@ -699,20 +698,33 @@ def run_one_epoch(
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
         #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
             # Load data and put on GPU: move frames to GPU
+            # clips = [   #old style loading, not valid anymore
+            #     [dij.to(device, non_blocking=True) for dij in di]  # spatial views
+            #     for di in data[0]  # temporal clips
+            # ]
             labels = data[1].to(device) # [B]
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             contrast_masks = data[3].to(device)  # [B, max_contrasts]
             batch_size = labels.size(0)
 
             # unwrap the data correctly to a tensor of [B, C, T, H, W]
-            full_clip = data[0][0].to(device, non_blocking=True)  # explicitly unwrap list: [B,C,T,H,W]
+            full_clip = data[0][0].to(device, non_blocking=True)  # explicitly unwrap list to a tensor: B,C,T,H,W
+
+            #DEBUG
+            # print("Old input shape:", clips[0][0].shape)
+            # print("New input shape:", full_clip.shape)
+            # print("Old requires_grad:", clips[0][0].requires_grad)
+            # print("New requires_grad:", full_clip.requires_grad)
 
             encoder_requires_grad = (not frozen and training)
             encoder_context = torch.enable_grad() if encoder_requires_grad else torch.no_grad()
 
             with encoder_context:
-                if eval_in_chans > 1:
-                    # Multi-contrast logic explicitly handling each contrast batch-wise
+                if eval_in_chans == 1: #single-contrast pipeline
+                    encoder_input = [[full_clip]]  # nesting for encoder: [[B,C=1,T,H,W]] i.e. encoder_input[0][0].shape: B C T H W
+                    outputs = encoder(encoder_input, clip_indices)[0]  # [B, N, D]
+                else:
+                    # Multi-contrast pipeline explicitly handling each contrast batch-wise
                     encoded_contrasts = []
                     for c in range(eval_in_chans):
                         contrast_mask = contrast_masks[:, c]  # [B] mask to show which samples in the batch have contrast c
@@ -741,21 +753,17 @@ def run_one_epoch(
                     # outputs = attn_pooler(encoded_contrasts, contrast_masks) #list of len:B, each with tensors NxD
                     # 2. Concatenate encoded contrasts along token dimension: [B, C*N, D]
                     outputs = torch.cat(encoded_contrasts, dim=1)
-                else:
-                    # Single-contrast: no pooling
-                    encoder_input = [[full_clip]]  # explicitly correct nesting: [[[B,C=1,T,H,W]]]
-                    outputs = encoder(encoder_input, clip_indices)[0]  # [B, N, D]
-
+                    
             classifier_requires_grad = training  # classifier explicitly trainable during training
             classifier_context = torch.enable_grad() if classifier_requires_grad else torch.no_grad()
 
             with classifier_context:
                 if attend_across_segments:
-                    if eval_in_chans > 1: # masked attention pooling
-                        classifier_outputs = [classifier(outputs, contrast_masks)]  # list of B,num_classes tensor: i.e. [B, num_classes]
-                    else:
-                        classifier_outputs = [classifier(outputs)]  # single contrast, no masking                   
-                else: # FIX_ME_Not_needed: Does not handle multicontrast case for attend_across_segments is false
+                    if eval_in_chans == 1: 
+                        classifier_outputs = [classifier(outputs)]  # single contrast      
+                    else: # masked attention pooling
+                        classifier_outputs = [classifier(outputs, contrast_masks)]  # list of B,num_classes tensor: i.e. [B, num_classes]                                
+                else: # FIX_ME_Not_needed_for_single_contrast: Does not handle multicontrast case for attend_across_segments is false
                     classifier_outputs = [[classifier(outputs)]]
 
             # Loss calculation

@@ -169,55 +169,56 @@ class MRIDataset(torch.utils.data.Dataset):
                 data = pd.read_csv(data_path)
                 labels += data['label'].tolist()
 
-                # Detect single-channel or multi-contrast
                 if 'nii_file_path' in data.columns:
+                    # Explicit single-channel scenario
                     samples += data['nii_file_path'].tolist()
                     self.contrast_names = ['single_channel']
                     self.in_chans = 1
+
+                    single_bbox_cols = {'xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'}
+                    if single_bbox_cols.issubset(data.columns):
+                        bbox += data[['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']].fillna(-1).astype(int).values.tolist()
+                    else:
+                        bbox += [[-1, -1, -1, -1, -1, -1]] * len(data)
+
                 else:
-                    # Auto-detect all *_path columns as contrast paths, but limit to in_chans contrasts
+                    # Multi-contrast case
                     contrast_cols = [col for col in data.columns if col.endswith('_path')][:self.in_chans]
-                    #contrast_cols = [col for col in data.columns if col.endswith('_path')]
+
                     if len(contrast_cols) == 0:
                         raise ValueError("No *_path columns found for multi-contrast MRI input.")
-                    samples += list(zip(*[data[col] for col in contrast_cols]))  # List of tuples
+
+                    samples += list(zip(*[data[col] for col in contrast_cols]))
                     self.contrast_names = contrast_cols
                     self.in_chans = len(contrast_cols)
-                               
-                # Dynamically detect bbox columns for each contrast
-                contrast_bbox_cols = {}
-                for cname in self.contrast_names:
-                    prefix = cname.replace('_path', '')
-                    expected_cols = [f"{prefix}_xmin", f"{prefix}_xmax",
-                                    f"{prefix}_ymin", f"{prefix}_ymax",
-                                    f"{prefix}_zmin", f"{prefix}_zmax"]
-                    if set(expected_cols).issubset(data.columns):
-                        contrast_bbox_cols[prefix] = expected_cols
 
-                single_bbox_cols = {'xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'}
+                    contrast_bbox_cols = {}
+                    for cname in self.contrast_names:
+                        prefix = cname.replace('_path', '')
+                        expected_cols = [
+                            f"{prefix}_xmin", f"{prefix}_xmax",
+                            f"{prefix}_ymin", f"{prefix}_ymax",
+                            f"{prefix}_zmin", f"{prefix}_zmax"
+                        ]
+                        if set(expected_cols).issubset(data.columns):
+                            contrast_bbox_cols[prefix] = expected_cols
 
-                if contrast_bbox_cols:
-                    # Multi-contrast bbox detected
-                    bboxes_per_sample = []
-                    for _, row in data.iterrows():
-                        sample_bboxes = []
-                        for prefix in contrast_bbox_cols:
-                            cols = contrast_bbox_cols[prefix]
-                            #bbox_vals = row[cols].fillna(-1).astype(int).tolist() #gives future warnings for pandas
-                            bbox_vals = pd.to_numeric(row[cols], errors='coerce').fillna(-1).astype(int).tolist()
-                            sample_bboxes.append(bbox_vals)
-                        bboxes_per_sample.append(sample_bboxes)
-                    bbox += bboxes_per_sample  # List of lists (one bbox per contrast)
-                elif single_bbox_cols.issubset(data.columns):
-                    # Single bbox scenario
-                    bbox += data[['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']].fillna(-1).astype(int).values.tolist()
-                else:
-                    # No bbox info available
-                    bbox += [[-1, -1, -1, -1, -1, -1]] * len(data)
+                    if contrast_bbox_cols:
+                        bboxes_per_sample = []
+                        for _, row in data.iterrows():
+                            sample_bboxes = []
+                            for prefix in contrast_bbox_cols:
+                                cols = contrast_bbox_cols[prefix]
+                                bbox_vals = pd.to_numeric(row[cols], errors='coerce').fillna(-1).astype(int).tolist()
+                                sample_bboxes.append(bbox_vals)
+                            bboxes_per_sample.append(sample_bboxes)
+                        bbox += bboxes_per_sample
+                    else:
+                        bbox += [[-1, -1, -1, -1, -1, -1]] * len(data)
 
-                # Count the number of samples in this dataset
                 num_samples = len(data)
                 self.num_samples_per_dataset.append(num_samples)
+
 
         # [Optional] Weights for each sample to be used by downstream
         # weighted video sampler
@@ -241,7 +242,7 @@ class MRIDataset(torch.utils.data.Dataset):
         bbox = self.bbox[index]  # Bounding box for this sample
        
         # Load MRI volume w/potentially missing contrasts (if in_chans > 1)
-        volume, contrast_names_used = self.load_nifti_file(sample, bbox, self.in_chans) #T,H,W volume returns
+        volume, contrast_names_used = self.load_nifti_file(sample, bbox, self.in_chans) #T,H,W,C volume returns
 
         C_max = self.in_chans #defines max # of allowed contrasts in multi-contrast case
 

@@ -131,7 +131,7 @@ class ClipAggregation(nn.Module):
 
         # Concatenate all spatial and temporal views along batch dimension
         x = [torch.cat(xi, dim=0) for xi in x]
-        x = torch.cat(x, dim=0)
+        x = torch.cat(x, dim=0) #-> B, C, T, H, W
         outputs = self.model(x)
         _, N, D = outputs.size() #num_clips, B
 
@@ -167,7 +167,7 @@ class ClipAggregation(nn.Module):
 
             all_outputs[i] = outputs
 
-        return all_outputs
+        return all_outputs #list of C, N, D tensor
 
 class ChannelAggregation(nn.Module):
     """
