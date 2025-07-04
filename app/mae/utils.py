@@ -297,7 +297,7 @@ def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_ch
     # Scatter the reconstructed tokens using mask_pred indices.
     full_tokens.scatter_(1, mask_pred.unsqueeze(-1).expand_as(recon), recon)
 
-    # Reshape the full tokens into a video volume.
+    # Reshape the full tokens (cuurently B, N, D tensor) into a video volume.
     full_tokens = full_tokens.view(
         B,
         grid_temporal,    # temporal grid
@@ -322,8 +322,8 @@ def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_ch
     # Since mRI volumes are 1-channel and we only want the first sample in the batch, for visualization
     # return the first sample and remove the channel dimension.
     # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
-    #return full_tokens[0, 0]  # (T, H, W) ← single channel from first sample
-    return full_tokens[0] # shape: [C, T, H, W]
+    # return full_tokens[0] # shape: [1, T, H, W]: from 1st sample for visualization
+    return full_tokens #[C, T, H, W]:
 
 def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames, in_chans, crop_size):
     """
