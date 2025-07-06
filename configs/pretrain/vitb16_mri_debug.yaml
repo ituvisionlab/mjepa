@@ -13,12 +13,12 @@ data:
   # - src/datasets/mood_all_nii_with_bbox.csv
   # - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 16
+  batch_size: 1
   num_clips: 1
-  num_frames: 192 #160 
+  num_frames: 192 #144 #160 
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 192 #160
+  crop_size: 192 #144 #160
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: false
@@ -47,12 +47,11 @@ loss:
   reg_coeff: 0.25
   alpha_vcr: 1.0
   beta_vcr: 0.1
-
 mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.89 #0.75
+    num_blocks: 0.75 # 0.89
     spatial_scale:
       - 1
       - 1
@@ -81,11 +80,11 @@ optimization:
   ipe: null #300
   clip_grad: 1.0
   weight_decay: 0.005
-  final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 500
+  final_weight_decay: 0.0005 #0.001 #0.1 #for large dataset
+  epochs: 200
   warmup: 5
   start_lr: 3.0e-5 #1.0e-3 #5e-05
-  lr: 2.0e-5 #2.0e-3 #1.0e-4
+  lr: 1.0e-4 #2.0e-3 #1.0e-4
   final_lr: 5.0e-6 #1.0e-4 #1.0e-6
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default

@@ -1,7 +1,7 @@
 # mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
 # Copyright (c) 2024–2025 [Gozde Unal, NYU]
 #
-# This file is based on an earlier version of code from:
+# This file is created as inspired from the video_dataset from
 # V-JEPA (https://github.com/facebookresearch/v-jepa)
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 #
@@ -101,7 +101,7 @@ def make_mridataset(
 
     data_loader = torch.utils.data.DataLoader(
         dataset,
-        collate_fn=collator, #None used, pytorch default batch collator
+        collate_fn=collator, #MaskCollator #None used for eval, pytorch default batch collator
         sampler=dist_sampler,
         batch_size=batch_size,
         drop_last=drop_last,
@@ -154,9 +154,9 @@ class MRIDataset(torch.utils.data.Dataset):
         self.training = training
         self.vol_type=vol_type
         self.threshold_isotropy = threshold_isotropy
-        # self.batchtime = 0 #for debugging time
-        # self.batchnum = 0 #for debugging time
-        # self.batchsize = 2 #for debugging time
+        self.batchtime = 0 #for debugging time
+        self.batchnum = 0 #for debugging time
+        self.batchsize = 1 #for debugging time
         # self.loadTotaltime = 0 #for debugging time
 
         # Load data from CSV
@@ -234,16 +234,17 @@ class MRIDataset(torch.utils.data.Dataset):
         self.bbox = bbox  # Store bounding boxes
 
     def __getitem__(self, index):
-#        data_start_time = time.time() # **Start timing data loading
-#        self.batchnum +=1 # **Start timing data loading
+        # data_start_time = time.time() # **Start timing data loading
+        # self.batchnum +=1 # **Start timing data loading
 
         sample = self.samples[index]
         label = self.labels[index]
         bbox = self.bbox[index]  # Bounding box for this sample
        
         # Load MRI volume w/potentially missing contrasts (if in_chans > 1)
+        #loadnii_start_time = time.time() # **Start timing nifti load
         volume, contrast_names_used = self.load_nifti_file(sample, bbox, self.in_chans) #T,H,W,C volume returns
-
+        #loadnii_end_time = time.time() # **End timing nifti load
         C_max = self.in_chans #defines max # of allowed contrasts in multi-contrast case
 
         # GU_Debug_print
@@ -282,7 +283,7 @@ class MRIDataset(torch.utils.data.Dataset):
         # Apply transforms explicitly
         if self.transform is not None:  #even if auto_augment is false, converts the volume to a tensor
             padded_volume = self.transform(padded_volume)  # for pretrain, transform returns a tensor, for eval returns list of T x H x W x C tensor
-        
+
         #For debug: save transformed volume
         # for i in range(padded_volume.shape[-1]):
         #     contrast = padded_volume[..., i]  # shape: [T, H, W]
@@ -308,9 +309,11 @@ class MRIDataset(torch.utils.data.Dataset):
 
             # data_end_time = time.time()  # **End timing data load
             # data_gen_time = data_end_time - data_start_time # **End timing data
-            # self.batchtime += data_gen_time # **End timing mask generation
+            # self.batchtime += data_gen_time #
             # if (self.batchnum == self.batchsize):
-            #     print(f"Batch Time: {self.batchtime:.4f} sec") # **Print timing of batch
+            #     logger.info(f"Batch Time: {self.batchtime:.4f} sec") # **Print timing of batch
+            #     logger.info(f"LoadNifti Time: {loadnii_end_time-loadnii_start_time:.4f} sec") # **Print timing of load_nifti
+            #     logger.info(f"Xform Time: {xform_end_time-xform_start_time:.4f} sec") # **Print timing of load_nifti
             #     self.batchnum = 0
             #     self.batchtime = 0 
 
@@ -369,36 +372,53 @@ class MRIDataset(torch.utils.data.Dataset):
 
     def load_nifti_file(self, file_path, bbox, in_chans=1):
         """
-        Load MRI volumes (single or multi-contrast), ensuring correct bbox usage
+        Load single-contrast MRI volume, ensuring correct bbox usage.
         Returns:
-            - volume: [T, H, W, C] (NumPy array): Returns a [T, H, W, C] volume for valid contrasts.
-            - valid_contrast_names: list of str (subset of self.contrast_names or ['0'] if single-channel)
+            - volume: [T, H, W, 1] NumPy array
+            - valid_contrast_names: ['single_channel']
         """
-        volume_list = []
-        valid_names = []
+        vol = self._load_single_nifti(file_path, bbox)
+        if vol is None:
+            return None, []
 
-        if in_chans == 1:
-            vol = self._load_single_nifti(file_path, bbox)
-            if vol is None:
-                return None, []
-            volume_list.append(vol)
-            valid_names.append(self.contrast_names[0] if self.contrast_names else 'single_channel')
-        else:
-            for idx, path in enumerate(file_path):
-                if not isinstance(path, str) or pd.isna(path):
-                    continue  # Skip missing paths
-                current_bbox = bbox[idx] if (isinstance(bbox, list) and isinstance(bbox[0], list)) else bbox
-                vol = self._load_single_nifti(path, current_bbox)
-                if vol is not None:
-                    volume_list.append(vol)
-                    valid_names.append(self.contrast_names[idx])
+        # Explicitly expand dimension to match [T, H, W, 1]
+        vol = np.expand_dims(vol, axis=-1)
+        vol = self.preprocess_volume(vol, 1)
+        return vol, ['single_channel']
 
-            if len(volume_list) == 0:
-                warnings.warn(f"No valid contrasts found for file_path={file_path}")
-                return None, []
+    # this function also handles multicontrast input
+    # def load_nifti_file(self, file_path, bbox, in_chans=1):
+    #     """
+    #     Load MRI volumes (single or multi-contrast), ensuring correct bbox usage
+    #     Returns:
+    #         - volume: [T, H, W, C] (NumPy array): Returns a [T, H, W, C] volume for valid contrasts.
+    #         - valid_contrast_names: list of str (subset of self.contrast_names or ['0'] if single-channel)
+    #     """
+    #     volume_list = []
+    #     valid_names = []
 
-        volume = np.stack(volume_list, axis=-1)  # [T, H, W, C]
-        return self.preprocess_volume(volume, volume.shape[-1]), valid_names
+    #     if in_chans == 1:
+    #         vol = self._load_single_nifti(file_path, bbox)
+    #         if vol is None:
+    #             return None, []
+    #         volume_list.append(vol)
+    #         valid_names.append(self.contrast_names[0] if self.contrast_names else 'single_channel')
+    #     else:
+    #         for idx, path in enumerate(file_path):
+    #             if not isinstance(path, str) or pd.isna(path):
+    #                 continue  # Skip missing paths
+    #             current_bbox = bbox[idx] if (isinstance(bbox, list) and isinstance(bbox[0], list)) else bbox
+    #             vol = self._load_single_nifti(path, current_bbox)
+    #             if vol is not None:
+    #                 volume_list.append(vol)
+    #                 valid_names.append(self.contrast_names[idx])
+
+    #         if len(volume_list) == 0:
+    #             warnings.warn(f"No valid contrasts found for file_path={file_path}")
+    #             return None, []
+
+    #     volume = np.stack(volume_list, axis=-1)  # [T, H, W, C]
+    #     return self.preprocess_volume(volume, volume.shape[-1]), valid_names
 
     def _load_single_nifti(self, file_path, bbox):
         if not isinstance(file_path, str) or pd.isna(file_path):
@@ -410,12 +430,15 @@ class MRIDataset(torch.utils.data.Dataset):
             return None
 
         try:
+            #loadnii1_start_time = time.time() # **Start timing nifti loading 1
             img = nib.load(file_path) # H, W, T assumed
             volume = img.get_fdata()
 
             # Validate bbox
             if (not isinstance(bbox, list)) or (len(bbox) != 6) or (-1 in bbox):
                 bbox = [0, volume.shape[0], 0, volume.shape[1], 0, volume.shape[2]]
+
+            #loadnii1_end_time = time.time() # **
 
             volume = self.crop_volume_bbox(volume, bbox, delta_box=6)
             # enforce orientation
@@ -450,6 +473,7 @@ class MRIDataset(torch.utils.data.Dataset):
             volume = self.clip_intensity_percentile(volume, lower_percentile=1, upper_percentile=99)
             volume = self.resize(volume, crop_sizes={1: self.crop_size, 2: self.crop_size}, target_slices=self.frames_per_clip)
 
+            # logger.info(f"LoadNifti 1 Time: {loadnii1_end_time-loadnii1_start_time:.4f} sec") # **Print timing inside load_nifti
             return volume
 
         except Exception as e:
@@ -646,64 +670,95 @@ class MRIDataset(torch.utils.data.Dataset):
         buffer = volume[all_indices]
         return buffer, clip_indices
 
-    def  resize(self, volume, crop_sizes, target_slices=None):
+    def resize(self, volume, crop_sizes, target_slices=None):
         """
-        Resize the volume along specified axes to the desired sizes without using zoom.
-        Additionally, interpolates the number of slices along the temporal axis (depth).
-
+        Resize volume along dim 1, 2 for in-plane resizing, and dim 0 for volume interpolation 
         Parameters:
-        - volume (np.ndarray): The 3D MRI volume to be resized. Shape: (D, H, W)
-        - crop_sizes (dict): A dictionary where keys are axis indices (0, 1, 2)
-                            and values are the desired sizes along those axes.
-        - target_slices (int, optional): The desired number of slices along the depth axis (D).
-
+            - volume (np.ndarray): Input 3D volume (D, H, W).
+            - crop_sizes (dict): Desired spatial sizes along axes {1: H, 2: W}.
+            - target_slices (int, optional): Desired number of slices along axis 0.
         Returns:
-        - volume (np.ndarray): The resized volume.
+            - resized_volume (np.ndarray): Resized volume.
         """
-      # Get the original shape
-        original_shape = volume.shape  # (D, H, W)
-        
-        resized_volume=np.empty([original_shape[0],crop_sizes[1],crop_sizes[2]])
+        D, H, W = volume.shape
 
-        # Determine which axes to resize
-        axes_to_resize = list(crop_sizes.keys())
-        axes_to_resize.sort()  # Ensure consistent order
+        # Determine scale factors for spatial resizing
+        resize_scale_H = crop_sizes[1] / H
+        resize_scale_W = crop_sizes[2] / W
 
-        # If resizing axes 1 and 2 (H and W), we can resize each 2D slice along axis 0
-        if axes_to_resize == [1, 2]:
-            D = original_shape[0]
-            new_H = crop_sizes[1]
-            new_W = crop_sizes[2]
-            # resized_slices = []
-            for i in range(D):
-                # Extract the 2D slice
-                slice_2d = volume[i, :, :]  # Shape: (H, W)
-                # Convert to PIL Image
-                slice_img = Image.fromarray(slice_2d)
-                # Resize the image
-                slice_resized = slice_img.resize((new_W, new_H), Image.BILINEAR)
-                # Convert back to numpy array
-                slice_resized = np.array(slice_resized)
-                resized_volume[i, :, :] = slice_resized
-                # resized_slices.append(slice_resized)
-            # Stack the resized slices back into a 3D volume
-            # volume = np.stack(resized_slices, axis=0)
+        # Set depth (temporal) scale
+        if target_slices:
+            resize_scale_D = target_slices / D
         else:
-            raise NotImplementedError("Resizing along axes other than 1 and 2 is not implemented.")
+            resize_scale_D = 1.0
 
-         # **Step 2: Temporal Interpolation along axis=0
-        if target_slices and target_slices != resized_volume.shape[0]: #and target_slices < resized_volume.shape[0]:
-            depth_scale = target_slices / resized_volume.shape[0]  # Compute scaling factor along D
-            resized_volume = scipy.ndimage.zoom(resized_volume, zoom=(depth_scale, 1, 1), order=1)  # Linear interpolation
-
-        # debug_save
-        # output_filename = "zVolume_resized_output.nii.gz"
-        # volout = np.squeeze(resized_volume)
-        # nii_img = nib.Nifti1Image(volout, affine=np.eye(4))
-        # nib.save(nii_img, output_filename)
+        # Perform resizing along all three dimensions at once
+        resized_volume = scipy.ndimage.zoom(
+            volume,
+            zoom=(resize_scale_D, resize_scale_H, resize_scale_W),
+            order=1  # Linear interpolation
+        )
 
         return resized_volume
-        #return volume
+
+    # def  resize(self, volume, crop_sizes, target_slices=None):
+    #     """
+    #     Resize the volume along specified axes to the desired sizes without using zoom.
+    #     Additionally, interpolates the number of slices along the temporal axis (depth).
+
+    #     Parameters:
+    #     - volume (np.ndarray): The 3D MRI volume to be resized. Shape: (D, H, W)
+    #     - crop_sizes (dict): A dictionary where keys are axis indices (0, 1, 2)
+    #                         and values are the desired sizes along those axes.
+    #     - target_slices (int, optional): The desired number of slices along the depth axis (D).
+
+    #     Returns:
+    #     - volume (np.ndarray): The resized volume.
+    #     """
+    #   # Get the original shape
+    #     original_shape = volume.shape  # (D, H, W)
+        
+    #     resized_volume=np.empty([original_shape[0],crop_sizes[1],crop_sizes[2]])
+
+    #     # Determine which axes to resize
+    #     axes_to_resize = list(crop_sizes.keys())
+    #     axes_to_resize.sort()  # Ensure consistent order
+
+    #     # If resizing axes 1 and 2 (H and W), we can resize each 2D slice along axis 0
+    #     if axes_to_resize == [1, 2]:
+    #         D = original_shape[0]
+    #         new_H = crop_sizes[1]
+    #         new_W = crop_sizes[2]
+    #         # resized_slices = []
+    #         for i in range(D):
+    #             # Extract the 2D slice
+    #             slice_2d = volume[i, :, :]  # Shape: (H, W)
+    #             # Convert to PIL Image
+    #             slice_img = Image.fromarray(slice_2d)
+    #             # Resize the image
+    #             slice_resized = slice_img.resize((new_W, new_H), Image.BILINEAR)
+    #             # Convert back to numpy array
+    #             slice_resized = np.array(slice_resized)
+    #             resized_volume[i, :, :] = slice_resized
+    #             # resized_slices.append(slice_resized)
+    #         # Stack the resized slices back into a 3D volume
+    #         # volume = np.stack(resized_slices, axis=0)
+    #     else:
+    #         raise NotImplementedError("Resizing along axes other than 1 and 2 is not implemented.")
+
+    #      # **Step 2: Temporal Interpolation along axis=0
+    #     if target_slices and target_slices != resized_volume.shape[0]: #and target_slices < resized_volume.shape[0]:
+    #         depth_scale = target_slices / resized_volume.shape[0]  # Compute scaling factor along D
+    #         resized_volume = scipy.ndimage.zoom(resized_volume, zoom=(depth_scale, 1, 1), order=1)  # Linear interpolation
+
+    #     # debug_save
+    #     # output_filename = "zVolume_resized_output.nii.gz"
+    #     # volout = np.squeeze(resized_volume)
+    #     # nii_img = nib.Nifti1Image(volout, affine=np.eye(4))
+    #     # nib.save(nii_img, output_filename)
+
+    #     return resized_volume
+    #     #return volume
 
     def __len__(self):
         return len(self.samples)

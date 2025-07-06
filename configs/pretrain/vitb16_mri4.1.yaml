@@ -52,7 +52,7 @@ mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.89
+    num_blocks: 0.75 #0.89
     spatial_scale:
       - 1
       - 1
@@ -81,11 +81,11 @@ optimization:
   ipe: null #300
   clip_grad: 1.0
   weight_decay: 0.005
-  final_weight_decay: 0.001 #0.1 #for large dataset
+  final_weight_decay: 0.0005 #0.001 #0.1 #for large dataset
   epochs: 1000
   warmup: 5
-  start_lr: 3.0e-5 #5e-05
-  lr: 2.0e-4 #1.0e-4
+  start_lr: 3.0e-5 
+  lr: 1.0e-4
   final_lr: 5.0e-6 #1.0e-6
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
@@ -95,4 +95,4 @@ optimization:
   grad_accum_steps: 2 #4
   betas:
   - 0.9
-  - 0.98
+  - 0.975 #0.98

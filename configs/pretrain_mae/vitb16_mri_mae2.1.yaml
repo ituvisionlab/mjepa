@@ -22,7 +22,7 @@ data:
   patch_size: 8 #16
   in_channel_size: 1
   random_clip_sampling: false
-  pin_mem: false
+  pin_mem: true
   num_workers: 8 #8 #12
   filter_short_videos: false
   clip_duration: null
@@ -88,7 +88,7 @@ optimization:
   warmup: 5
   start_lr: 1.0e-4 #1.0e-3 #3e-05
   lr: 5.0e-4 #2.0e-3 #1.0e-4
-  final_lr: 1.0e-6 #1.0e-4 #1.0e-6
+  final_lr: 5.0e-5 #1.0e-6
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   grad_accum_steps: 2 #4

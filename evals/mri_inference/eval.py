@@ -354,14 +354,14 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 print(f"  - {mk}")
     # END_DEBUG
 
-    # INFERENCE
+    # INFERENCE ONLY EVAL PIPELINE
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
     recall_meter = AverageMeter()
     f1_meter = AverageMeter()
     precision_meter = AverageMeter()
     ipe = len(test_loader)
-    auc_score = 0  # AUC not calculated
+    auc_score = 0
 
     loader = iter(test_loader)
     test_sampler.set_epoch(1)
@@ -380,20 +380,21 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             data = next(loader)
 
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
-            clips = [
-                [dij.to(device, non_blocking=True) for dij in di]
-                for di in data[0]
-            ]
+
+            labels = data[1].to(device)  # [B]
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
-            labels = data[1].to(device)
-            batch_size = len(labels)
+            full_clip = data[0][0].to(device, non_blocking=True)  # [B,C,T,H,W]
+
+            batch_size = labels.size(0)
 
             with torch.no_grad():
-                outputs = encoder(clips, clip_indices)
+                encoder_input = [[full_clip]]  # explicitly nested
+                outputs = encoder(encoder_input, clip_indices)[0]  # [B,N,D]
+
                 if attend_across_segments:
-                    outputs = [classifier(o) for o in outputs]
+                    outputs = [classifier(outputs)]
                 else:
-                    outputs = [[classifier(ost) for ost in os] for os in outputs]
+                    outputs = [[classifier(outputs)]]
 
         # Compute loss
         if attend_across_segments:
@@ -407,10 +408,11 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             else:
                 outputs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
 
-            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum().item() / batch_size
+            preds = outputs.argmax(dim=1)
+
+            top1_acc = 100. * preds.eq(labels).sum().item() / batch_size
             top1_meter.update(top1_acc)
 
-            preds = outputs.argmax(dim=1)
             recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
             precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
             f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
@@ -425,11 +427,10 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         torch.cuda.synchronize()
         gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.**2
 
-        # Wandb logging
         if run is not None:
             run.log({
-                'test/acc_batch': top1_acc,  # Per-batch accuracy
-                'test/acc': top1_meter.avg,  # Running average
+                'test/acc_batch': top1_acc,
+                'test/acc': top1_meter.avg,
                 'test/loss': loss.item(),
                 'test/recall': recall_meter.avg,
                 'test/precision': precision_meter.avg,
@@ -440,26 +441,55 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]' % (
             itr, top1_acc, loss.item(), gpu_memory_alloc))
 
-    # Final stats
-    test_acc = top1_meter.avg
+    # AUC Calculation
+    all_outputs_tensor = torch.cat(all_outputs, dim=0)
+    all_labels_tensor = torch.cat(all_labels, dim=0)
+
+    all_outputs_np = all_outputs_tensor.numpy()
+    all_labels_np = all_labels_tensor.numpy()
+
+    unique_labels = np.unique(all_labels_np)
+    if len(unique_labels) < 2:
+        logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
+        auc_score = float('nan')
+    else:
+        try:
+            number_classes = all_outputs_np.shape[1]
+            if number_classes == 2:
+                auc_score = roc_auc_score(all_labels_np, all_outputs_np[:, 1])
+            else:
+                auc_score = roc_auc_score(
+                    all_labels_np,
+                    all_outputs_np,
+                    multi_class='ovr',
+                    average='macro'
+                )
+        except ValueError as e:
+            logger.warning(f"Could not compute AUC: {e}")
+            auc_score = float('nan')
+
+    logger.info(f"Final AUC Score: {auc_score:.4f}")
+
+    # Final metrics
+    logger.info('FINAL: test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
+        top1_meter.avg, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score))
+
     if run is not None:
         run.log({
-            'test/acc_final': test_acc,
+            'test/acc_final': top1_meter.avg,
             'test/f1_final': f1_meter.avg,
             'test/recall_final': recall_meter.avg,
             'test/precision_final': precision_meter.avg,
             'test/auc_final': auc_score
         })
 
-    logger.info('FINAL: test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
-        test_acc, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score))
-
     if csv_logger is not None:
-        csv_logger.log(test_acc, loss.item(), recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score)
+        csv_logger.log(top1_meter.avg, loss.item(), recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score)
 
-    torch.cuda.empty_cache()
     if run is not None:
         run.finish()
+
+    torch.cuda.empty_cache()
 
 @torch.no_grad()
 def sanity_check(encoder, classifier, val_loader, device, num_classes):

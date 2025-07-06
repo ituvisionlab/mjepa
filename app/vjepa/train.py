@@ -527,8 +527,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
         for itr in range(ipe):
             iter_start_time = time.time()
-           
-            #data_start_time = time.time() # **Measure Data Loading Time**
+            # data_start_time = time.time() # **Measure Data Loading Time**
             try:
                 udata, masks_enc, masks_pred = next(loader) #returned from "call" of multiblock3d
             except Exception:
@@ -540,9 +539,9 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
 
-            #data_end_time = time.time() # **Measure Data Loading Time End**
-            #data_loading_time = data_end_time - data_start_time # **Measure Data Loading Time **
-            #logger.info(f"Data Loading Time: {data_loading_time:.4f} sec") # **Measure Data Loading Time End**
+            # data_end_time = time.time() # **Measure Data Loading Time End**
+            # data_loading_time = data_end_time - data_start_time # **Measure Data Loading Time **
+            # logger.info(f"Data Loading Time: {data_loading_time:.4f} sec") # **Measure Data Loading Time End**
              
             def load_clips():
                 # -- unsupervised video clips
@@ -565,14 +564,13 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             
             #clip_start_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
             clips, masks_enc, masks_pred = load_clips()
-            #clip_end_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
-            #clip_transfer_time = clip_end_time - clip_start_time # **Measure Load Clips & Transfer to GPU Time**
-            #logger.info(f"Clip Transfer Time: {clip_transfer_time:.4f} sec") # **Measure Load Clips & Transfer to GPU Time**
+            # clip_end_time = time.time() # **Measure Load Clips & Transfer to GPU Time**
+            # clip_transfer_time = clip_end_time - clip_start_time # **Measure Load Clips & Transfer to GPU Time**
+            # logger.info(f"Clip Transfer Time: {clip_transfer_time:.4f} sec") # **Measure Load Clips & Transfer to GPU Time**
 
             # if torch.isnan(clips).any():
             #     print("NaN detected in input data!")
-            #     raise ValueError("NaN detected in input data!")
-            
+            #     raise ValueError("NaN detected in input data!")          
         # -------------------------------------------------
             for _i, m in enumerate(mask_meters):
                 m.update(masks_enc[_i][0].size(-1))
@@ -721,9 +719,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             global_step += 1 #for warmup of anything
 
             gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.0 ** 2 # **Monitor Memory & GPU Utilization**
-            # logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**
-
-            
+#            logger.info(f"GPU Memory Allocated: {gpu_memory_alloc:.2f} MB") # **Monitor Memory & GPU Utilization**           
             # iter_end_time = time.time() # **Total Iteration Time**
             # iter_elapsed_time = iter_end_time - iter_start_time # **Total Iteration Time**
             # logger.info(f"Iteration Time: {iter_elapsed_time:.4f} sec") # **Total Iteration Time**

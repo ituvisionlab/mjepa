@@ -82,10 +82,11 @@ pretrain:
   patch_size: 8
   clip_grad_encoder: 1.0
   encoder_warmup: 0
-  use_pos_embed: true #false #true
+  use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_27__12_26_59/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_01__09_31_23/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_27__12_26_59/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_22__21_44_28/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_05__10_46_25/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/

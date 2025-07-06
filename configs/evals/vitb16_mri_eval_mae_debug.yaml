@@ -36,7 +36,7 @@ data:
   frame_step: 1
   num_workers: 8
   random_clip_sampling: false
-  pin_mem: false #true
+  pin_mem: true
 data_aug:
   auto_augment: true
   random_noise: 0.01
