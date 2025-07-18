@@ -91,6 +91,7 @@ def init_video_model(
     crop_size=224,
     pred_depth=6,
     pred_embed_dim=384,
+    pred_num_heads=None,
     in_chans=3,
     uniform_power=False,
     use_mask_tokens=False,
@@ -121,6 +122,7 @@ def init_video_model(
         embed_dim=encoder.backbone.embed_dim,
         predictor_embed_dim=pred_embed_dim,
         depth=pred_depth,
+        num_heads=encoder.backbone.num_heads if pred_num_heads is None else pred_num_heads,
         uniform_power=uniform_power,
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,
@@ -176,26 +178,53 @@ def init_opt(
     betas=(0.9, 0.999),
     eps=1e-8,
     zero_init_bias_wd=True,
+    decoder_lr_scale=1.0,
 ):
     param_groups = [
-        {
-            'params': (p for n, p in encoder.named_parameters()
-                       if ('bias' not in n) and (len(p.shape) != 1))
-        }, {
-            'params': (p for n, p in decoder.named_parameters()
-                       if ('bias' not in n) and (len(p.shape) != 1))
-        }, {
-            'params': (p for n, p in encoder.named_parameters()
-                       if ('bias' in n) or (len(p.shape) == 1)),
-            'WD_exclude': zero_init_bias_wd,
-            'weight_decay': 0,
-        }, {
-            'params': (p for n, p in decoder.named_parameters()
-                       if ('bias' in n) or (len(p.shape) == 1)),
-            'WD_exclude': zero_init_bias_wd,
-            'weight_decay': 0,
-        },
+    {
+        'params': (p for n, p in encoder.named_parameters()
+                   if ('bias' not in n) and (len(p.shape) != 1)),
+        'name': 'encoder_weight'
+    }, {
+        'params': (p for n, p in decoder.named_parameters()
+                   if ('bias' not in n) and (len(p.shape) != 1)),
+        'lr': ref_lr * decoder_lr_scale,  # ← scaled LR for decoder
+        'name': 'decoder_weight'
+    }, {
+        'params': (p for n, p in encoder.named_parameters()
+                   if ('bias' in n) or (len(p.shape) == 1)),
+        'WD_exclude': zero_init_bias_wd,
+        'weight_decay': 0,
+        'name': 'encoder_bias'
+    }, {
+        'params': (p for n, p in decoder.named_parameters()
+                   if ('bias' in n) or (len(p.shape) == 1)),
+        'WD_exclude': zero_init_bias_wd,
+        'weight_decay': 0,
+        'lr': ref_lr * decoder_lr_scale,  # ← scaled LR for decoder bias/etc
+        'name': 'decoder_bias'
+    },
     ]
+
+    # param_groups = [
+    #     {
+    #         'params': (p for n, p in encoder.named_parameters()
+    #                    if ('bias' not in n) and (len(p.shape) != 1))
+    #     }, {
+    #         'params': (p for n, p in decoder.named_parameters()
+    #                    if ('bias' not in n) and (len(p.shape) != 1))
+    #     }, {
+    #         'params': (p for n, p in encoder.named_parameters()
+    #                    if ('bias' in n) or (len(p.shape) == 1)),
+    #         'WD_exclude': zero_init_bias_wd,
+    #         'weight_decay': 0,
+    #     }, {
+    #         'params': (p for n, p in decoder.named_parameters()
+    #                    if ('bias' in n) or (len(p.shape) == 1)),
+    #         'WD_exclude': zero_init_bias_wd,
+    #         'weight_decay': 0,
+    #     },
+    # ]
 
     logger.info('Using AdamW')
     optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)

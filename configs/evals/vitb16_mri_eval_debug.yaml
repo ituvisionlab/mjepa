@@ -10,22 +10,25 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
+  - src/datasets/ucsf_grade23_vs_4_train.csv
   #- src/datasets/debug_nii_list64.csv
-  - src/datasets/adni_downstream_splits/nc_ad_train.csv
+  #- src/datasets/adni_downstream_splits/nc_ad_train.csv
   #- src/datasets/adni_all_2class_bet_train.csv 
   dataset_val: 
+  - src/datasets/ucsf_grade23_vs_4_val.csv
   #- src/datasets/debug_nii_list64.csv
-  - src/datasets/adni_downstream_splits/nc_ad_val.csv
+  #- src/datasets/adni_downstream_splits/nc_ad_val.csv
   #- src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 160 #128  #176 does not work due to memory!
+  frames_per_clip: 192 #160 
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
-  eval_in_channel_size: 3
+  eval_in_channel_size: 1
   frame_step: 1
   num_workers: 0 #4
   random_clip_sampling: false
+  pin_mem: true
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -41,13 +44,14 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 200
-  resolution: 160 #192
-  batch_size: 16
+  resolution: 192
+  batch_size: 8
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
   start_lr: 1.0e-5 #1.0e-6 #5.0e-5 #1.0e-5
-  lr: 5.0e-5 #1.0e-4 #5.0e-5 #1.0e-5
-  final_lr: 1.0e-7 #1.0e-6 
+  lr: 1.0e-5 #1.0e-4 #5.0e-5 #1.0e-5
+  final_lr: 1.0e-6 #1.0e-6 
+  lr_schedule_factor: 5.0 #2.0 #1.0 default
   warmup: 0
   use_bfloat16: true
   clip_grad_classifier: 1.0
@@ -62,21 +66,21 @@ optimization:
 pretrain:
   model_name: vit_base
   checkpoint_key: encoder #target_encoder
+  frozen: false #default: true
   clip_duration: null
-  frames_per_clip: 160   #128 #176 does not work due to memory!
+  frames_per_clip: 192   #160
   tubelet_size: 8
   uniform_power: true
   use_silu: false
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #default: true
   clip_grad_encoder: 1.0
-  encoder_warmup: 3
+  encoder_warmup: 0
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_19__15_06_31/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_07_08__19_33_46/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/

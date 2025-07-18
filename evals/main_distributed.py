@@ -175,6 +175,12 @@ def launch_evals_with_parsed_args(
     if exclude_nodes is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)
 
+    executor.update_parameters(
+        slurm_additional_parameters={
+            "output": "/gpfs/data/sodicksonlab/gozde/slurm/%j.out",
+            "error": "/gpfs/data/sodicksonlab/gozde/slurm/%j.err"
+        }
+    )
      # Create log folder for the experiment
     log_dir = get_new_log_dir(args_for_evals[0]['logging']['folder'], prefix=f'{args_for_evals[0]["write_tag"]}_eval_distributed_', postfix='')
     # Load YAML params and write to log

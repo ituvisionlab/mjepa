@@ -71,8 +71,9 @@ meta:
 model:
   model_name: vit_base
   pred_model_name: vit_predictor
-  pred_depth: 8 #6 #12
+  pred_depth: 6 #8
   pred_embed_dim: 384 #768
+  pred_num_heads: 6 #12
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
   zero_init_mask_tokens: true

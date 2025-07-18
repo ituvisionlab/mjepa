@@ -1,16 +1,17 @@
+Script: split_adni_downstream.py with seed 1881
 ==== NC_AD ====
-Train: 2427 volumes (60.83%), 248 subjects (63.75%), Class dist: {0: 1274, 1: 1153}
-Val: 710 volumes (17.79%), 63 subjects (16.20%), Class dist: {0: 432, 1: 278}
-Test: 853 volumes (21.38%), 78 subjects (20.05%), Class dist: {0: 439, 1: 414}
-Few-shot 8 per class: 132 volumes, Class dist: {1: 68, 0: 64}
-Few-shot 16 per class: 365 volumes, Class dist: {1: 204, 0: 161}
-Few-shot 32 per class: 601 volumes, Class dist: {1: 333, 0: 268}
-Few-shot 64 per class: 1199 volumes, Class dist: {0: 618, 1: 581}
+Train: 2443 volumes (61.23%), 248 subjects (63.75%), Class dist: {0: 1329, 1: 1114}
+Val: 674 volumes (16.89%), 63 subjects (16.20%), Class dist: {0: 353, 1: 321}
+Test: 873 volumes (21.88%), 78 subjects (20.05%), Class dist: {0: 463, 1: 410}
+Few-shot 8 per class: 147 volumes, Class dist: {0: 86, 1: 61}
+Few-shot 16 per class: 316 volumes, Class dist: {0: 172, 1: 144}
+Few-shot 32 per class: 574 volumes, Class dist: {0: 313, 1: 261}
+Few-shot 64 per class: 1238 volumes, Class dist: {0: 644, 1: 594}
 ==== NC_MCI ====
-Train: 2213 volumes (62.39%), 198 subjects (63.87%), Class dist: {0: 1328, 1: 885}
-Val: 611 volumes (17.23%), 50 subjects (16.13%), Class dist: {0: 378, 1: 233}
-Test: 723 volumes (20.38%), 62 subjects (20.00%), Class dist: {0: 439, 1: 284}
-Few-shot 8 per class: 183 volumes, Class dist: {1: 99, 0: 84}
-Few-shot 16 per class: 335 volumes, Class dist: {1: 176, 0: 159}
-Few-shot 32 per class: 746 volumes, Class dist: {1: 388, 0: 358}
-Few-shot 64 per class: 1511 volumes, Class dist: {1: 812, 0: 699}
+Train: 2244 volumes (63.26%), 198 subjects (63.87%), Class dist: {0: 1326, 1: 918}
+Val: 551 volumes (15.53%), 50 subjects (16.13%), Class dist: {0: 356, 1: 195}
+Test: 752 volumes (21.20%), 62 subjects (20.00%), Class dist: {0: 463, 1: 289}
+Few-shot 8 per class: 154 volumes, Class dist: {1: 93, 0: 61}
+Few-shot 16 per class: 395 volumes, Class dist: {1: 244, 0: 151}
+Few-shot 32 per class: 767 volumes, Class dist: {1: 442, 0: 325}
+Few-shot 64 per class: 1550 volumes, Class dist: {1: 845, 0: 705}

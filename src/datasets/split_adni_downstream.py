@@ -8,7 +8,7 @@ input_path = '/gpfs/home/unalg01/jepa/src/datasets/adni_cv_folds_stratified/adni
 output_dir = '/gpfs/home/unalg01/jepa/src/datasets/adni_downstream_splits'
 os.makedirs(output_dir, exist_ok=True)
 log_path = os.path.join(output_dir, 'adni_split_summary_log.txt')
-random_seed = 42  # reproducibility
+random_seed = 1881  # reproducibility #42
 np.random.seed(random_seed)
 
 # === LOAD DATA ===

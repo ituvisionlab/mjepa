@@ -8,26 +8,27 @@ data:
   #- src/datasets/debug_nii_list_scan.csv
   # - src/datasets/scan_pretraining.csv
   #- src/datasets/debug_nii_list1024.csv
-  - src/datasets/debug_nii_list64.csv
+  #- src/datasets/debug_nii_list64.csv
   #- src/datasets/debug_nii_list1.csv
-  # - src/datasets/oasis3_all_bet.csv
-  # - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
-  # - src/datasets/brats24_all_nii.csv
-  # - src/datasets/ixi_all_bet_nii_with_bbox.csv
-  # - src/datasets/mood_all_nii_with_bbox.csv
-  # - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv #- src/datasets/adni_all_bet_train.csv
+  - src/datasets/oasis3_all_bet.csv
+  - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  - src/datasets/brats24_all_nii.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/mood_all_nii_with_bbox.csv
+  - src/datasets/scan_pretraining.csv
+  - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv
   decode_one_clip: true  # unused
-  batch_size: 1 #10 #16
+  batch_size: 10 #16
   num_clips: 1 #8
-  num_frames: 144 #128 #144 #160 #16
+  num_frames: 192 #160 #144 #128  #16
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 144 #128 #160 #192 #224
+  crop_size: 192 #160 #144 #128  #192 #224
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: false
   pin_mem: true
-  num_workers: 0 #4
+  num_workers: 4 #0
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -49,11 +50,11 @@ logging:
 loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
-  spectral_coeff: 2.0
-  spec_loss_every_n_iter: 2
+  spectral_coeff: 1.0
+  spec_loss_every_n_iter: 1
   min_epoch_for_spectral: 0
   high_pass_flag: true #false
-  cutoff_ratio: 0.5 # used if high_pass_flag is on
+  cutoff_ratio: 0.3 #0.25 # used if high_pass_flag is on
 mask:
   - aspect_ratio:
       - 1.0
@@ -81,9 +82,10 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_base #vit_small_mod  
-  pred_model_name:  vit_decoder #vit_decoder_mod
-  pred_depth: 12 #8
-  pred_embed_dim: 768 #384
+  pred_model_name: vit_decoder_light #vit_decoder
+  pred_depth: 8 #12 #6
+  pred_embed_dim: 384 #768
+  pred_num_heads: 6 #8 #12 
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
   zero_init_mask_tokens: true #false
@@ -91,12 +93,13 @@ optimization:
   ipe: null
   clip_grad: 1.0
   weight_decay: 0.005
-  final_weight_decay: 0.001 #0.1 #for large dataset
+  final_weight_decay: 0.0005 #0.1 #for large dataset
   epochs: 200
   warmup: 0
   start_lr: 1.0e-4 #1.0e-4 #3.0e-5 #5e-05
   lr: 5.0e-4 #1.0e-3 #2.0e-4 #1.0e-4
-  final_lr: 1.0e-6 #1.0e-5 #5.0e-6 #1.0e-6
+  final_lr: 5.0e-5 #1.0e-5 #5.0e-6 #1.0e-6
+  decoder_lr_scale: 1.0 #0.1 # default 1.0 to make decoder have the same LR as of encoder
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   grad_accum_steps: 2 #4

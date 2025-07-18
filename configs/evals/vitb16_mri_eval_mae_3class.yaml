@@ -10,23 +10,19 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  #- src/datasets/adni_all_2class_bet_valtrain.csv
-  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
-  #- src/datasets/adni_all_3class_bet_valtrain.csv
-  - src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
+  - src/datasets/ucsf_multiclass_train.csv
   dataset_val: 
-  #- src/datasets/adni_all_2class_bet_valtest.csv
-  - src/datasets/adni_all_3class_bet_valtest.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
+  - src/datasets/ucsf_multiclass_val.csv
   dataset_type: MRIDataset
   num_classes: 3
   frames_per_clip: 144
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
+  eval_in_channel_size: 1
   frame_step: 1
   num_workers: 8
   random_clip_sampling: false
+  pin_mem: true
 data_aug:
   auto_augment: true
   random_noise: 0.01
@@ -38,31 +34,33 @@ data_aug:
   random_resize_scale:
   - 0.9
   - 1.0
-  rotation_degree: 10  
+  rotation_degree: 10
 optimization:
   attend_across_segments: true
   num_epochs: 400
-  resolution: 160
-  batch_size: 16
+  resolution: 144
+  batch_size: 24
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  start_lr: 1.0e-5 #1.0e-5
-  lr: 1.0e-4 #1.0e-5
+  start_lr: 1.0e-5
+  lr: 1.0e-5 
   final_lr: 1.0e-6 #1.0e-6 
-  warmup: 2
+  lr_schedule_factor: 5.0 #2.0 #1.0 default
+  warmup: 0
   use_bfloat16: true
-  clip_grad_classifier: 10.0
+  clip_grad_classifier: 1.0
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: 0.6 #0.75 #null to turn it off
+  layer_decay: null #0.6 #null to turn it off
   classifier_depth: 1
-  dropout: 0.1 #0.25 #null to turn off
-  drop_rate: 0.1
-  attn_drop_rate: 0.1
+  dropout: null #0.1 #null to turn off
+  drop_rate: 0.0 #
+  attn_drop_rate: 0.0
 pretrain:
   model_name: vit_base
-  checkpoint_key: encoder
+  checkpoint_key: encoder #target_encoder
+  frozen: false #true
   clip_duration: null
   frames_per_clip: 144
   tubelet_size: 8
@@ -71,15 +69,11 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 8
-  frozen: false #true
-  clip_grad_encoder: 10.0
+  clip_grad_encoder: 1.0
   encoder_warmup: 0
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
-  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_08__18_37_00/model_ckpt/latest-model/
   checkpoint: mae-latest.pth.tar
   

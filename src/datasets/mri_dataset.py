@@ -29,6 +29,7 @@ import random
 import torch
 import torchio as tio
 
+from collections import Counter
 import sys 
 sys.path.append('/gpfs/home/unalg01/jepa')
 
@@ -164,7 +165,7 @@ class MRIDataset(torch.utils.data.Dataset):
         bbox = []
         self.num_samples_per_dataset = []
 
-        for data_path in self.data_paths:
+        for data_path in self.data_paths: 
             if data_path.endswith('.csv'):
                 data = pd.read_csv(data_path)
                 labels += data['label'].tolist()
@@ -232,6 +233,14 @@ class MRIDataset(torch.utils.data.Dataset):
         self.samples = samples
         self.labels = labels
         self.bbox = bbox  # Store bounding boxes
+        #DEBUG 
+        class_counts = Counter(labels)
+        total = sum(class_counts.values())
+        logger.info(f"[DEBUG] DATA  Class Distribution:")
+        for label, count in sorted(class_counts.items()):
+            pct = 100 * count / total
+            logger.info(f"  Class {label}: {count} samples ({pct:.2f}%)")
+
 
     def __getitem__(self, index):
         # data_start_time = time.time() # **Start timing data loading
@@ -255,7 +264,7 @@ class MRIDataset(torch.utils.data.Dataset):
         # for i in range(volume.shape[-1]):
         #     contrast = volume[..., i]  # shape: [T, H, W]
         #     # Save full volume as .nii
-        #     # nib.save(nib.Nifti1Image(contrast, affine=np.eye(4)), f"Zdebug_contrast_{i}.nii")
+        #     nib.save(nib.Nifti1Image(contrast, affine=np.eye(4)), f"Zdebug_contrast_{i}.nii")
         #     #Save mid-slice as image
         #     mid_slice = contrast[contrast.shape[0] // 2, :, :]  # [H, W]
         #     plt.imsave(f"Zmidslice_contrast_{i}.png", mid_slice, cmap='gray')
@@ -433,6 +442,13 @@ class MRIDataset(torch.utils.data.Dataset):
             #loadnii1_start_time = time.time() # **Start timing nifti loading 1
             img = nib.load(file_path) # H, W, T assumed
             volume = img.get_fdata()
+            
+            # #DEBUG
+            # # Save full volume as .nii
+            # nib.save(nib.Nifti1Image(volume, affine=np.eye(4)), f"ZdebugLOADED.nii")
+            # #Save mid-slice as image
+            # mid_slice = volume[volume.shape[0] // 2, :, :]  # [H, W]
+            # plt.imsave(f"ZmidsliceLOADED.png", mid_slice, cmap='gray')
 
             # Validate bbox
             if (not isinstance(bbox, list)) or (len(bbox) != 6) or (-1 in bbox):

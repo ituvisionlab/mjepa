@@ -32,6 +32,7 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel, DataParallel
 import torch.utils.tensorboard
 import wandb
+import wandb.errors
 import subprocess
 import inspect
 
@@ -61,7 +62,8 @@ from app.vjepa.transforms import make_transforms
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
-periodic_ckpt_save_freq = 25 
+periodic_ckpt_save_freq = 20 
+record_epochs_start = 19 #start recording losses to save best model
 # --
    
 global_step = 0 # global counter 
@@ -114,6 +116,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     uniform_power = cfgs_model.get('uniform_power', True)
     use_mask_tokens = cfgs_model.get('use_mask_tokens', True)
     zero_init_mask_tokens = cfgs_model.get('zero_init_mask_tokens', True)
+    pred_num_heads = cfgs_model.get("pred_num_heads", None)
 
     # -- DATA
     cfgs_data = args.get('data')
@@ -258,42 +261,46 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
             load_path = None
             load_model = False
     
-    if log_dir != None:
-        
+#    rank = int(os.environ.get("SLURM_PROCID", 0)) #For wandb problem! CHECK THIS!! 
+    if log_dir is not None:
         if rank == 0:
-            if (run_ID == None):
-                # wandb init
+            try:
+                logger.info(f"[RANK {rank}] Attempting to init wandb (online mode)...")
+                if run_ID is None:
+                    run = wandb.init(
+                        project="mjepa-project",
+                        entity="ituvisionlab",
+                        dir=log_dir,
+                        config=args,
+                        name=os.path.basename(log_dir),
+                        settings=wandb.Settings(init_timeout=60) # 1 minute timeout
+                    )
+                else:
+                    run = wandb.init(
+                        project="mjepa-project",
+                        entity="ituvisionlab",
+                        id=run_ID,
+                        resume="allow",
+                        dir=log_dir,
+                        config=args,
+                        name=os.path.basename(log_dir),
+                        settings=wandb.Settings(init_timeout=60)
+                    )
+                logger.info(f"[RANK {rank}] wandb initialized (online).")
+            except wandb.errors.CommError as e:
+                logger.warning(f"[RANK {rank}] wandb.init() failed: {e}. Switching to offline mode.")
+                os.environ["WANDB_MODE"] = "offline"
                 run = wandb.init(
-                # set the wandb project where this run will be logged
-                project="mjepa-project",
-                
-                entity="ituvisionlab",
-                
-                dir=log_dir,
-
-                # track hyperparameters and run metadata
-                config=args,
-                
-                name=os.path.basename(log_dir)
-                
-                # group="mjepa-DDP"
+                    project="mjepa-project",
+                    entity="ituvisionlab",
+                    dir=log_dir,
+                    config=args,
+                    name=os.path.basename(log_dir),
+                    mode="offline"
                 )
-            else:
-                run = wandb.init(
-                # set the wandb project where this run will be logged
-                project="mjepa-project",
-                entity="ituvisionlab",               
-                id = run_ID,
-                resume="allow",
-                dir=log_dir,
-                # track hyperparameters and run metadata
-                config=args,
-                name=os.path.basename(log_dir)
-                # group="mjepa-DDP"
-                )
+                logger.info(f"[RANK {rank}] wandb initialized (offline).")
         else:
             run = None
-        
         # Tensorboard logging
         #tb_rank_folder = os.path.join(tb_folder, f"rank_{rank}")
         #os.makedirs(tb_rank_folder, exist_ok=True)
@@ -336,6 +343,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
+        pred_num_heads=pred_num_heads,
         in_chans=in_chans,
         use_sdpa=use_sdpa,
         drop_rate=drop_rate,
@@ -838,23 +846,25 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         # temp_latest_info_path='/gpfs/home/unalg01/jepa/mjepa_latest-info.txt'
         # save_checkpoint(epoch, temp_log_dir, temp_latest_info_path)
 
-        # -- Save Last
-        #if ((itr == 0) and epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
-        if log_dir != None: # itr is always ipe-1 at this point, do at the end of every epoch   
-            if not os.path.exists(latest_path):
-                save_checkpoint(epoch, latest_path, latest_info_path)
-            else:
-                if len(epoch_losses) > 0:
-                    if loss_meter.avg < min(epoch_losses) and epoch > 19 :
-                        save_checkpoint(epoch, best_path, best_info_path)
-                    else:
-                        save_checkpoint(epoch, latest_path, latest_info_path)
-                    if epoch % periodic_ckpt_save_freq == 0:
-                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch}.pth.tar')
-                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
-                        save_checkpoint(epoch, periodic_path, periodic_info_path)
-        if epoch >= 19:
-            epoch_losses.append(loss_meter.avg)
+        #  At the end of each epoch: Save checkpoint, and best, and periodically
+        if log_dir is not None:
+            epoch_loss = loss_meter.avg
+
+            # Always save latest model
+            save_checkpoint(epoch, latest_path, latest_info_path)
+
+            # Save best model after initial epochs (record_epochs_start)
+            if epoch >= record_epochs_start:
+                if len(epoch_losses) == 0 or epoch_loss < min(epoch_losses):
+                    save_checkpoint(epoch, best_path, best_info_path)
+
+                # Periodic checkpoint saving
+                if epoch % periodic_ckpt_save_freq == 0:
+                    periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch}.pth.tar')
+                    periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
+                    save_checkpoint(epoch, periodic_path, periodic_info_path)
+
+                epoch_losses.append(epoch_loss)
 
         # End of one epoch
         torch.cuda.empty_cache() 

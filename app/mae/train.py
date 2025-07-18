@@ -32,6 +32,7 @@ import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel, DataParallel
 import torch.utils.tensorboard
 import wandb
+import wandb.errors
 import subprocess
 import nibabel as nib
 
@@ -65,8 +66,9 @@ from app.mae.transforms import make_transforms
 log_timings = True
 log_freq = 10
 checkpoint_freq = 1
-periodic_ckpt_save_freq = 25
+periodic_ckpt_save_freq = 20
 write_img_freq = 10 #20 # every other x epochs, save reconstructed images periodically for monitoring
+record_epochs_start = 29 #start recording losses to save best model
 # --
 
 global_step = 0 # global counter for spectral warmup
@@ -117,6 +119,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     uniform_power = cfgs_model.get('uniform_power', True)
     use_mask_tokens = cfgs_model.get('use_mask_tokens', True)
     zero_init_mask_tokens = cfgs_model.get('zero_init_mask_tokens', True)
+    pred_num_heads = cfgs_model.get("pred_num_heads", None)
 
     # -- DATA
     cfgs_data = args.get('data')
@@ -176,7 +179,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     start_lr = cfgs_opt.get('start_lr')
     lr = cfgs_opt.get('lr')
     final_lr = cfgs_opt.get('final_lr')
-    ema = cfgs_opt.get('ema')
+    decoder_lr_scale = cfgs_opt.get('decoder_lr_scale',1.0)
     betas = cfgs_opt.get('betas', (0.9, 0.95)) #GU_Debug: (0.9, 0.999)
     eps = cfgs_opt.get('eps', 1.e-8) #1e-7
     drop_rate = cfgs_opt.get('drop_rate', 0.1)
@@ -269,40 +272,45 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         if not os.path.exists(load_path):
             load_path = None
             load_model = False
-    
-    if log_dir != None:
-        
-        if rank == 0:
-            if (run_ID == None):
-                # wandb init
-                run = wandb.init(
-                # set the wandb project where this run will be logged
-                project="mjepa-project",
-                
-                entity="ituvisionlab",
-                
-                dir=log_dir,
 
-                # track hyperparameters and run metadata
-                config=args,
-                
-                name=os.path.basename(log_dir)
-                
-                # group="mjepa-DDP"
-                )
-            else:
+    #rank = int(os.environ.get("SLURM_PROCID", 0))
+    if log_dir is not None:
+        if rank == 0:
+            try:
+                logger.info(f"[RANK {rank}] Attempting to init wandb (online mode)...")
+                if run_ID is None:
+                    run = wandb.init(
+                        project="mjepa-project",
+                        entity="ituvisionlab",
+                        dir=log_dir,
+                        config=args,
+                        name=os.path.basename(log_dir),
+                        settings=wandb.Settings(init_timeout=60) # 1 minute timeout
+                    )
+                else:
+                    run = wandb.init(
+                        project="mjepa-project",
+                        entity="ituvisionlab",
+                        id=run_ID,
+                        resume="allow",
+                        dir=log_dir,
+                        config=args,
+                        name=os.path.basename(log_dir),
+                        settings=wandb.Settings(init_timeout=60)
+                    )
+                logger.info(f"[RANK {rank}] wandb initialized (online).")
+            except wandb.errors.CommError as e:
+                logger.warning(f"[RANK {rank}] wandb.init() failed: {e}. Switching to offline mode.")
+                os.environ["WANDB_MODE"] = "offline"
                 run = wandb.init(
-                # set the wandb project where this run will be logged
-                project="mjepa-project",
-                entity="ituvisionlab",               
-                id = run_ID,
-                resume="allow",
-                dir=log_dir,
-                # track hyperparameters and run metadata
-                config=args,
-                name=os.path.basename(log_dir)
-                # group="mjepa-DDP"
+                    project="mjepa-project",
+                    entity="ituvisionlab",
+                    dir=log_dir,
+                    config=args,
+                    name=os.path.basename(log_dir),
+                    mode="offline"
                 )
+                logger.info(f"[RANK {rank}] wandb initialized (offline).")
         else:
             run = None
         
@@ -350,6 +358,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         crop_size=crop_size,
         pred_depth=pred_depth,
         pred_embed_dim=pred_embed_dim,
+        pred_num_heads=pred_num_heads,
         in_chans=in_chans,
         use_sdpa=use_sdpa,
         drop_rate=drop_rate,
@@ -429,6 +438,7 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
         start_lr=start_lr,
         ref_lr=lr,
         final_lr=final_lr,
+        decoder_lr_scale=decoder_lr_scale,
         iterations_per_epoch=ipe,
         warmup=warmup,
         num_epochs=num_epochs,
@@ -654,36 +664,33 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 DEBUG_visualize_spectra = True #False # DEBUG: set this to False when not debugging
                 # DEBUG: Monitor magnitudes and log-magnitudes before loss and write out fft volumes and slices
                 with torch.no_grad():
-                    if DEBUG_visualize_spectra == True and rank == 0 and (epoch+1 % write_img_freq == 0):
+                    if DEBUG_visualize_spectra == True and rank == 0 and (itr == 0) and (epoch % write_img_freq == 0):
                         #     recon_np = img_recon[0].detach().cpu().numpy()
                         #     target_np = img_gt[0].detach().cpu().numpy()
                         #     nib.save(nib.Nifti1Image(recon_np, affine=np.eye(4)), f"Zdebug_recon_step{global_step}.nii.gz")
                         #     nib.save(nib.Nifti1Image(target_np, affine=np.eye(4)), f"Zdebug_target_step{global_step}.nii.gz")
-                        # Shifted FFTs
-                        if fft_recon.size(0) > 0:
-                            mag_recon = torch.fft.fftshift(torch.abs(fft_recon[0]))
-                            mag_target = torch.fft.fftshift(torch.abs(fft_target[0]))
-                            # Log-magnitudes
-                            logmag_recon = torch.log1p(mag_recon)
-                            logmag_target = torch.log1p(mag_target)
+                        # Calculate Shifted FFTs for visualization
+                        mag_recon = torch.fft.fftshift(torch.abs(fft_recon[0]))
+                        mag_target = torch.fft.fftshift(torch.abs(fft_target[0]))
+                        # Log-magnitudes
+                        logmag_recon = torch.log1p(mag_recon)
+                        logmag_target = torch.log1p(mag_target)
 
-                            # Middle slice along time (T) axis
-                            mid_t = mag_recon.shape[0] // 2
+                        # Middle slice along time (T) axis
+                        mid_t = mag_recon.shape[0] // 2
 
-                            # Save linear and log-magnitude images
-                            plt.imsave(f"Zspec_recon_mag_xy_{global_step}.png", mag_recon[mid_t].cpu().numpy(), cmap='gray')
-                            plt.imsave(f"Zspec_target_mag_xy_{global_step}.png", mag_target[mid_t].cpu().numpy(), cmap='gray')
-                            plt.imsave(f"Zspec_recon_logmag_xy_{global_step}.png", logmag_recon[mid_t].cpu().numpy(), cmap='gray')
-                            plt.imsave(f"Zspec_target_logmag_xy_{global_step}.png", logmag_target[mid_t].cpu().numpy(), cmap='gray')
+                        # Save log-magnitude images of the mid-slice fft (bare fft has a high range)
+                        plt.imsave(f"Zspec_recon_logmag_xy_{global_step}.png", logmag_recon[mid_t].cpu().numpy(), cmap='gray')
+                        plt.imsave(f"Zspec_target_logmag_xy_{global_step}.png", logmag_target[mid_t].cpu().numpy(), cmap='gray')
 
-                            # Print stats
-                            max_r = mag_recon.max().item()
-                            max_t = mag_target.max().item()
-                            mean_r = mag_recon.mean().item()
-                            mean_t = mag_target.mean().item()
-                            if max_r > 1e2 or max_t > 1e2:
-                                logger.warning(f"[SpectralLoss Debug] High FFT magnitude! max_r={max_r:.2e}, max_t={max_t:.2e}")
-                            logger.info(f"[SpectralLoss Debug] mean_r={mean_r:.2e}, mean_t={mean_t:.2e}")
+                        # Print stats
+                        max_r = logmag_recon.max().item()
+                        max_t = logmag_target.max().item()
+                        mean_r = logmag_recon.mean().item()
+                        mean_t = logmag_target.mean().item()
+                        if max_r > 1e2 or max_t > 1e2:
+                            logger.warning(f"[SpectralLoss Debug] High log FFT magnitude! max_r={max_r:.2e}, max_t={max_t:.2e}")
+                        logger.info(f"[SpectralLoss Debug] mean_r={mean_r:.2e}, mean_t={mean_t:.2e}")
 
                 return loss
 
@@ -1155,26 +1162,28 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
 
             torch.cuda.empty_cache()
 
-        # -- Save Checkpoint
+        # -- Save Checkpoint at the end of each epoch
         logger.info('--- Epoch avg. loss %.3f ---' % loss_meter.avg)
         
-        # -- Save checkpoint or last epoch
-       # if ((itr == 0) and (epoch % checkpoint_freq == 0) or (epoch == (num_epochs - 1))) and log_dir != None:
-        if log_dir != None: # itr is always ipe-1 at this point, do at the end of every epoch   
-            if not os.path.exists(latest_path):
-                save_checkpoint(epoch, latest_path, latest_info_path)
-            else:
-                if len(epoch_losses) > 0:
-                    if loss_meter.avg < min(epoch_losses) and epoch > 19 :
-                        save_checkpoint(epoch, best_path, best_info_path)
-                    else:
-                        save_checkpoint(epoch, latest_path, latest_info_path)
-                    if epoch % periodic_ckpt_save_freq == 0:
-                        periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch}.pth.tar')
-                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
-                        save_checkpoint(epoch, periodic_path, periodic_info_path)
-        if epoch >= 19:
-            epoch_losses.append(loss_meter.avg)
+        #  At the end of each epoch: Save checkpoint, and best, and periodically
+        if log_dir is not None:
+            epoch_loss = loss_meter.avg
+
+            # Always save latest model
+            save_checkpoint(epoch, latest_path, latest_info_path)
+
+            # Save best model after initial epochs (record_epochs_start)
+            if epoch >= record_epochs_start:
+                if len(epoch_losses) == 0 or epoch_loss < min(epoch_losses):
+                    save_checkpoint(epoch, best_path, best_info_path)
+
+                # Periodic checkpoint saving
+                if epoch % periodic_ckpt_save_freq == 0:
+                    periodic_path = os.path.join(periodic_model_folder, f'{tag}-periodic-epoch-{epoch}.pth.tar')
+                    periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
+                    save_checkpoint(epoch, periodic_path, periodic_info_path)
+
+                epoch_losses.append(epoch_loss)
 
         torch.cuda.empty_cache()
 

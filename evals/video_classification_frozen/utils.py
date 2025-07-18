@@ -130,10 +130,16 @@ class ClipAggregation(nn.Module):
         B, C, T, H, W = x[0][0].size()
 
         # Concatenate all spatial and temporal views along batch dimension
-        x = [torch.cat(xi, dim=0) for xi in x]
-        x = torch.cat(x, dim=0) #-> B, C, T, H, W
+        if len(x) == 1 and len(x[0]) == 1:
+            # Single clip scenario (MAE-like), skip concatenation
+            x = x[0][0]  # [B, C, T, H, W]
+        else:
+            # Original logic for multi-clip scenarios
+            x = [torch.cat(xi, dim=0) for xi in x]
+            x = torch.cat(x, dim=0)  # -> [B, C, T, H, W]
+
         outputs = self.model(x)
-        _, N, D = outputs.size() #num_clips, B
+        _, N, D = outputs.size() #num_clips, B or  # [num_clips * B, N, D]
 
         T = T // self.tubelet_size  # Num temporal tokens
         N = N // T  # Num spatial tokens

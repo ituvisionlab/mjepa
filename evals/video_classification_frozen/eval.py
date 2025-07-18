@@ -38,7 +38,9 @@ from torch.nn.parallel import DistributedDataParallel
 #import torch.utils.tensorboard
 import argparse
 import wandb
-from sklearn.metrics import recall_score, f1_score, precision_score, confusion_matrix
+import wandb.errors
+
+from sklearn.metrics import recall_score, f1_score, precision_score, accuracy_score, confusion_matrix
 from sklearn.metrics import roc_auc_score
 from sklearn.preprocessing import label_binarize
 
@@ -162,7 +164,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     start_lr = args_opt.get('start_lr')
     lr = args_opt.get('lr')
     final_lr = args_opt.get('final_lr')
-    warmup = args_opt.get('warmup')
+    warmup = args_opt.get('warmup',0)
+    lr_schedule_factor = args_opt.get('lr_schedule_factor',1.0)
     use_bfloat16 = args_opt.get('use_bfloat16')
     attn_pooler_flag = args_opt.get('attn_pooler_flag',False)
     seed = args_opt.get('seed', _GLOBAL_SEED)
@@ -240,38 +243,40 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         # -- make csv_logger
         csv_logger = CSVLogger(csv_log_file,
                                 ('%d', 'epoch'),
-                                ('%.5f', 'train acc'),
                                 ('%.5f', 'val acc'),
-                                ('%.5f', 'train loss'),
                                 ('%.5f', 'val loss'),
-                                ('%.5f', 'train recall'),
                                 ('%.5f', 'val recall'),
-                                ('%.5f', 'train precision'),
                                 ('%.5f', 'val precision'),
-                                ('%.5f', 'train f1'),
                                 ('%.5f', 'val f1'),
                                 ('%.5f', 'val AUC'))
         
         if rank == 0:
-            # wandb init
-            hostname = platform.node()
-            entity_name = "mgulsen2020-wandb" if hostname == "panther" else "ituvisionlab"
-            
-            run = wandb.init(
-                # set the wandb project where this run will be logged
-                project="mjepa-project",
-                
-                entity=entity_name,
-                
-                dir=log_dir,
-
-                # track hyperparameters and run metadata
-                config=args_eval,
-                
-                name=os.path.basename(log_dir)
-                
-                # group="mjepa-DDP"
+            try: # wandb init
+                logger.info(f"[RANK {rank}] Attempting to init wandb (online mode)...")
+                hostname = platform.node()
+                # entity_name = "mgulsen2020-wandb" if hostname == "panther" else "ituvisionlab"
+                entity_name = "ituvisionlab"
+                run = wandb.init(
+                    project="mjepa-project", # set the wandb project where this run will be logged
+                    entity=entity_name,
+                    dir=log_dir,
+                    config=args_eval, # track hyperparameters and run metadata
+                    name=os.path.basename(log_dir),
+                    settings=wandb.Settings(init_timeout=60) # 1 minute timeout
+                    )
+                logger.info(f"[RANK {rank}] wandb initialized (online).")
+            except wandb.errors.CommError as e:
+                logger.warning(f"[RANK {rank}] wandb.init() failed: {e}. Switching to offline mode.")
+                os.environ["WANDB_MODE"] = "offline"
+                run = wandb.init(
+                    project="mjepa-project",
+                    entity=entity_name,
+                    dir=log_dir,
+                    config=args_eval,
+                    name=os.path.basename(log_dir),
+                    mode="offline"
                 )
+                logger.info(f"[RANK {rank}] wandb initialized (offline).")
         else:
             run = None
     else:
@@ -325,6 +330,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         drop_rate=drop_rate,
         attn_drop_rate=attn_drop_rate
         )
+    logger.info(f"Encoder dtype: {next(encoder.parameters()).dtype}")
     if pretrain_frames_per_clip == 1:
         # Process each frame independently and aggregate
         encoder = FrameAggregation(encoder).to(device)
@@ -427,6 +433,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         final_lr=final_lr,
         iterations_per_epoch=ipe,
         warmup=warmup,
+        lr_schedule_factor=lr_schedule_factor,
         num_epochs=num_epochs,
         use_bfloat16=use_bfloat16,
         frozen=frozen,
@@ -465,7 +472,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             scheduler.step()
             wd_scheduler.step()
 
-    def save_checkpoint(epoch, train_acc, val_acc, path, info_path, attn_pooler=None):
+    def save_checkpoint(epoch, train_acc, val_acc, val_f1, auc_score, path, info_path, attn_pooler=None):
         save_dict = {
             'encoder': encoder.state_dict(),  # Save encoder state
             'classifier': classifier.state_dict(),
@@ -481,13 +488,21 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         if rank == 0:
             torch.save(save_dict, path) #rather than to save on latest_path pretrained classifier
             with open(info_path, "w") as info_f:
-                info_f.write(f"Model path: {path},\nEpoch: {epoch+1},\ntrain acc: {train_acc}, val acc: {val_acc}, lr: {lr}")
+                info_f.write(
+                    f"Model path: {path},\n"
+                    f"Epoch: {epoch + 1},\n"
+                    f"train acc: {train_acc}, val acc: {val_acc},\n"
+                    f"val f1: {val_f1}, auc: {auc_score}, lr: {lr}"
+                )
             logger.info(f"Checkpoint successfully saved at epoch {epoch} to {path}")
                 
     epoch_accs = []
     epoch_val_accs = []
     encoder_frozen = True
-    
+    best_val_acc = float('-inf')
+    best_val_f1 = float('-inf')
+    best_val_auroc = float('-inf')
+
     if pretrained_path == None:
         encoder_warmup = 0
 
@@ -497,13 +512,13 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # TRAIN LOOP
     for epoch in range(start_epoch, num_epochs):
         if rank == 0:
-            logger.info('Epoch %d' % (epoch))
+            logger.info('Starting Epoch %d' % (epoch))
 
         if not frozen:
             if epoch >= encoder_warmup:
                 encoder_frozen = False
 
-        train_acc, train_loss, train_recall, train_precision, train_f1, auc_score = run_one_epoch(
+        train_acc, train_loss, train_recall, train_precision, train_f1, auc_score, all_outputs_tensor, all_labels_tensor = run_one_epoch(
             device=device,
             training=True,
             num_temporal_views=eval_num_clips, #if attend_across_segments else 1,
@@ -533,7 +548,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             log_dir=log_dir,
             eval_in_chans=eval_in_chans,)
 
-        val_acc, val_loss, val_recall, val_precision, val_f1, auc_score = run_one_epoch(
+        val_acc, val_loss, val_recall, val_precision, val_f1, val_auroc, val_outputs_tensor, val_labels_tensor = run_one_epoch(
             device=device,
             training=False,
             num_temporal_views=eval_num_clips,
@@ -563,54 +578,70 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             log_dir=log_dir,
             eval_in_chans=eval_in_chans,)
 
-        #GU_ DEBUG
-        if rank == 0:
-            logger.info('[%5d] train: %.3f%% test: %.3f%% AUC: %.3f' % (epoch, train_acc, val_acc, auc_score))
+        # Compute metrics on validation set
+        if val_outputs_tensor is not None:
+            val_metrics = eval_metrics(val_outputs_tensor, val_labels_tensor)
+            val_auroc = val_metrics['auc']*100 #for percent
+            val_acc = val_metrics['accuracy']*100
+            val_f1 = val_metrics['f1']*100
+            val_precision = val_metrics['precision']*100
+            val_recall = val_metrics['recall']*100
         
-        logger.info(f"Validation Metrics:")
-        logger.info(f"Accuracy: {val_acc:.4f}")
-        logger.info(f"Sensitivity (Recall): {val_recall:.4f}")
-        logger.info(f"Precision: {val_precision:.4f}")
-        logger.info(f"F1-score: {val_f1:.4f}")
-        logger.info(f"AUC: {auc_score if not np.isnan(auc_score) else 'Undefined (single class)'}")
+        if rank == 0:
+            logger.info(f"Epoch [{epoch}] Validation Metrics:")
+            logger.info(f"AUC: {val_auroc:.4f}")
+            logger.info(f"Accuracy: {val_acc:.4f}")
+            logger.info(f"Precision: {val_precision:.4f}")
+            logger.info(f"Recall: {val_recall:.4f}")
+            logger.info(f"F1 Score: {val_f1:.4f}")
+            logger.info(f"Confusion Matrix:\n{val_metrics['confusion_matrix']}")
 
-        # if rank == 0:
-        if csv_logger != None:
-            csv_logger.log(epoch, train_acc, val_acc, train_loss, val_loss, train_recall, val_recall, train_precision, val_precision, train_f1, val_f1, auc_score)
+        #GU_ DEBUG
+        #if rank == 0: #print out for all ranks for debugging
+        logger.info('[%3d] rank:[%d] val_acc: %.2f%% val_recall: %.2f%% AUC: %.3f%% val_f1: %.2f%% val_precision: %.2f' % (epoch, rank, val_acc, val_recall, val_auroc, val_f1, val_precision))
+        
+        if csv_logger is not None:   # CSV logging
+                csv_logger.log(epoch, val_acc, val_loss.item(), val_recall, val_precision, val_f1, val_auroc)
 
         # Wandb logging
         if run != None and rank == 0:
             run.log({
-                    'val/acc': val_acc,
-                    'val/loss': val_loss,
-                    'val/auroc': auc_score,
-                    'val/recall': val_recall,
-                    'val/precision': val_precision,
-                    'val/f1': val_f1,
-                    'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
+                    'train_epoch/acc': train_acc,
+                    'train_epoch/loss': train_loss,
+                    'train_epoch/recall': train_recall,
+                    'train_epoch/precision': train_precision,
+                    'train_epoch/f1': train_f1,
+                    'val_epoch/acc': val_acc,
+                    'val_epoch/loss': val_loss,
+                    'val_epoch/auroc': val_auroc,
+                    'val_epoch/recall': val_recall,
+                    'val_epoch/precision': val_precision,
+                    'val_epoch/f1': val_f1
                 })
                 
-        #if (epoch % checkpoint_freq == 0 or epoch == (num_epochs - 1)) and log_dir != None:
-        if log_dir != None: # at the end of every epoch       
-            if not os.path.exists(latest_path):
-                save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path, attn_pooler=attn_pooler)
-            else:
-                if len(epoch_accs) > 0:
-                    if val_acc > max(epoch_val_accs) and epoch > 4: #if train_acc > max(epoch_accs) and epoch > 4:
-                        save_checkpoint(epoch, train_acc, val_acc, best_path, best_info_path, attn_pooler=attn_pooler)
-                    else:
-                        save_checkpoint(epoch, train_acc, val_acc, latest_path, latest_info_path, attn_pooler=attn_pooler)
-                    if epoch% save_ckpt_epoch_freq ==0:
-                        periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch}.pth.tar')
-                        periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
-                        save_checkpoint(epoch, train_acc, val_acc, periodic_path, periodic_info_path, attn_pooler=attn_pooler)
-        if epoch >= 4:
-            epoch_accs.append(train_acc)
-            epoch_val_accs.append(val_acc)
+        if log_dir is not None:
+            # Always save latest model
+            save_checkpoint(epoch, train_acc, val_acc, val_f1, val_auroc,
+                        latest_path, latest_info_path, attn_pooler=attn_pooler)
+
+            # Check if this is the best model in terms of:
+            if auc_score > best_val_auroc: #if val_acc > best_val_acc:  #if val_f1 > best_val_f1:
+                best_val_auroc = auc_score  # update the best metric  #best_val_acc = val_acc #best_val_f1 = val_f1
+                save_checkpoint(epoch, train_acc, val_acc, val_f1, val_auroc,
+                            best_path, best_info_path, attn_pooler=attn_pooler)
+
+            # Save periodic checkpoints
+            if epoch % save_ckpt_epoch_freq == 0:
+                periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch}.pth.tar')
+                periodic_info_path = os.path.join(periodic_model_folder, f'periodic-info-epoch-{epoch}.txt')
+                save_checkpoint(epoch, train_acc, val_acc, val_f1, val_auroc,
+                            periodic_path, periodic_info_path, attn_pooler=attn_pooler)
+
+        epoch_accs.append(train_acc)
+        epoch_val_accs.append(val_acc)
             
     if run != None:
         run.finish()
-
 
 def run_one_epoch(
     device,
@@ -722,6 +753,10 @@ def run_one_epoch(
             with encoder_context:
                 if eval_in_chans == 1: #single-contrast pipeline
                     encoder_input = [[full_clip]]  # nesting for encoder: [[B,C=1,T,H,W]] i.e. encoder_input[0][0].shape: B C T H W
+                    
+                    # logger.info(f"DEBUG: encoder_input nesting: {len(encoder_input)} {len(encoder_input[0])}")
+                    # logger.info(f"DEBUG: tensor shape: {encoder_input[0][0].shape}")
+
                     outputs = encoder(encoder_input, clip_indices)[0]  # [B, N, D]
                 else:
                     # Multi-contrast pipeline explicitly handling each contrast batch-wise
@@ -776,14 +811,14 @@ def run_one_epoch(
 
             with torch.no_grad():
                 if attend_across_segments:
-                    classifier_outputs = sum([F.softmax(o, dim=1) for o in classifier_outputs]) / len(classifier_outputs)
+                    classifier_outs = sum([F.softmax(o, dim=1) for o in classifier_outputs]) / len(classifier_outputs)
                 else:
-                    classifier_outputs = sum(
+                    classifier_outs = sum(
                         [sum([F.softmax(ost, dim=1) for ost in os]) for os in classifier_outputs]
                     ) / len(classifier_outputs) / len(classifier_outputs[0])
 
             # Metric calculations: classifier_outputs: [B, num_classes] at this point
-            preds = classifier_outputs.max(dim=1).indices
+            preds = classifier_outs.max(dim=1).indices
 
             # Top-1 Accuracy
             top1_acc = 100. * preds.eq(labels).sum() / batch_size
@@ -802,10 +837,9 @@ def run_one_epoch(
 
             # Collect results for AUC during validation
             if not training:
-                all_outputs.append(classifier_outputs.detach().cpu())
+                all_outputs.append(classifier_outs.detach().cpu())
                 all_labels.append(labels.detach().cpu())
-
-    
+   
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
             precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
             #specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
@@ -857,6 +891,31 @@ def run_one_epoch(
                     if not frozen and (clip_grad_encoder is not None):
                         torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
                 optimizer.step()
+
+            #DEBUG
+            #logger.info(f"Encoder structure: {encoder.module}")
+            # print(encoder.module.model.blocks[0].attn.qkv.weight.requires_grad)
+            # try:
+            #     grad = encoder.module.model.blocks[-1].attn.qkv.weight.grad
+            #     if grad is not None:
+            #         logger.info(f"Grad: [{grad.abs().mean().item():.6f}]")
+            #     else:
+            #         logger.info("Grad: [None]")
+            # except AttributeError as e:
+            #     logger.warning(f"Could not access gradient: {e}")
+            # total_grad_norm = 0.0
+            # num_params = 0
+            # for name, param in encoder.module.model.named_parameters():
+            #     if param.grad is not None:
+            #         total_grad_norm += param.grad.data.norm(2).item() ** 2
+            #         num_params += 1
+            # if num_params > 0:
+            #     total_grad_norm = (total_grad_norm) ** 0.5
+            #     logger.info(f"Global Grad L2 Norm: [{total_grad_norm:.6f}] across {num_params} parameters")
+            # else:
+            #     logger.info("No gradients found on any parameters.")
+
+
             # # GU_Debug
             # for name, param in encoder.named_parameters():
             #     if param.grad is None:
@@ -874,21 +933,7 @@ def run_one_epoch(
                 optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
             #optimizer.zero_grad(set_to_none=True)
 
-        # Tensorboard logging cancelled: log_writer set to None
-        if log_writer != None:
-            if training and itr % eval_freq == 0:
-                log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
-            if not training and itr % eval_freq == 0:
-                log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
-                log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
-            log_writer.flush()
-        
-        # Wandb logging
+       # Wandb logging every iter
         if run != None and rank == 0:
             if training and itr % eval_freq == 0:
                 run.log({
@@ -919,43 +964,101 @@ def run_one_epoch(
         if itr % 5 == 0 and rank == 0:
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
                         % (itr, top1_meter.avg, loss,
-                           torch.cuda.max_memory_allocated() / 1024.**2))
+                           torch.cuda.max_memory_allocated() / 1024.**2))        
+    # #end of one epoch : AUC and metric Calculations
+    all_outputs_tensor = torch.cat(all_outputs, dim=0) if not training else None
+    all_labels_tensor = torch.cat(all_labels, dim=0) if not training else None
 
-    #end of one epoch : AUC Calculation
-    if rank == 0 and not training:
-        # Concatenate all outputs and labels
-        all_outputs_tensor = torch.cat(all_outputs, dim=0)  # shape: [total_samples, num_classes]
-        all_labels_tensor = torch.cat(all_labels, dim=0)    # shape: [total_samples]
-        # Convert to numpy arrays
-        all_outputs_np = all_outputs_tensor.numpy()
-        all_labels_np = all_labels_tensor.numpy()
+    # if rank == 0 and not training:
+    #     # Concatenate all outputs and labels
+    #     all_outputs_tensor = torch.cat(all_outputs, dim=0)  # shape: [total_samples, num_classes]
+    #     all_labels_tensor = torch.cat(all_labels, dim=0)    # shape: [total_samples]
+    #     # Convert to numpy arrays
+    #     all_outputs_np = all_outputs_tensor.numpy()
+    #     all_labels_np = all_labels_tensor.numpy()
     
-        unique_labels = np.unique(all_labels_np)
-        if len(unique_labels) < 2:
-            logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
-            auc_score = float('nan')
-        else:
-            try:           
-                number_classes = all_outputs_np.shape[1] # num_classes already available
-                if number_classes == 2: # Binary classification case
-                    auc_score = roc_auc_score(all_labels_np, all_outputs_np[:, 1])
-                else:
-                    # Multi-class classification (one-vs-rest)
-                    auc_score = roc_auc_score(
-                        all_labels_np,
-                        all_outputs_np,
-                        multi_class='ovr',
-                        average='macro'
-                    )
-            except ValueError as e:
-                logger.warning(f"Could not compute AUC: {e}")
-                auc_score = float('nan')
-            # Log and print AUC
-        logger.info(f"AUC Score (validation) inside run_one_epoch: {auc_score:.4f}")
-        
+    #     unique_labels = np.unique(all_labels_np)
+    #     if len(unique_labels) < 2:
+    #         logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
+    #         auc_score = float('nan')
+    #     else:
+    #         try:           
+    #             number_classes = all_outputs_np.shape[1] # num_classes already available
+    #             if number_classes == 2: # Binary classification case
+    #                 auc_score = roc_auc_score(all_labels_np, all_outputs_np[:, 1])
+    #                 # predicted_labels for computing metrics at threshold = 0.5
+    #                 predicted_labels = (all_outputs_np[:, 1] >= 0.5).astype(int)
+    #                 # Recalculate all metrics based on thresholded predicted labels
+    #                 accuracy = accuracy_score(all_labels_np, predicted_labels)
+    #                 precision = precision_score(all_labels_np, predicted_labels)
+    #                 recall = recall_score(all_labels_np, predicted_labels)
+    #                 f1 = f1_score(all_labels_np, predicted_labels)
+    #                 conf_matrix = confusion_matrix(all_labels_np, predicted_labels)
+
+    #             else:
+    #                 # Multi-class classification (one-vs-rest)
+    #                 auc_score = roc_auc_score(
+    #                     all_labels_np,
+    #                     all_outputs_np,
+    #                     multi_class='ovr',
+    #                     average='macro'
+    #                 )
+    #         except ValueError as e:
+    #             logger.warning(f"Could not compute AUC: {e}")
+    #             auc_score = float('nan')
+    #         # Log and print AUC
+    #     logger.info(f"AUC Score (validation) inside run_one_epoch: {auc_score:.4f}")
+
     torch.cuda.empty_cache()
-        
-    return top1_meter.avg, loss, recall, precision, f1, auc_score
+    return top1_meter.avg, loss, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score, all_outputs_tensor, all_labels_tensor
+
+def eval_metrics(outputs_tensor, labels_tensor):
+    outputs_np = outputs_tensor.cpu().numpy()
+    labels_np = labels_tensor.cpu().numpy()
+
+    metrics = {}
+
+    unique_labels = np.unique(labels_np)
+    if len(unique_labels) < 2:
+        logger.warning(f"Only one class {unique_labels} present in labels. AUC and other metrics may be undefined.")
+        metrics.update({
+            'auc': float('nan'),
+            'accuracy': float('nan'),
+            'precision': float('nan'),
+            'recall': float('nan'),
+            'f1': float('nan'),
+            'confusion_matrix': np.array([[len(labels_np)]])
+        })
+        return metrics
+
+    num_classes = outputs_np.shape[1]
+
+    if num_classes == 2:
+        predicted_probs = outputs_np[:, 1]
+        metrics['auc'] = roc_auc_score(labels_np, predicted_probs)
+
+        predicted_labels = (predicted_probs >= 0.5).astype(int)
+
+        metrics.update({
+            'accuracy': accuracy_score(labels_np, predicted_labels),
+            'precision': precision_score(labels_np, predicted_labels, zero_division=0),
+            'recall': recall_score(labels_np, predicted_labels, zero_division=0),
+            'f1': f1_score(labels_np, predicted_labels, zero_division=0),
+            'confusion_matrix': confusion_matrix(labels_np, predicted_labels)
+        })
+    else:
+        predicted_labels = np.argmax(outputs_np, axis=1)
+        metrics['auc'] = roc_auc_score(labels_np, outputs_np, multi_class='ovr', average='macro')
+
+        metrics.update({
+            'accuracy': accuracy_score(labels_np, predicted_labels),
+            'precision': precision_score(labels_np, predicted_labels, average='macro', zero_division=0),
+            'recall': recall_score(labels_np, predicted_labels, average='macro', zero_division=0),
+            'f1': f1_score(labels_np, predicted_labels, average='macro', zero_division=0),
+            'confusion_matrix': confusion_matrix(labels_np, predicted_labels)
+        })
+
+    return metrics
 
 @torch.no_grad()
 def sanity_check(encoder, classifier, val_loader, device, num_classes):
@@ -1191,6 +1294,7 @@ def init_opt(
     start_lr,
     ref_lr,
     warmup,
+    lr_schedule_factor,
     num_epochs,
     wd=1e-6,
     final_wd=1e-6,
@@ -1251,12 +1355,12 @@ def init_opt(
         start_lr=start_lr,
         ref_lr=ref_lr,
         final_lr=final_lr,
-        T_max=int(num_epochs*iterations_per_epoch))
+        T_max=int(lr_schedule_factor*num_epochs*iterations_per_epoch))
     wd_scheduler = CosineWDSchedule(
         optimizer,
         ref_wd=wd,
         final_wd=final_wd,
-        T_max=int(num_epochs*iterations_per_epoch))
+        T_max=int(lr_schedule_factor*num_epochs*iterations_per_epoch))
     
     scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None 
     

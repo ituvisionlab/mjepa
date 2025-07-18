@@ -46,10 +46,10 @@ loss:
   loss_exp: 2.0 #1.0
   reg_coeff: 0.0
   spectral_coeff: 0 #1 
-  spec_loss_every_n_iter: 20
+  spec_loss_every_n_iter: 10
   min_epoch_for_spectral: 500000 #to disable spectral loss, set to a very large value
   high_pass_flag: false
-  cutoff_ratio: 0.5 #0.3 # used if high_pass_flag is on
+  cutoff_ratio: 0.3 # used if high_pass_flag is on
 mask:
   - aspect_ratio:
       - 1.0
@@ -73,9 +73,10 @@ meta:
   dtype: bfloat16
 model:
   model_name: vit_base
-  pred_model_name: vit_decoder
-  pred_depth: 12 #8
-  pred_embed_dim: 768
+  pred_model_name: vit_decoder_light #vit_decoder
+  pred_depth: 8 #12 #6
+  pred_embed_dim: 384 #768
+  pred_num_heads: 6 #8 #12   
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
   zero_init_mask_tokens: true #false
@@ -88,7 +89,8 @@ optimization:
   warmup: 5
   start_lr: 1.0e-4 #1.0e-3 #3e-05
   lr: 5.0e-4 #2.0e-3 #1.0e-4
-  final_lr: 1.0e-6 #1.0e-4 #1.0e-6
+  final_lr: 5.0e-5 #1.0e-6
+  decoder_lr_scale: 1.0 #0.1
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   grad_accum_steps: 2 #4

@@ -1,0 +1,99 @@
+app: mae
+nodes: 2
+tasks_per_node: 4  #1
+tag: mae
+data:
+  dataset_type: MRIDataset
+  datasets: # Relative path instead of abs path
+  - src/datasets/oasis3_all_bet.csv
+  - src/datasets/ppmi_all_bet_nii_with_bbox.csv 
+  - src/datasets/brats24_all_nii.csv
+  - src/datasets/ixi_all_bet_nii_with_bbox.csv
+  - src/datasets/mood_all_nii_with_bbox.csv
+  - src/datasets/scan_pretraining.csv
+  - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv
+  decode_one_clip: true  # unused
+  batch_size: 16 #16
+  num_clips: 1 #8
+  num_frames: 160 #144 #128 #192
+  tubelet_size: 8 #16
+  sampling_rate: 1
+  crop_size: 160 #144 #128 #192
+  patch_size: 8 #16
+  in_channel_size: 1
+  random_clip_sampling: false
+  pin_mem: true
+  num_workers: 8 #8 #12
+  filter_short_videos: false
+  clip_duration: null
+data_aug:
+  auto_augment: true
+  random_noise: 0.01
+  random_bias: 0.1 #unused
+  intensity_gamma: 0.1
+  random_resize_aspect_ratio:
+  - 0.9 
+  - 1.1 
+  random_resize_scale:
+  - 0.9
+  - 1.0
+  rotation_degree: 10
+  threshold_isotropy: 1.4
+logging:
+  folder:  /gpfs/data/sodicksonlab/gozde/logs/ #/your_absolute_file_path_for_saving_logs_and_checkpoints/
+  write_tag: mae
+loss:
+  loss_exp: 2.0 #1.0
+  reg_coeff: 0.0
+  spectral_coeff: 1 
+  spec_loss_every_n_iter: 10
+  min_epoch_for_spectral: 5 #to disable spectral loss, set to a very large value
+  high_pass_flag: true #false
+  cutoff_ratio: 0.3 #0.25 #used if high_pass_flag is on
+mask:
+  - aspect_ratio:
+      - 1.0
+      - 1.0
+    num_blocks: 0.75 #0.75
+    spatial_scale:
+      - 1
+      - 1
+    temporal_scale:
+      - 1
+      - 1
+    max_temporal_keep: 1.0
+    max_keep: null
+meta:
+  load_checkpoint: false
+  read_checkpoint: null # mae-latest.pth.tar # vitl16.pth.tar # null #r_file
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ 
+  seed: 1881 #234
+  eval_freq: 100
+  use_sdpa: true
+  dtype: bfloat16
+model:
+  model_name: vit_base
+  pred_model_name: vit_decoder_light #vit_decoder
+  pred_depth: 8 #12 #6
+  pred_embed_dim: 384 #768
+  pred_num_heads: 6 #8 #12   
+  uniform_power: true # positional_embedding related, check later
+  use_mask_tokens: true
+  zero_init_mask_tokens: true #false
+optimization:
+  ipe: null #300
+  clip_grad: 1.0
+  weight_decay: 0.005
+  final_weight_decay: 0.0005 #0.001 #0.1 #for large dataset
+  epochs: 700
+  warmup: 5
+  start_lr: 1.0e-4 #1.0e-3 #3e-05
+  lr: 5.0e-4 #2.0e-3 #1.0e-4
+  final_lr: 5.0e-5 #1.0e-6
+  decoder_lr_scale: 1.0 #0.1 
+  drop_rate: 0.0 #0.1 #default
+  attn_drop_rate: 0.0 #0.1 #default
+  grad_accum_steps: 2 #4
+  betas:
+  - 0.9
+  - 0.975

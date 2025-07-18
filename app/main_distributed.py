@@ -173,6 +173,22 @@ def launch_app_with_parsed_args(
     # if args_exclude is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)
 
+    executor.update_parameters(
+        slurm_additional_parameters={
+            "output": "/gpfs/data/sodicksonlab/gozde/slurm/%j.out",
+            "error": "/gpfs/data/sodicksonlab/gozde/slurm/%j.err"
+        }
+    )
+    # executor.update_parameters( # This does not work! Instead the above (slurm_additional_parameters) works!
+    #     stdout="/gpfs/data/sodicksonlab/gozde/slurm/%j.out",
+    #     stderr="/gpfs/data/sodicksonlab/gozde/slurm/%j.err"
+    #     #slurm_setup=[
+    #     #    "module load anaconda3",
+    #     #    "source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh",
+    #     #    "conda activate gozdessl"
+    #     #]
+    # )
+
     logger.info(f"Executor parameters: {executor.parameters}")
     logger.info(f"tasks_per_node: {tasks_per_node}")
     logger.info(f"partition: {partition}")
