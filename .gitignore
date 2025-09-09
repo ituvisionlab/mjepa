@@ -158,7 +158,6 @@ cython_debug/
 *.pyc
 *.tar
 *.pth
-*.csv
 logs/
 slice.png
 slice_preprocessed.png

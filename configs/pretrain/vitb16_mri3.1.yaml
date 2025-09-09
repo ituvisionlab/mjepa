@@ -16,10 +16,10 @@ data:
   decode_one_clip: true  # unused
   batch_size: 16 #32 
   num_clips: 1 #8  #12 works!
-  num_frames: 192 #160 #192 # 128 
+  num_frames: 160 #192 # 128 
   tubelet_size: 8 #8
   sampling_rate: 1
-  crop_size: 192 #160 
+  crop_size: 160 #192
   patch_size: 8 #8
   in_channel_size: 1
   random_clip_sampling: false
@@ -64,7 +64,7 @@ mask:
 meta:
   load_checkpoint: false
   read_checkpoint: null # vitl16.pth.tar # null #r_file
-  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ # currently hardcoded in train!
+  ckpt_folder: /gpfs/data/sodicksonlab/gozde/pretrained_weights/ 
   seed: 1881 #234
   eval_freq: 100
   use_sdpa: true

@@ -1,0 +1,17 @@
+label,subject_id,contrast,date_acquired,subject_sex,subject_age,subject_weight,nii_file_path,xmin,xmax,ymin,ymax,zmin,zmax
+0,OAS30052,T2,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/OASIS3all/OAS30052_MR_d4235/anat2/sub-OAS30052_sess-d4235_acq-TSE_T2w_betmask.nii.gz,41.0,187.0,32.0,216.0,4.0,40.0
+0,OAS30052,T2,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/OASIS3all/OAS30052_MR_d4235/anat5/sub-OAS30052_sess-d4235_T2star_betmask.nii.gz,40.0,214.0,13.0,231.0,6.0,39.0
+0,OAS30052,T1,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/OASIS3all/OAS30052_MR_d4235/anat4/sub-OAS30052_sess-d4235_T1w_betmask.nii.gz,29.0,151.0,29.0,190.0,0.0,197.0
+0,2,T1,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/IXI/IXI002-Guys-0828-T1_betmask.nii.gz,64,235,45,207,16,132
+0,12,T1,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/IXI/IXI012-HH-1211-T1_betmask.nii.gz,51,240,40,224,18,136
+0,13,T1,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/IXI/IXI013-HH-1212-T1_betmask.nii.gz,40,234,21,225,20,129
+0,14,T1,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/IXI/IXI014-HH-1236-T1_betmask.nii.gz,53,233,41,205,21,129
+0,02795,T1,027,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/BraTS2024/training_data1_v2/BraTS-GLI-02795-100/BraTS-GLI-02795-100-t1n.nii.gz,21,159,13,190,13,161
+0,02795,T2,027,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/BraTS2024/training_data1_v2/BraTS-GLI-02795-100/BraTS-GLI-02795-100-t2w.nii.gz,21,159,13,190,13,161
+0,02795,T2,027,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/BraTS2024/training_data1_v2/BraTS-GLI-02795-100/BraTS-GLI-02795-100-t2f.nii.gz,21,159,13,190,13,161
+0,02795,T1,027,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/BraTS2024/training_data1_v2/BraTS-GLI-02795-100/BraTS-GLI-02795-100-t1c.nii.gz,21,159,13,190,13,161
+0,Unknown,T1,2000-01-01,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/MOOD/brain_train/00000.nii.gz,31,229,20,247,13,208
+0,Unknown,T1,2000-01-01,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/MOOD/brain_train/00001.nii.gz,32,225,15,245,15,208
+0,Unknown,T1,2000-01-01,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/MOOD/brain_train/00002.nii.gz,35,223,22,245,13,205
+0,Unknown,T1,2000-01-01,X,0.00,0.00,/gpfs/data/sodicksonlab/gozde/MOOD/brain_train/00003.nii.gz,34,225,15,247,7,214
+0,OAS30074,T2,2000-01-01,X,0.0,0.0,/gpfs/data/sodicksonlab/gozde/OASIS3all/OAS30074_MR_d1871/anat5/sub-OAS30074_ses-d1871_T2w_betmask.nii.gz,20.0,154.0,32.0,203.0,54.0,200.0

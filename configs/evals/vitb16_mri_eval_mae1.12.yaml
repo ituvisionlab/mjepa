@@ -10,27 +10,15 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
-  #- src/datasets/adni_downstream_splits/nc_ad_train.csv
-  - src/datasets/adni_downstream_multicontrast_splits/nc_ad_train.csv
-  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downtrain_nc_ad.csv
-  #- src/datasets/adni_all_2class_bet_valtrain.csv
-  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
-  #- src/datasets/adni_all_3class_bet_valtrain.csv
-  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
+  - src/datasets/abide_downtrain.csv
   dataset_val: 
-  #- src/datasets/adni_downstream_splits/nc_ad_val.csv
-  - src/datasets/adni_downstream_multicontrast_splits/nc_ad_val.csv
-  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downval_nc_ad.csv
-  #- src/datasets/adni_all_2class_bet_valtest.csv
-  #- src/datasets/adni_all_3class_bet_valtest.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
+  - src/datasets/abide_downval.csv
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 144
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
-  eval_in_channel_size: 3
+  eval_in_channel_size: 1
   frame_step: 1
   num_workers: 8
   random_clip_sampling: false
@@ -51,27 +39,27 @@ optimization:
   attend_across_segments: true
   num_epochs: 400
   resolution: 144
-  batch_size: 8 #16 memory not enough for multicontrast
+  batch_size: 24
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  start_lr: 1.0e-5 #1.0e-5
-  lr: 1.0e-4 #1.0e-5
+  start_lr: 1.0e-5
+  lr: 1.0e-5 
   final_lr: 1.0e-6 #1.0e-6 
-  warmup: 2
+  lr_schedule_factor: 5.0 #2.0 #1.0 default
+  warmup: 0
   use_bfloat16: true
   clip_grad_classifier: 1.0
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: null #0.75 #null to turn it off
+  layer_decay: null #0.6 #null to turn it off
   classifier_depth: 1
-  dropout: null #0.25 #null to turn off
-  drop_rate: 0.0
+  dropout: null #0.1 #null to turn off
+  drop_rate: 0.0 #
   attn_drop_rate: 0.0
-  attn_pooler_flag: false #for multicontrast input, optional attn pooler before classifier
 pretrain:
   model_name: vit_base
-  checkpoint_key: encoder #encoder
+  checkpoint_key: encoder #target_encoder
   frozen: false #true
   clip_duration: null
   frames_per_clip: 144
@@ -82,11 +70,14 @@ pretrain:
   use_sdpa: true
   patch_size: 8
   clip_grad_encoder: 1.0
-  encoder_warmup: 4
+  encoder_warmup: 0
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_19__15_06_31/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_11__12_04_26/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_01__09_31_23/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_27__12_26_59/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_22__21_44_28/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_05__10_46_25/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_05_30__16_06_20/model_ckpt/latest-model/
@@ -95,4 +86,3 @@ pretrain:
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
   checkpoint: mae-latest.pth.tar
-  

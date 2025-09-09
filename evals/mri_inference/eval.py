@@ -276,7 +276,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     for p in classifier.parameters(): p.requires_grad = False
     encoder.eval()
     classifier.eval()
-
+    
     test_loader, test_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=test_data_path,

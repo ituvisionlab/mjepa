@@ -880,7 +880,7 @@ def run_one_epoch(
                     if (clip_grad_classifier is not None):
                         torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
                     if not frozen and (clip_grad_encoder is not None):
-                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
+                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # GU added 1/19/2025
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -889,7 +889,7 @@ def run_one_epoch(
                     if (clip_grad_classifier is not None):
                         torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
                     if not frozen and (clip_grad_encoder is not None):
-                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # newly added 1/19/2025
+                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # GU added 1/19/2025
                 optimizer.step()
 
             #DEBUG

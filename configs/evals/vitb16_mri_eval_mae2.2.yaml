@@ -56,7 +56,8 @@ optimization:
   final_weight_decay: 1.0e-4 #0.1
   start_lr: 1.0e-5
   lr: 1.0e-4 
-  final_lr: 1.0e-6 #1.0e-6 
+  final_lr: 1.0e-6 #1.0e-6
+  lr_schedule_factor: 1.0 #5.0 #1.0 default
   warmup: 2
   use_bfloat16: true
   clip_grad_classifier: 1.0

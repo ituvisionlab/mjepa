@@ -63,7 +63,7 @@ class BottleneckBlock3D(nn.Module):
 class ResNet3D(nn.Module):
     """ 3D ResNet Model for MRI Classification """
 
-    def __init__(self, block, num_blocks, num_classes=3, in_channels=1, dropout=0.3):
+    def __init__(self, block, num_blocks, num_classes=2, in_channels=1, dropout=0.1):
         super(ResNet3D, self).__init__()
         self.in_planes = 64
 

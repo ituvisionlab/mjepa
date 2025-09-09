@@ -21,12 +21,12 @@ data:
   #- src/datasets/adni_all_2class_bet_val.csv 
   dataset_type: MRIDataset
   num_classes: 2
-  frames_per_clip: 192 #160 
+  frames_per_clip: 160 
   num_segments: 1 #8 #for larger cropsize #rename to num_clips
   num_views_per_segment: 1
   eval_in_channel_size: 1
   frame_step: 1
-  num_workers: 0 #4
+  num_workers: 2 #4
   random_clip_sampling: false
   pin_mem: true
 data_aug:
@@ -44,8 +44,8 @@ data_aug:
 optimization:
   attend_across_segments: true
   num_epochs: 200
-  resolution: 192
-  batch_size: 8
+  resolution: 160
+  batch_size: 16
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
   start_lr: 1.0e-5 #1.0e-6 #5.0e-5 #1.0e-5
@@ -60,7 +60,7 @@ optimization:
   val_log_iter_freq: 1
   layer_decay: null #0.75 #null to turn it off
   classifier_depth: 1
-  dropout: 0.0 #0.25 #null to turn off #btw encoder and classifier
+  dropout: null #0.25 #null to turn off #btw encoder and classifier
   drop_rate: 0.0
   attn_drop_rate: 0.0
 pretrain:
@@ -68,7 +68,7 @@ pretrain:
   checkpoint_key: encoder #target_encoder
   frozen: false #default: true
   clip_duration: null
-  frames_per_clip: 192   #160
+  frames_per_clip: 160  #160
   tubelet_size: 8
   uniform_power: true
   use_silu: false
@@ -80,7 +80,8 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_07_08__19_33_46/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_06__15_20_50/model_ckpt/latest-model/ 
+  #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_07_08__19_33_46/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_05_05__10_34_10/model_ckpt/latest-model/
   # /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_04_04__13_02_53/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_03_12__13_39_58/model_ckpt/latest-model/

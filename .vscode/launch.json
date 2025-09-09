@@ -12,7 +12,7 @@
             "justMyCode": false,
             "logToFile": true,
             "args": [
-                "--fname=configs/pretrain_mae/vitb16_mri_mae2.1_p.yaml",
+                "--fname=configs/evals/resnet3d_ad_nc_k32_debug.yaml",
                 "--devices",
                 "cuda:0"
                 // "--devices", "cuda:0", "cuda:1", "cuda:2", "cuda:3"

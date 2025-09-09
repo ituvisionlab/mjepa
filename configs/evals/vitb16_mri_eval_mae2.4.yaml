@@ -11,20 +11,8 @@ data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
   - src/datasets/adni_downstream_splits/nc_ad_train.csv
-  #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_train.csv
-  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downtrain_nc_ad.csv
-  #- src/datasets/adni_all_2class_bet_valtrain.csv
-  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
-  #- src/datasets/adni_all_3class_bet_valtrain.csv
-  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
   - src/datasets/adni_downstream_splits/nc_ad_val.csv
-  #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_val.csv
-  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downval_nc_ad.csv
-  #- src/datasets/adni_all_2class_bet_valtest.csv
-  #- src/datasets/adni_all_3class_bet_valtest.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 144
@@ -57,6 +45,7 @@ optimization:
   start_lr: 1.0e-5
   lr: 1.0e-4 
   final_lr: 1.0e-6 #1.0e-6 
+  lr_schedule_factor: 1.0 #5.0 #1.0 default
   warmup: 2
   use_bfloat16: true
   clip_grad_classifier: 1.0

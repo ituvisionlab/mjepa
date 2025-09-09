@@ -131,7 +131,7 @@ class ClipAggregation(nn.Module):
 
         # Concatenate all spatial and temporal views along batch dimension
         if len(x) == 1 and len(x[0]) == 1:
-            # Single clip scenario (MAE-like), skip concatenation
+            # Single clip scenario, skip concatenation
             x = x[0][0]  # [B, C, T, H, W]
         else:
             # Original logic for multi-clip scenarios

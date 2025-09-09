@@ -4,11 +4,8 @@ tasks_per_node: 2
 tag: mri-test #k400-16x8x3
 eval_name: mri_inference
 classifier_checkpoint: true 
-checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_07_09__19_00_57/model_ckpt/latest-model/mri-probe-latest.pth.tar
-#/gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_07_05__20_11_53/model_ckpt/latest-model/mri-probe-latest.pth.tar
-#/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2025_06_01__15_21_47/model_ckpt/best-model/mri-probe-best.pth.tar
-#/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2025_06_01__15_21_47/model_ckpt/latest-model/mri-probe-latest.pth.tar
-#/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2025_05_13__10_17_51/model_ckpt/latest-model/mri-probe-latest.pth.tar # null #classification model
+checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_07_17__11_24_18/model_ckpt/latest-model/mri-probe-latest.pth.tar
+#/gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_07_09__19_00_57/model_ckpt/latest-model/mri-probe-latest.pth.tar
 logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:

@@ -13,7 +13,8 @@ logging:
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_test: 
-  - src/datasets/adni_downstream_splits/nc_ad_test.csv
+  - src/datasets/ucsf_grade23_vs_4_test.csv
+  #- src/datasets/adni_downstream_splits/nc_ad_test.csv
   #- src/datasets/adni_all_2class_bet_valtest.csv
   dataset_type: MRIDataset
   num_classes: 2

@@ -11,20 +11,8 @@ data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_train: 
   - src/datasets/adni_downstream_splits/nc_ad_train.csv
-  #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_train.csv
-  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downtrain_nc_ad.csv
-  #- src/datasets/adni_all_2class_bet_valtrain.csv
-  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
-  #- src/datasets/adni_all_3class_bet_valtrain.csv
-  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
   dataset_val: 
   - src/datasets/adni_downstream_splits/nc_ad_val.csv
-  #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_val.csv
-  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downval_nc_ad.csv
-  #- src/datasets/adni_all_2class_bet_valtest.csv
-  #- src/datasets/adni_all_3class_bet_valtest.csv
-  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 144
@@ -51,12 +39,13 @@ optimization:
   attend_across_segments: true
   num_epochs: 400
   resolution: 144
-  batch_size: 16
+  batch_size: 24
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
   start_lr: 1.0e-5 #1.0e-5
   lr: 1.0e-4 #1.0e-5
   final_lr: 1.0e-6 #1.0e-6 
+  lr_schedule_factor: 1.0 #5.0 #2.0 #1.0 default
   warmup: 2
   use_bfloat16: true
   clip_grad_classifier: 1.0
@@ -85,13 +74,6 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_19__15_06_31/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_05__10_46_25/model_ckpt/latest-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_05_30__16_06_20/model_ckpt/latest-model/
-  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/ #BEST Before
-  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
-  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
-  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_11__12_04_26/model_ckpt/latest-model/
   checkpoint: mae-latest.pth.tar
   

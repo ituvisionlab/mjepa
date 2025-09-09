@@ -647,9 +647,11 @@ class MRIDataset(torch.utils.data.Dataset):
             if partition_len >= clip_len:
                 # If partition_len >= clip len, then sample a random window of
                 # clip_len frames within the segment
-                end_indx = clip_len
-                if self.random_clip_sampling:
+                if self.random_clip_sampling and partition_len > clip_len:
                     end_indx = np.random.randint(clip_len, partition_len)
+                else:
+                    # deterministic: just take the last valid window
+                    end_indx = partition_len
                 start_indx = end_indx - clip_len
                 indices = np.linspace(start_indx, end_indx, num=fpc)
                 indices = np.clip(indices, start_indx, end_indx-1).astype(np.int64)
