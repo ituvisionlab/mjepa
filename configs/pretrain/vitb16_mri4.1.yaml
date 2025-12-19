@@ -1,6 +1,6 @@
 app: vjepa
-nodes: 2
-tasks_per_node: 4
+nodes: 1 # NOTE esra: Temporarily changing to 1. (from 2)
+tasks_per_node: 4 # Note Esra: Decreasing to 2 from 4, for trying.
 tag: mjepa
 data:
   dataset_type: MRIDataset
@@ -10,11 +10,11 @@ data:
   - src/datasets/brats24_all_nii.csv
   - src/datasets/ixi_all_bet_nii_with_bbox.csv
   - src/datasets/mood_all_nii_with_bbox.csv
-  - src/datasets/scan_pretraining.csv
-  - src/datasets/adni_cv_folds_stratified/adni_pretrain.csv
+  - src/datasets/scan_cv_5folds_stratified/scan_pretrain.csv
+  - src/datasets/adni_cv_5folds_stratified/adni_pretrain.csv
   #- src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 16 #32 
+  batch_size: 32 #16 #32 # ESRA: BECAUSE I HAVE 1 NODE INSTEAD OF 2, IM TRYING IT WITH 8
   num_clips: 1 #8  #12 works!
   num_frames: 160 #192 # 128
   tubelet_size: 8 #8
@@ -24,7 +24,7 @@ data:
   in_channel_size: 1
   random_clip_sampling: false
   pin_mem: true
-  num_workers: 8
+  num_workers: 4
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -85,9 +85,9 @@ optimization:
   final_weight_decay: 0.0005 #0.001 #0.1 #for large dataset
   epochs: 1000
   warmup: 5
-  start_lr: 3.0e-5 
-  lr: 1.0e-4
-  final_lr: 5.0e-6 #1.0e-6
+  start_lr: 1.0e-6 #3.0e-5 
+  lr: 0.5e-5 #It was 1.0e-4 before
+  final_lr: 1.0e-6 #1.0e-6
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   ema:

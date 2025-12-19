@@ -83,7 +83,8 @@ def extract_binary_split(data, subject_ids, label_pair, pos_label, balance_by_vo
 def generate_stratified_folds(task_name, label_pair, pos_label):
     task_subjects = cv_subject_summary.copy()
 
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    n_splits=5
+    skf = StratifiedKFold(n_splits, shuffle=True, random_state=42)
     subj_ids = task_subjects['subject_id'].values
     labels = task_subjects['label'].values
 
@@ -92,7 +93,7 @@ def generate_stratified_folds(task_name, label_pair, pos_label):
         trainval_subjects = task_subjects.iloc[trainval_idx]
 
         # === SPLIT TRAINVAL INTO 60% train / 20% val
-        skf_inner = StratifiedKFold(n_splits=5, shuffle=True, random_state=fold + 100)
+        skf_inner = StratifiedKFold(n_splits, shuffle=True, random_state=fold + 100)
         train_idx, val_idx = next(skf_inner.split(trainval_subjects['subject_id'], trainval_subjects['label']))
         downtrain_subjects = trainval_subjects.iloc[train_idx]
         downval_subjects = trainval_subjects.iloc[val_idx]

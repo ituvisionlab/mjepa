@@ -1,0 +1,15 @@
+ad_mci fold0 downval: rows=1037, subjects=285, class0=544, class1=493
+ad_mci fold0 downtest: rows=1342, subjects=356, class0=705, class1=637
+ad_mci fold0 downtrain: rows=4126, subjects=1139, class0=2063, class1=2063
+ad_mci fold1 downval: rows=990, subjects=285, class0=451, class1=539
+ad_mci fold1 downtest: rows=1394, subjects=356, class0=760, class1=634
+ad_mci fold1 downtrain: rows=4040, subjects=1139, class0=2020, class1=2020
+ad_mci fold2 downval: rows=1013, subjects=285, class0=513, class1=500
+ad_mci fold2 downtest: rows=1209, subjects=356, class0=645, class1=564
+ad_mci fold2 downtrain: rows=4258, subjects=1139, class0=2129, class1=2129
+ad_mci fold3 downval: rows=1161, subjects=285, class0=590, class1=571
+ad_mci fold3 downtest: rows=1250, subjects=356, class0=641, class1=609
+ad_mci fold3 downtrain: rows=4026, subjects=1139, class0=2013, class1=2013
+ad_mci fold4 downval: rows=938, subjects=285, class0=486, class1=452
+ad_mci fold4 downtest: rows=1421, subjects=356, class0=672, class1=749
+ad_mci fold4 downtrain: rows=3984, subjects=1139, class0=1992, class1=1992

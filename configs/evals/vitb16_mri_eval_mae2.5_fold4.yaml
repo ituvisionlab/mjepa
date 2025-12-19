@@ -1,0 +1,101 @@
+write_tag: mae
+nodes: 1
+tasks_per_node: 2
+tag: mri-probe #k400-16x8x3
+eval_name: video_classification_frozen
+resume_checkpoint: false #true 
+checkpoint_path: null #/gpfs/data/sodicksonlab/gozde/logs/mjepa_eval_distributed_2024_12_03__11_16_35/model_ckpt/latest-model/jepa-latest.pth.tar # null #classification model
+logging:
+  folder: /gpfs/data/sodicksonlab/gozde/logs/
+data:
+  root_path: /gpfs/home/unalg01/jepa
+  dataset_train: 
+  - src/datasets/adni_cv_5folds_stratified/adni_fold4_downtrain_nc_mci.csv
+  #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_train.csv
+  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downtrain_nc_ad.csv
+  #- src/datasets/adni_all_2class_bet_valtrain.csv
+  #- src/datasets/adni_all_2class_bet_valtrain_oversampled.csv 
+  #- src/datasets/adni_all_3class_bet_valtrain.csv
+  #- src/datasets/adni_all_3class_bet_valtrain_oversampled.csv
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtrain.csv 
+  dataset_val: 
+  - src/datasets/adni_cv_5folds_stratified/adni_fold4_downval_nc_mci.csv
+  #- src/datasets/adni_downstream_multicontrast_splits/nc_ad_val.csv
+  #- src/datasets/adni_cv_folds_stratified/adni_fold0_downval_nc_ad.csv
+  #- src/datasets/adni_all_2class_bet_valtest.csv
+  #- src/datasets/adni_all_3class_bet_valtest.csv
+  #- src/datasets/adni_all_2class_nc_mci_bet_valtest.csv 
+  dataset_type: MRIDataset
+  num_classes: 2
+  frames_per_clip: 144
+  num_segments: 1 #8 #for larger cropsize #rename to num_clips
+  num_views_per_segment: 1
+  eval_in_channel_size: 1
+  frame_step: 1
+  num_workers: 8
+  random_clip_sampling: false
+  pin_mem: true
+data_aug:
+  auto_augment: true
+  random_noise: 0.01
+  random_bias: 0.1
+  intensity_gamma: 0.1
+  random_resize_aspect_ratio:
+  - 0.9 
+  - 1.1 
+  random_resize_scale:
+  - 0.9
+  - 1.0
+  rotation_degree: 10
+optimization:
+  attend_across_segments: true
+  num_epochs: 400
+  resolution: 144
+  batch_size: 24
+  weight_decay: 1.0e-3
+  final_weight_decay: 1.0e-4 #0.1
+  start_lr: 1.0e-5
+  lr: 1.0e-4 
+  final_lr: 1.0e-6 #1.0e-6
+  lr_schedule_factor: 1.0 #5.0 #1.0 default
+  warmup: 2
+  use_bfloat16: true
+  clip_grad_classifier: 1.0
+  seed: 1881 #234
+  train_log_iter_freq: 1
+  val_log_iter_freq: 1
+  layer_decay: null #0.6 #null to turn it off
+  classifier_depth: 1
+  dropout: null #0.1 #null to turn off
+  drop_rate: 0.0 #
+  attn_drop_rate: 0.0
+pretrain:
+  model_name: vit_base
+  checkpoint_key: encoder #target_encoder
+  frozen: true #true
+  clip_duration: null
+  frames_per_clip: 144
+  tubelet_size: 8
+  uniform_power: true
+  use_silu: false
+  tight_silu: false
+  use_sdpa: true
+  patch_size: 8
+  clip_grad_encoder: 1.0
+  encoder_warmup: 0
+  use_pos_embed: false #true
+  in_channel_size: 1
+  frame_step: 1 # added
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_08__18_37_00/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_01__09_31_23/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_27__12_26_59/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_22__21_44_28/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_05__10_46_25/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_03__12_24_04/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_05_30__16_06_20/model_ckpt/latest-model/
+  # /gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_19__16_19_49/model_ckpt/latest-model/ #BEST Before
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
+  #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
+  #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
+  checkpoint: mae-latest.pth.tar
+  

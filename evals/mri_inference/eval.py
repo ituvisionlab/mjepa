@@ -448,6 +448,22 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     all_outputs_np = all_outputs_tensor.numpy()
     all_labels_np = all_labels_tensor.numpy()
 
+    # NOTE: Esra: accuracy, recall, precision, and f1s are 
+    # batch wise computed and updated. This is wrong. Implementing dataset level metrics
+    # below. 
+
+    preds_dataset = all_outputs_tensor.argmax(dim=1)
+    acc_dataset = (preds_dataset == all_labels_tensor).float().mean().item() * 100
+
+    #from sklearn.metrics import precision_score, recall_score, f1_score
+
+    y_true = all_labels_tensor.cpu().numpy()
+    y_pred = preds_dataset.cpu().numpy()
+
+    precision_dataset = precision_score(y_true, y_pred, average='macro')
+    recall_dataset    = recall_score(y_true, y_pred, average='macro')
+    f1_dataset        = f1_score(y_true, y_pred, average='macro')
+
     unique_labels = np.unique(all_labels_np)
     if len(unique_labels) < 2:
         logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
@@ -472,19 +488,19 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # Final metrics
     logger.info('FINAL: test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
-        top1_meter.avg, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score))
+        acc_dataset, recall_dataset, precision_dataset, f1_dataset, auc_score))
 
     if run is not None:
         run.log({
-            'test/acc_final': top1_meter.avg,
-            'test/f1_final': f1_meter.avg,
-            'test/recall_final': recall_meter.avg,
-            'test/precision_final': precision_meter.avg,
+            'test/acc_final': acc_dataset,
+            'test/f1_final': f1_dataset,
+            'test/recall_final': recall_dataset,
+            'test/precision_final': precision_dataset,
             'test/auc_final': auc_score
         })
 
     if csv_logger is not None:
-        csv_logger.log(top1_meter.avg, loss.item(), recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score)
+        csv_logger.log(acc_dataset, loss.item(), recall_dataset, precision_dataset, f1_dataset, auc_score)
 
     if run is not None:
         run.finish()

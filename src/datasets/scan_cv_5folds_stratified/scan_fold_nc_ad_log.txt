@@ -1,0 +1,15 @@
+nc_ad fold0 downval: rows=166, subjects=62, class0=125, class1=41, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold0 downtest: rows=223, subjects=77, class0=180, class1=43, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold0 downtrain: rows=280, subjects=245, class0=140, class1=140, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold1 downval: rows=186, subjects=62, class0=144, class1=42, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold1 downtest: rows=195, subjects=77, class0=154, class1=41, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold1 downtrain: rows=282, subjects=245, class0=141, class1=141, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold2 downval: rows=183, subjects=62, class0=149, class1=34, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold2 downtest: rows=195, subjects=77, class0=141, class1=54, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold2 downtrain: rows=272, subjects=245, class0=136, class1=136, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold3 downval: rows=183, subjects=62, class0=144, class1=39, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold3 downtest: rows=218, subjects=77, class0=175, class1=43, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold3 downtrain: rows=284, subjects=245, class0=142, class1=142, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold4 downval: rows=169, subjects=62, class0=130, class1=39, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold4 downtest: rows=221, subjects=76, class0=178, class1=43, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1
+nc_ad fold4 downtrain: rows=284, subjects=246, class0=142, class1=142, Mapping for nc_ad: original labels [0, 2] -> binary (pos_label=2): 0->0, 2->1

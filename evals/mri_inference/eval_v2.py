@@ -1,0 +1,760 @@
+# mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
+# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+#
+# This file is based on an earlier version of code from:
+# V-JEPA (https://github.com/facebookresearch/v-jepa)
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This codebase has been significantly modified for use in medical imaging and 3D MRI.
+# All modifications are licensed under the original MIT license (or the applicable license).
+
+import os
+
+# -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
+try:
+    # -- WARNING: IF DOING DISTRIBUTED TRAINING ON A NON-SLURM CLUSTER, MAKE
+    # --          SURE TO UPDATE THIS TO GET LOCAL-RANK ON NODE, OR ENSURE
+    # --          THAT YOUR JOBS ARE LAUNCHED WITH ONLY 1 DEVICE VISIBLE
+    # --          TO EACH PROCESS
+    os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
+except Exception:
+    pass
+
+import logging
+import pprint
+import platform
+
+import numpy as np
+import random
+import torch
+import torch.multiprocessing as mp
+import torch.nn.functional as F
+
+import torch.distributed as dist
+import torch.nn.parallel
+
+from torch.nn.parallel import DistributedDataParallel
+
+#import torch.utils.tensorboard
+import argparse
+import wandb
+from sklearn.metrics import recall_score, f1_score, precision_score, confusion_matrix
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import label_binarize
+
+import sys 
+sys.path.append('/gpfs/home/unalg01/jepa')
+sys.path.append('/home/gozde/medChangeDet/jepa')
+
+from tqdm import tqdm
+import src.models.vision_transformer as vit
+from src.models.attentive_pooler import AttentiveClassifier
+from src.datasets.data_manager import (
+    init_data,
+)
+from src.utils.distributed import (
+    init_distributed,
+    init_distributed_mode,
+    compute_distributed_auc,
+    AllReduce
+)
+
+from src.utils.logging import (
+    AverageMeter,
+    CSVLogger
+)
+
+from evals.video_classification_frozen.utils import (
+    make_transforms,
+    ClipAggregation,
+    FrameAggregation
+)
+
+# logging.basicConfig(filename='my_log_file.log')
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+_GLOBAL_SEED = 0
+#np.random.seed(_GLOBAL_SEED)
+#torch.manual_seed(_GLOBAL_SEED)
+#torch.backends.cudnn.benchmark = True
+
+pp = pprint.PrettyPrinter(indent=4)
+
+def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
+
+    # ----------------------------------------------------------------------- #
+    #  PASSED IN PARAMS FROM CONFIG FILE
+    # ----------------------------------------------------------------------- #
+    print('Entry to main in eval')
+    # -- PRETRAIN
+    args_pretrain = args_eval.get('pretrain')
+    checkpoint_key = args_pretrain.get('checkpoint_key', 'encoder')
+    model_name = args_pretrain.get('model_name', None)
+    patch_size = args_pretrain.get('patch_size', None)
+    pretrain_folder = args_pretrain.get('folder', None)
+    ckp_fname = args_pretrain.get('checkpoint', None)
+    tag = args_pretrain.get('write_tag', None)
+
+    if ckp_fname is not None:
+        pretrained_path = os.path.join(pretrain_folder, ckp_fname)
+    else:
+        pretrained_path = None
+    # Optional [for Video model]:
+    tubelet_size = args_pretrain.get('tubelet_size', 2)
+    pretrain_frames_per_clip = args_pretrain.get('frames_per_clip', 1)
+    in_chans = args_pretrain.get('in_channel_size', 1)
+    use_pos_embed = args_pretrain.get('use_pos_embed', False)
+
+    # -- DATA
+    args_data = args_eval.get('data')
+    test_data_path = args_data.get('dataset_test', [])
+    dataset_type = args_data.get('dataset_type', 'MRIDataset')
+    num_classes = args_data.get('num_classes')
+    eval_num_clips = args_data.get('num_segments', 1)
+    eval_frames_per_clip = args_data.get('frames_per_clip', 16)
+    eval_frame_step = args_pretrain.get('frame_step', 1)
+    eval_duration = args_pretrain.get('clip_duration', None)
+    eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
+    num_workers=args_data.get('num_workers',1)
+    random_clip_sampling = args_data.get('random_clip_sampling', False)
+    # -- OPTIMIZATION
+    args_opt = args_eval.get('optimization')
+    resolution = args_opt.get('resolution', 224)
+    classifier_depth = args_opt.get('classifier_depth', 1) 
+    batch_size = args_opt.get('batch_size')
+    attend_across_segments = args_opt.get('attend_across_segments', False)
+    use_bfloat16 = args_opt.get('use_bfloat16')
+    seed = args_opt.get('seed', _GLOBAL_SEED)
+   
+    # -- EXPERIMENT
+    classifier_checkpoint = args_eval.get('classifier_checkpoint', True)
+    eval_tag = args_eval.get('tag', None) # tag: k400-16x8x3
+    cls_checkpoint_path = args_eval.get('checkpoint_path')
+
+    # ----------------------------------------------------------------------- #
+
+    try:
+        mp.set_start_method('spawn')
+    except Exception:
+        pass
+    
+    # -- init torch distributed backend
+    world_size, rank = init_distributed()
+    logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
+
+    if not torch.cuda.is_available():
+        device = torch.device('cpu')
+    else:
+        #device = torch.device('cuda:0')
+        device = torch.device('cuda', rank % torch.cuda.device_count())  # safer for multi-GPU
+        torch.cuda.set_device(device)
+
+    # -- log/checkpointing paths   
+    if log_dir != None:
+        model_folder = os.path.join(log_dir, "model_ckpt")
+        csv_folder = os.path.join(log_dir, "csv_logs")
+        tb_folder = os.path.join(log_dir, "tensorboard")
+        
+        os.makedirs(model_folder, exist_ok=True)
+        os.makedirs(csv_folder, exist_ok=True)
+        os.makedirs(tb_folder, exist_ok=True)
+        
+        csv_log_file = os.path.join(csv_folder, f'{eval_tag}_r{rank}.csv')
+                
+        # -- make csv_logger
+        csv_logger = CSVLogger(csv_log_file,
+                                ('%.5f', 'test acc'),
+                                ('%.5f', 'test loss'),
+                                ('%.5f', 'test recall'),
+                                ('%.5f', 'test precision'),
+                                ('%.5f', 'test f1'),
+                                ('%.5f', 'test AUC'))
+        
+        if rank == 0:
+            # wandb init
+            hostname = platform.node()
+            entity_name = "mgulsen2020-wandb" if hostname == "panther" else "ituvisionlab"
+            
+            run = wandb.init(
+                # set the wandb project where this run will be logged
+                project="mjepa-project",
+                
+                entity=entity_name,
+                
+                dir=log_dir,
+
+                # track hyperparameters and run metadata
+                config=args_eval,
+                
+                name=os.path.basename(log_dir)
+                
+                # group="mjepa-DDP"
+                )
+        else:
+            run = None
+    else:
+        model_folder = None
+        csv_folder = None
+        tb_folder = None
+        csv_log_file = None
+        latest_model_folder = None
+        best_model_folder = None
+        periodic_model_folder = None
+        latest_path = None
+        latest_info_path = None
+        best_path = None
+        best_info_path = None
+        tb_rank_folder = None
+        log_writer = None
+        csv_logger = None
+        run = None
+
+    # ----------------------------------------------------------------------- #
+    # ----------------------------------------------------------------------- #
+    def seed_everything(seed=42):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # Only use deterministic algorithms if the function is available
+        #if hasattr(torch, "use_deterministic_algorithms"):
+        #    torch.use_deterministic_algorithms(True)
+
+    seed_everything(seed)
+    # ---- MODEL SETUP ----
+    # Initialize model
+    # -- pretrained encoder (frozen)
+    encoder = init_model(
+        crop_size=resolution,
+        device=device,
+        pretrained=None, #skip loading
+        model_name=model_name,
+        patch_size=patch_size,
+        tubelet_size=tubelet_size,
+        in_chans=in_chans,
+        frames_per_clip=pretrain_frames_per_clip,
+        checkpoint_key=checkpoint_key,)
+    if pretrain_frames_per_clip == 1:
+        # Process each frame independently and aggregate
+        encoder = FrameAggregation(encoder).to(device)
+    else:
+        # Process each video clip independently and aggregate
+        encoder = ClipAggregation(
+            encoder,
+            tubelet_size=tubelet_size,
+            attend_across_segments=attend_across_segments,
+            use_pos_embed=use_pos_embed
+        ).to(device)
+
+    # -- init classifier
+    classifier = AttentiveClassifier(
+        embed_dim=encoder.embed_dim,
+        num_heads=encoder.num_heads,
+        depth=classifier_depth,
+        num_classes=num_classes,
+    ).to(device)
+    print("Print the classifier")
+    print(classifier)
+
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f'Classifier number of parameters: {count_parameters(classifier)}')
+
+    # -- Load both encoder and classifier from downstream fine-tuned checkpoint
+    if classifier_checkpoint:
+        encoder, classifier = load_encoder_and_classifier(
+            encoder=encoder,
+            classifier=classifier,
+            ckpt_path=cls_checkpoint_path)
+
+    # Freeze + eval
+    for p in encoder.parameters(): p.requires_grad = False
+    for p in classifier.parameters(): p.requires_grad = False
+    encoder.eval()
+    classifier.eval()
+
+    test_loader, test_sampler = make_dataloader(
+        dataset_type=dataset_type,
+        root_path=test_data_path,
+        resolution=resolution,
+        frames_per_clip=eval_frames_per_clip,
+        frame_step=eval_frame_step,
+        num_clips=eval_num_clips,
+        in_chans=in_chans,
+        random_clip_sampling=False,
+        eval_duration=eval_duration,
+        num_views_per_segment=eval_num_views_per_segment,
+        allow_segment_overlap=True,
+        batch_size=batch_size,
+        random_horizontal_flip=False,
+        random_resize_aspect_ratio=None,
+        random_resize_scale=None,
+        rot_degree=0,
+        intensity_gamma=0,
+        random_bias=False,
+        random_noise=False,
+        num_workers=num_workers,
+        world_size=world_size,
+        rank=rank,
+        training=False,)
+
+    ipe = len(test_loader)
+    logger.info(f'Dataloader created... iterations per epoch: {ipe}')
+    
+    # RuntimeError: DistributedDataParallel is not needed when a module doesn't have any parameter that requires a gradient.
+    # encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
+    # classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
+
+
+    #DEBUG
+    debug_mode = False
+    if debug_mode == True:
+        model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
+
+        print("== Keys in classifier_dict (checkpoint) ==")
+        for k in list(classifier_dict.keys())[:5]:
+            print(k)
+
+        print("== Keys in model_sd (loaded model) ==")
+        for k in list(model_sd.keys())[:5]:
+            print(k)
+
+        # Check if prefix mismatch exists
+        ckpt_keys = set(classifier_dict.keys())
+        model_keys = set(model_sd.keys())
+
+        # Strip "module." prefix from checkpoint keys if needed
+        if not ckpt_keys & model_keys:  # no overlap
+            classifier_dict = {
+                (k.replace("module.", "", 1) if k.startswith("module.") else k): v
+                for k, v in classifier_dict.items()
+            }
+            print("Stripped 'module.' prefix from checkpoint keys.")
+        elif not model_keys & ckpt_keys:
+            model_sd = {
+                (k.replace("module.", "", 1) if k.startswith("module.") else k): v
+                for k, v in model_sd.items()
+            }
+            print("Stripped 'module.' prefix from model state dict keys.")
+
+        key = list(classifier_dict.keys())[0]
+        print(f"Checkpoint [{key}]: {classifier_dict[key].shape}")
+
+        if key in model_sd:
+            print(f"Model      [{key}]: {model_sd[key].shape}")
+            param_diff = (model_sd[key] - classifier_dict[key].to(model_sd[key].device)).norm()
+            print(f"Difference norm for [{key}]: {param_diff.item():.4f}")
+        else:
+            print(f"Key '{key}' not found in model state_dict. Available keys:")
+            for mk in list(model_sd.keys())[:10]:
+                print(f"  - {mk}")
+    # END_DEBUG
+
+    # INFERENCE
+    criterion = torch.nn.CrossEntropyLoss()
+    top1_meter = AverageMeter()
+    recall_meter = AverageMeter()
+    f1_meter = AverageMeter()
+    precision_meter = AverageMeter()
+    ipe = len(test_loader)
+    auc_score = 0  # AUC not calculated
+
+    loader = iter(test_loader)
+    test_sampler.set_epoch(1)
+
+    loss = None
+    all_outputs = []
+    all_labels = []
+
+    for itr in tqdm(range(ipe), desc="Evaluating"):
+        try:
+            data = next(loader)
+        except Exception:
+            logger.info('Exhausted data loaders. Refreshing...')
+            torch.cuda.empty_cache()
+            loader = iter(test_loader)
+            data = next(loader)
+
+        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
+            clips = [
+                [dij.to(device, non_blocking=True) for dij in di]
+                for di in data[0]
+            ]
+            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
+            labels = data[1].to(device)
+            batch_size = len(labels)
+
+            with torch.no_grad():
+                outputs = encoder(clips, clip_indices)
+                if attend_across_segments:
+                    outputs = [classifier(o) for o in outputs]
+                else:
+                    outputs = [[classifier(ost) for ost in os] for os in outputs]
+
+        # Compute loss
+        if attend_across_segments:
+            loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
+        else:
+            loss = sum([sum([criterion(ost, labels) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
+
+        with torch.no_grad():
+            if attend_across_segments:
+                outputs = sum([F.softmax(o, dim=1) for o in outputs]) / len(outputs)
+            else:
+                outputs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
+
+            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum().item() / batch_size
+            top1_meter.update(top1_acc)
+
+            preds = outputs.argmax(dim=1)
+            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+            precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+            f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+
+            all_outputs.append(outputs.detach().cpu())
+            all_labels.append(labels.detach().cpu())
+
+            recall_meter.update(recall)
+            precision_meter.update(precision)
+            f1_meter.update(f1)
+
+        torch.cuda.synchronize()
+        gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.**2
+
+        # Wandb logging
+        if run is not None:
+            run.log({
+                'test/acc_batch': top1_acc,  # Per-batch accuracy
+                'test/acc': top1_meter.avg,  # Running average
+                'test/loss': loss.item(),
+                'test/recall': recall_meter.avg,
+                'test/precision': precision_meter.avg,
+                'test/f1': f1_meter.avg,
+                'test/mem': gpu_memory_alloc
+            })
+
+        logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]' % (
+            itr, top1_acc, loss.item(), gpu_memory_alloc))
+
+    # Final stats
+    test_acc = top1_meter.avg
+    if run is not None:
+        run.log({
+            'test/acc_final': test_acc,
+            'test/f1_final': f1_meter.avg,
+            'test/recall_final': recall_meter.avg,
+            'test/precision_final': precision_meter.avg,
+            'test/auc_final': auc_score
+        })
+
+    logger.info('FINAL: test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
+        test_acc, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score))
+
+    if csv_logger is not None:
+        csv_logger.log(test_acc, loss.item(), recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score)
+
+    torch.cuda.empty_cache()
+    if run is not None:
+        run.finish()
+
+@torch.no_grad()
+def sanity_check(encoder, classifier, val_loader, device, num_classes):
+    print("\n Running Sanity Check on Evaluation Pipeline...")
+
+    encoder.eval()
+    classifier.eval()
+
+    loader_iter = iter(val_loader)
+    data = next(loader_iter)
+
+    # Format clips
+    clips = [
+        [dij.to(device) for dij in di] for di in data[0]
+    ]
+    labels = data[1].to(device)
+    clip_indices = [d.to(device) for d in data[2]]
+
+    # Encoder forward
+    outputs = encoder(clips, clip_indices)
+    print(f"[ENCODER] output[0] shape: {outputs[0].shape}")
+
+    # Classifier forward
+    if isinstance(outputs[0], torch.Tensor):  # attend_across_segments
+        preds = [classifier(o) for o in outputs]
+        probs = sum([F.softmax(p, dim=1) for p in preds]) / len(preds)
+    else:
+        preds = [[classifier(ost) for ost in os] for os in outputs]
+        probs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in preds]) / len(preds) / len(preds[0])
+
+    print(f"[CLASSIFIER] probs shape: {probs.shape}")
+
+    # Loss check
+    criterion = torch.nn.CrossEntropyLoss()
+    loss = criterion(probs, labels)
+    print(f"[LOSS] {loss.item()}")
+
+    # Prediction sanity
+    print(f"[LABELS] shape: {labels.shape}, min: {labels.min()}, max: {labels.max()}")
+    print(f"[PRED]  top-1 indices: {probs.argmax(dim=1)[:8]}")
+    print("Sanity check passed.\n")
+
+def load_encoder_and_classifier(encoder, classifier, ckpt_path):
+
+    try:
+        logger.info(f"Loading fine-tuned encoder + classifier from {ckpt_path}")
+        checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
+        epoch = checkpoint['epoch']
+        print("Print the pretrained model")
+        print(checkpoint.keys())
+
+        # Load encoder
+        encoder_dict = checkpoint['encoder']
+        encoder_dict = {k.replace("module.", ""): v for k, v in encoder_dict.items()}
+        encoder_dict = {k.replace("backbone.", ""): v for k, v in encoder_dict.items()}
+        for k, v in encoder.state_dict().items():
+            if k not in encoder_dict:
+                logger.info(f'key "{k}" could not be found in loaded state dict')
+            elif encoder_dict[k].shape != v.shape:
+                logger.info(f'key "{k}" is of different shape in model and loaded state dict')
+                encoder_dict[k] = v
+        encoder_msg = encoder.load_state_dict(encoder_dict, strict=False) #strict=True)
+        print(encoder)
+        logger.info(f'loaded encoder model with msg: {encoder_msg}')
+        logger.info(f'loaded pretrained encoder from epoch: {checkpoint["epoch"]}\n path: {ckpt_path}')
+
+
+        # Load classifier
+        classifier_dict = checkpoint['classifier']
+        model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
+        # Check if keys match; if not, patch "module." prefix
+        classifier_keys = set(classifier_dict.keys())
+        model_keys = set(model_sd.keys())
+
+        if not classifier_keys & model_keys:
+            # Likely a prefix mismatch
+            if all(k.startswith("module.") for k in classifier_dict.keys()):
+                # Remove "module." from checkpoint keys
+                classifier_dict = {k.replace("module.", "", 1): v for k, v in classifier_dict.items()}
+                logger.info("Stripped classifier 'module.' from checkpoint keys.")
+            elif all(not k.startswith("module.") for k in classifier_dict.keys()):
+                # Add "module." prefix to checkpoint keys
+                classifier_dict = {f"module.{k}": v for k, v in classifier_dict.items()}
+                logger.info("Added classifier 'module.' to checkpoint keys.")
+
+        # Load weights into the actual model
+        if hasattr(classifier, 'module'):
+            classifier_msg = classifier.module.load_state_dict(classifier_dict, strict=True)
+        else:
+            classifier_msg = classifier.load_state_dict(classifier_dict, strict=True)
+        logger.info(f"Loaded classifier with msg: {classifier_msg}")
+        logger.info(f'  Missing keys: {classifier_msg.missing_keys}')
+        logger.info(f'  Unexpected keys: {classifier_msg.unexpected_keys}')
+        del checkpoint
+
+    except Exception as e:
+        logger.info(f'Encountered exception when loading checkpoint: {e}')
+
+    logger.info(f"Checkpoint epoch: {epoch}")
+    return encoder, classifier
+
+
+def load_checkpoint(
+    device,
+    r_path,
+    classifier,
+    opt=None,
+    scaler=None,
+):
+    try:
+        checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
+        epoch = checkpoint['epoch']
+
+        pretrained_dict = checkpoint['classifier']
+
+        model_sd = classifier.module.state_dict() if hasattr(classifier, 'module') else classifier.state_dict()
+
+        # Check if keys match; if not, patch "module." prefix
+        pretrained_keys = set(pretrained_dict.keys())
+        model_keys = set(model_sd.keys())
+
+        if not pretrained_keys & model_keys:
+            # Likely a prefix mismatch
+            if all(k.startswith("module.") for k in pretrained_dict.keys()):
+                # Remove "module." from checkpoint keys
+                pretrained_dict = {k.replace("module.", "", 1): v for k, v in pretrained_dict.items()}
+                logger.info("Stripped 'module.' from checkpoint keys.")
+            elif all(not k.startswith("module.") for k in pretrained_dict.keys()):
+                # Add "module." prefix to checkpoint keys
+                pretrained_dict = {f"module.{k}": v for k, v in pretrained_dict.items()}
+                logger.info("Added 'module.' to checkpoint keys.")
+
+        # Load weights into the actual model
+        if hasattr(classifier, 'module'):
+            msg = classifier.module.load_state_dict(pretrained_dict, strict=True)
+        else:
+            msg = classifier.load_state_dict(pretrained_dict, strict=True)
+
+        logger.info(f'Loaded pretrained classifier from epoch {epoch}')
+        logger.info(f'  Missing keys: {msg.missing_keys}')
+        logger.info(f'  Unexpected keys: {msg.unexpected_keys}')
+
+        if opt is not None and 'opt' in checkpoint:
+            opt.load_state_dict(checkpoint['opt'])
+            logger.info(f'Loaded optimizer from epoch {epoch}')
+        if scaler is not None and 'scaler' in checkpoint:
+            scaler.load_state_dict(checkpoint['scaler'])
+            logger.info(f'Loaded scaler from epoch {epoch}')
+
+        del checkpoint
+
+    except Exception as e:
+        logger.info(f'Encountered exception when loading checkpoint: {e}')
+        epoch = 0
+        pretrained_dict = {}
+
+    return classifier, opt, scaler, epoch, pretrained_dict
+
+def load_pretrained(
+    encoder,
+    pretrained,
+    checkpoint_key='encoder' #'target_encoder'
+):
+    logger.info(f'Loading pretrained model from {pretrained}')
+    checkpoint = torch.load(pretrained, map_location='cpu')
+    print("Print the pretrained model")
+    print(checkpoint.keys())
+    #print(checkpoint['classifier'])
+    try:
+        pretrained_dict = checkpoint[checkpoint_key]
+    except Exception:
+        pretrained_dict = checkpoint['encoder']
+
+    pretrained_dict = {k.replace('module.', ''): v for k, v in pretrained_dict.items()}
+    pretrained_dict = {k.replace('backbone.', ''): v for k, v in pretrained_dict.items()}
+    for k, v in encoder.state_dict().items():
+        if k not in pretrained_dict:
+            logger.info(f'key "{k}" could not be found in loaded state dict')
+        elif pretrained_dict[k].shape != v.shape:
+            logger.info(f'key "{k}" is of different shape in model and loaded state dict')
+            pretrained_dict[k] = v
+    msg = encoder.load_state_dict(pretrained_dict, strict=False)
+    print(encoder)
+    logger.info(f'loaded pretrained model with msg: {msg}')
+    logger.info(f'loaded pretrained encoder from epoch: {checkpoint["epoch"]}\n path: {pretrained}')
+    del checkpoint
+    return encoder
+
+
+def make_dataloader(
+    root_path,
+    batch_size,
+    world_size,
+    rank,
+    dataset_type='MRIDataset',
+    resolution=160,
+    frames_per_clip=16,
+    frame_step=1,
+    num_clips=1,
+    in_chans=1,
+    random_clip_sampling=False,
+    auto_augment=False,
+    eval_duration=None,
+    num_views_per_segment=1,
+    allow_segment_overlap=True,
+    training=False,
+    random_horizontal_flip=True,
+    random_resize_aspect_ratio=(1.0,1.0), #(0.75, 4/3),
+    random_resize_scale=(0.9, 1.0),
+    rot_degree=10,
+    intensity_gamma=0.2,
+    random_bias=0.2,
+    random_noise=0.025,
+    num_workers=4,
+    subset_file=None
+):
+    # Make Transforms
+    transform = make_transforms(
+        training=training,
+        num_views_per_clip=num_views_per_segment,
+        random_horizontal_flip=True,
+        random_resize_aspect_ratio=(1.0,1.0),
+        random_resize_scale=(0.9, 1.0),
+        rot_degree=10,
+        reprob=0,
+        auto_augment=auto_augment,
+        motion_shift=False,
+        crop_size=resolution,
+        intensity_gamma=intensity_gamma,
+        random_bias=random_bias,
+        random_noise=random_noise,
+        in_chans=in_chans
+    )
+
+    data_loader, data_sampler = init_data(
+        data=dataset_type,
+        root_path=root_path,
+        transform=transform,
+        batch_size=batch_size,
+        world_size=world_size,
+        rank=rank,
+        clip_len=frames_per_clip,
+        frame_sample_rate=frame_step,
+        duration=eval_duration,
+        num_clips=num_clips,
+        in_chans=in_chans,
+        crop_size=resolution,
+        random_clip_sampling=random_clip_sampling, 
+        allow_clip_overlap=allow_segment_overlap,
+        num_workers=num_workers,
+        copy_data=False,
+        drop_last=False,
+        subset_file=subset_file,
+        training=training)
+    return data_loader, data_sampler
+
+
+def init_model(
+    device,
+    pretrained,
+    model_name,
+    patch_size=16,
+    crop_size=224,
+    in_chans=1,
+    # Video specific parameters
+    frames_per_clip=16,
+    tubelet_size=2,
+    use_sdpa=False,
+    use_SiLU=False,
+    tight_SiLU=True,
+    uniform_power=False,
+    checkpoint_key='encoder',
+    drop_rate=0.0,
+    attn_drop_rate=0.0
+):
+    encoder = vit.__dict__[model_name](
+        img_size=crop_size,
+        patch_size=patch_size,
+        num_frames=frames_per_clip,
+        tubelet_size=tubelet_size,
+        uniform_power=uniform_power,
+        use_sdpa=use_sdpa,
+        use_SiLU=use_SiLU,
+        tight_SiLU=tight_SiLU,
+        in_chans= in_chans,
+        drop_rate=drop_rate,
+        attn_drop_rate=attn_drop_rate
+    )
+
+    if pretrained is not None:
+        encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
+    encoder.to(device)
+
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'Encoder number of parameters: {count_parameters(encoder)}')
+
+    return encoder

@@ -1,0 +1,15 @@
+ad_nd fold0 downval: rows=1985, subjects=613, class0=1451, class1=534
+ad_nd fold0 downtest: rows=2261, subjects=766, class0=1767, class1=494
+ad_nd fold0 downtrain: rows=4216, subjects=2449, class0=2108, class1=2108
+ad_nd fold1 downval: rows=1956, subjects=613, class0=1523, class1=433
+ad_nd fold1 downtest: rows=2595, subjects=766, class0=1857, class1=738
+ad_nd fold1 downtrain: rows=3930, subjects=2449, class0=1965, class1=1965
+ad_nd fold2 downval: rows=2000, subjects=613, class0=1474, class1=526
+ad_nd fold2 downtest: rows=2568, subjects=766, class0=1898, class1=670
+ad_nd fold2 downtrain: rows=3880, subjects=2449, class0=1940, class1=1940
+ad_nd fold3 downval: rows=2099, subjects=613, class0=1560, class1=539
+ad_nd fold3 downtest: rows=2460, subjects=765, class0=1803, class1=657
+ad_nd fold3 downtrain: rows=3880, subjects=2450, class0=1940, class1=1940
+ad_nd fold4 downval: rows=1929, subjects=613, class0=1386, class1=543
+ad_nd fold4 downtest: rows=2448, subjects=765, class0=1871, class1=577
+ad_nd fold4 downtrain: rows=4032, subjects=2450, class0=2016, class1=2016

@@ -1,0 +1,40 @@
+write_tag: mae_test
+nodes: 1
+tasks_per_node: 1
+tag: mri-test #k400-16x8x3
+eval_name: mri_inference
+classifier_checkpoint: true 
+checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_11_26__18_12_19/model_ckpt/latest-model/mri-probe-latest.pth.tar
+logging:
+  folder: /gpfs/data/sodicksonlab/gozde/logs/
+data:
+  root_path: /gpfs/home/unalg01/jepa
+  dataset_test: 
+  - src/datasets/adni_cv_5folds_stratified/adni_fold3_downtest_nc_mci.csv
+  dataset_type: MRIDataset
+  num_classes: 2
+  frames_per_clip: 144
+  num_segments: 1
+  num_views_per_segment: 1
+  eval_in_channel_size: 1 
+  frame_step: 1
+  num_workers: 8
+  random_clip_sampling: false
+optimization:
+  attend_across_segments: true
+  resolution: 144 #192
+  batch_size: 16
+  use_bfloat16: true
+  seed: 1881 #234
+  train_log_iter_freq: 1
+  val_log_iter_freq: 1
+  classifier_depth: 1
+pretrain:
+  model_name: vit_base
+  checkpoint_key: encoder 
+  clip_duration: null
+  frames_per_clip: 144
+  tubelet_size: 8
+  patch_size: 8
+  in_channel_size: 1
+  frame_step: 1 # added

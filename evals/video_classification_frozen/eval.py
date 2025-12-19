@@ -502,6 +502,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     best_val_acc = float('-inf')
     best_val_f1 = float('-inf')
     best_val_auroc = float('-inf')
+    val_auroc = float('-inf')
 
     if pretrained_path == None:
         encoder_warmup = 0
@@ -548,7 +549,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             log_dir=log_dir,
             eval_in_chans=eval_in_chans,)
 
-        val_acc, val_loss, val_recall, val_precision, val_f1, val_auroc, val_outputs_tensor, val_labels_tensor = run_one_epoch(
+        val_acc, val_loss, val_recall, val_precision, val_f1, auc_score, val_outputs_tensor, val_labels_tensor = run_one_epoch(
             device=device,
             training=False,
             num_temporal_views=eval_num_clips,
@@ -625,8 +626,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                         latest_path, latest_info_path, attn_pooler=attn_pooler)
 
             # Check if this is the best model in terms of:
-            if auc_score > best_val_auroc: #if val_acc > best_val_acc:  #if val_f1 > best_val_f1:
-                best_val_auroc = auc_score  # update the best metric  #best_val_acc = val_acc #best_val_f1 = val_f1
+            if val_auroc > best_val_auroc: #if val_acc > best_val_acc:  #if val_f1 > best_val_f1:
+                best_val_auroc = val_auroc  # update the best metric  #best_val_acc = val_acc #best_val_f1 = val_f1
                 save_checkpoint(epoch, train_acc, val_acc, val_f1, val_auroc,
                             best_path, best_info_path, attn_pooler=attn_pooler)
 
@@ -876,6 +877,8 @@ def run_one_epoch(
                 scaler.scale(loss).backward()
                 if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
                     scaler.unscale_(optimizer)
+
+                ## EE: Why would i clip gradients if im not stepping?
                 if epoch > warmup:
                     if (clip_grad_classifier is not None):
                         torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
@@ -884,6 +887,8 @@ def run_one_epoch(
                 scaler.step(optimizer)
                 scaler.update()
             else:
+
+                ## EE: No unscaling here?
                 loss.backward()
                 if epoch > warmup:
                     if (clip_grad_classifier is not None):

@@ -90,11 +90,9 @@ if __name__ == '__main__':
     params = None
     with open(args.fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
-    
-    
+        
     if args.keep_logs:
-        log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')
-                
+        log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')        
     else:
         log_dir = None
         # run = None

@@ -1,0 +1,15 @@
+nc_mci fold0 downval: rows=1814, subjects=661, class0=1367, class1=447, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold0 downtest: rows=2200, subjects=826, class0=1682, class1=518, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold0 downtrain: rows=3540, subjects=2643, class0=1770, class1=1770, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold1 downval: rows=1770, subjects=661, class0=1338, class1=432, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold1 downtest: rows=2186, subjects=826, class0=1645, class1=541, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold1 downtrain: rows=3524, subjects=2643, class0=1762, class1=1762, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold2 downval: rows=1743, subjects=661, class0=1320, class1=423, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold2 downtest: rows=2265, subjects=826, class0=1711, class1=554, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold2 downtrain: rows=3516, subjects=2643, class0=1758, class1=1758, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold3 downval: rows=1787, subjects=661, class0=1368, class1=419, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold3 downtest: rows=2227, subjects=826, class0=1679, class1=548, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold3 downtrain: rows=3536, subjects=2643, class0=1768, class1=1768, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold4 downval: rows=1771, subjects=661, class0=1331, class1=440, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold4 downtest: rows=2234, subjects=826, class0=1660, class1=574, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1
+nc_mci fold4 downtrain: rows=3442, subjects=2643, class0=1721, class1=1721, Mapping for nc_mci: original labels [0, 1] -> binary (pos_label=1): 0->0, 1->1

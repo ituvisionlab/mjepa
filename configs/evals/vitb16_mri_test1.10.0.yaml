@@ -1,16 +1,16 @@
 write_tag: mae_test
 nodes: 1
-tasks_per_node: 2
+tasks_per_node: 1
 tag: mri-test #k400-16x8x3
 eval_name: mri_inference
 classifier_checkpoint: true 
-checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_07_22__11_38_05/model_ckpt/latest-model/mri-probe-latest.pth.tar
+checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_07_22__11_37_06/model_ckpt/best-model/mri-probe-best.pth.tar
 logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_test: 
-  - src/datasets/ucsf_grade23_vs_4_test.csv
+  - src/datasets/ucsf_grade2_vs_34_test.csv
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 144
