@@ -7,7 +7,7 @@ RUNDIR=/gpfs/home/unalg01/jepa
 cd $RUNDIR
 
 python -m evals.main_distributed \
-  --fname configs/evals/vitb16_mri_test2.12.yaml \
+  --fname configs/evals/vitb16_mri_test1.8_fold2.yaml \
   --time 300 \
   --nodes 1 \
   --folder /gpfs/home/unalg01/jepa \

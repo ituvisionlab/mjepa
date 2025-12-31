@@ -42,8 +42,8 @@ optimization:
   batch_size: 24
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  start_lr: 1.0e-4 #E 1.0e-6 (old)
-  lr: 1.0e-3 #E: 1.0e-5 
+  start_lr: 1.0e-5 #E 1.0e-6 (old)
+  lr: 1.0e-4 #E: 1.0e-5 
   final_lr: 1.0e-4 #E 1.0e-6
   lr_schedule_factor: 5.0 #1.0 default
   warmup: 2
@@ -74,7 +74,7 @@ pretrain:
   use_pos_embed: false #true
   in_channel_size: 1
   frame_step: 1 # added
-  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_12_09__07_07_44/model_ckpt/latest-model/
+  folder: /gpfs/data/sodicksonlab/gozde/logs/mjepa_pretrain_distributed_2025_12_09__07_07_44/model_ckpt/periodic-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_07_01__09_31_23/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_27__12_26_59/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_06_22__21_44_28/model_ckpt/latest-model/
@@ -85,5 +85,5 @@ pretrain:
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_20__17_35_07/model_ckpt/latest-model/
   #/gpfs/data/sodicksonlab/gozde/logs/mae_pretrain_distributed_2025_03_06__15_13_15/model_ckpt/latest-model/
   #/your_absolute_file_path_to_directory_where_pretrained_models_are_contained/
-  checkpoint: jepa-latest.pth.tar
+  checkpoint: jepa-periodic-epoch-20.pth.tar
   

@@ -4,7 +4,7 @@ tasks_per_node: 1
 tag: mri-test #k400-16x8x3
 eval_name: mri_inference
 classifier_checkpoint: true 
-checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_11_02__10_54_49/model_ckpt/latest-model/mri-probe-latest.pth.tar
+checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_11_18__14_59_30/model_ckpt/latest-model/mri-probe-latest.pth.tar
 logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:

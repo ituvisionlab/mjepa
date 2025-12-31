@@ -52,7 +52,7 @@ optimization:
   seed: 1881 #234
   train_log_iter_freq: 1
   val_log_iter_freq: 1
-  layer_decay: null #0.6 #null to turn it off
+  layer_decay: 0.75 #0.6 #null to turn it off
   classifier_depth: 1
   dropout: null #0.1 #null to turn off
   drop_rate: 0.0 #

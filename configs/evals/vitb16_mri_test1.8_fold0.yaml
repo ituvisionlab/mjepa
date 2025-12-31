@@ -4,13 +4,13 @@ tasks_per_node: 1
 tag: mri-test #k400-16x8x3
 eval_name: mri_inference
 classifier_checkpoint: true 
-checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_12_22__17_13_27/model_ckpt/latest-model/mri-probe-latest.pth.tar
+checkpoint_path: /gpfs/data/sodicksonlab/gozde/logs/mae_eval_distributed_2025_12_09__07_46_16/model_ckpt/latest-model/mri-probe-latest.pth.tar
 logging:
   folder: /gpfs/data/sodicksonlab/gozde/logs/
 data:
   root_path: /gpfs/home/unalg01/jepa
   dataset_test: 
-  - src/datasets/abide_downtest.csv
+  - src/datasets/scan_cv_5folds_stratified/scan_fold0_downtest_nc_ad.csv
   dataset_type: MRIDataset
   num_classes: 2
   frames_per_clip: 144
@@ -22,7 +22,7 @@ data:
   random_clip_sampling: false
 optimization:
   attend_across_segments: true
-  resolution: 144 #160
+  resolution: 144 #192
   batch_size: 16
   use_bfloat16: true
   seed: 1881 #234

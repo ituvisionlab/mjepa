@@ -37,13 +37,13 @@ data_aug:
   rotation_degree: 10
 optimization:
   attend_across_segments: true
-  num_epochs: 400
+  num_epochs: 600
   resolution: 144
   batch_size: 24
   weight_decay: 1.0e-3
   final_weight_decay: 1.0e-4 #0.1
-  start_lr: 1.0e-5
-  lr: 1.0e-5 
+  start_lr: 1.0e-5 #E: 5
+  lr: 1.0e-5 #E: 5
   final_lr: 1.0e-6 #1.0e-6 
   lr_schedule_factor: 5.0 #2.0 #1.0 default
   warmup: 0
