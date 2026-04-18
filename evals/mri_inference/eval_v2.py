@@ -11,11 +11,6 @@
 import os
 
 # -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
-
-# NOTE: 20 Feb: Esra: Changing the following for debug. 
-
-"""
-
 try:
     # -- WARNING: IF DOING DISTRIBUTED TRAINING ON A NON-SLURM CLUSTER, MAKE
     # --          SURE TO UPDATE THIS TO GET LOCAL-RANK ON NODE, OR ENSURE
@@ -24,15 +19,6 @@ try:
     os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
 except Exception:
     pass
-"""
-
-DEBUG_SINGLE = True  # put this above
-
-if not DEBUG_SINGLE:
-    try:
-        os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
-    except Exception:
-        pass
 
 import logging
 import pprint
@@ -43,6 +29,7 @@ import random
 import torch
 import torch.multiprocessing as mp
 import torch.nn.functional as F
+import re
 
 import torch.distributed as dist
 import torch.nn.parallel
@@ -83,9 +70,7 @@ from evals.video_classification_frozen.utils import (
     ClipAggregation,
     FrameAggregation
 )
-import inspect
-#print("EvalMRITransform loaded from:", inspect.getfile(ClipAggregation))
-print("ClipAggregation loaded from:", inspect.getfile(ClipAggregation))
+
 # logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -156,9 +141,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         pass
     
     # -- init torch distributed backend
-    # 20 Feb: NOTE: Esra: Changing the following for debug.
-    #world_size, rank = init_distributed()
-    world_size, rank = 1, 0
+    world_size, rank = init_distributed()
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
 
     if not torch.cuda.is_available():
@@ -284,17 +267,38 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     # -- Load both encoder and classifier from downstream fine-tuned checkpoint
     if classifier_checkpoint:
-        encoder, classifier = load_encoder_and_classifier(
-            encoder=encoder,
-            classifier=classifier,
-            ckpt_path=cls_checkpoint_path)
+        # If the configured checkpoint_path is a single file, load it now.
+        # If it's a directory or a list/multiple entries, skip initial load and
+        # rely on the per-checkpoint loop below which gathers files and loads each.
+        to_load_now = None
+        if isinstance(cls_checkpoint_path, str):
+            if os.path.isfile(cls_checkpoint_path):
+                to_load_now = cls_checkpoint_path
+        elif isinstance(cls_checkpoint_path, list) and len(cls_checkpoint_path) == 1:
+            maybe = cls_checkpoint_path[0]
+            if isinstance(maybe, str) and os.path.isfile(maybe):
+                to_load_now = maybe
+
+        if to_load_now is not None:
+            try:
+                encoder, classifier = load_encoder_and_classifier(
+                    encoder=encoder,
+                    classifier=classifier,
+                    ckpt_path=to_load_now)
+            except RuntimeError as e:
+                logger.error(f"Aborting evaluation because checkpoint load failed: {e}")
+                if run is not None:
+                    run.finish()
+                return
+        else:
+            logger.info("Configured checkpoint_path does not point to a single file; skipping initial load. Will gather checkpoints from directory/list and load each in turn.")
 
     # Freeze + eval
     for p in encoder.parameters(): p.requires_grad = False
     for p in classifier.parameters(): p.requires_grad = False
     encoder.eval()
     classifier.eval()
-
+    
     test_loader, test_sampler = make_dataloader(
         dataset_type=dataset_type,
         root_path=test_data_path,
@@ -372,192 +376,268 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 print(f"  - {mk}")
     # END_DEBUG
 
-    # INFERENCE
-    criterion = torch.nn.CrossEntropyLoss()
-    top1_meter = AverageMeter()
-    recall_meter = AverageMeter()
-    f1_meter = AverageMeter()
-    precision_meter = AverageMeter()
+    # INFERENCE: support evaluating multiple checkpoints (single file, comma-separated list, YAML list or a folder)
+    def _gather_checkpoints(path_or_list):
+        """Return a list of checkpoint file paths from a variety of inputs:
+        - list of paths
+        - comma/semicolon separated string
+        - single file path
+        - directory: will look for latest_model/latest-model (take newest) and periodic_model/periodic-model (take newest two)
+        """
+        ckpts = []
+
+        # already a list
+        if isinstance(path_or_list, list):
+            return path_or_list
+
+        # string input
+        if isinstance(path_or_list, str):
+            s = path_or_list.strip()
+
+            # comma- or semicolon-separated list
+            if ',' in s or ';' in s:
+                parts = re.split('[,;]', s)
+                return [p.strip() for p in parts if p.strip()]
+
+            # directory containing latest_model/ and periodic_model/
+            if os.path.isdir(s):
+                # support both underscore and hyphen variants used by different runs
+                # prefer folders named latest_model/latest-model now
+                best_dirs = [os.path.join(s, name) for name in ('latest_model', 'latest-model')]
+                periodic_dirs = [os.path.join(s, name) for name in ('periodic_model', 'periodic-model')]
+
+                # prefer the single latest model (newest file in latest_model or latest-model)
+                for best_dir in best_dirs:
+                    if os.path.isdir(best_dir):
+                        bs = [os.path.join(best_dir, f) for f in os.listdir(best_dir) if f.endswith(('.pth', '.tar'))]
+                        if bs:
+                            bs = sorted(bs, key=lambda p: os.path.getmtime(p))
+                            ckpts.append(bs[-1])
+                            break
+
+                # then add last two periodic models if available (from periodic_model or periodic-model)
+                for periodic_dir in periodic_dirs:
+                    if os.path.isdir(periodic_dir):
+                        ps = [os.path.join(periodic_dir, f) for f in os.listdir(periodic_dir) if f.endswith(('.pth', '.tar'))]
+                        if ps:
+                            ps = sorted(ps, key=lambda p: os.path.getmtime(p))
+                            # take at most the last two
+                            ckpts.extend(ps[-2:])
+                            break
+
+                # fallback: if nothing found in subfolders, collect checkpoint files in folder root
+                if not ckpts:
+                    root_ckpts = [os.path.join(s, f) for f in os.listdir(s) if f.endswith(('.pth', '.tar'))]
+                    if root_ckpts:
+                        root_ckpts = sorted(root_ckpts, key=lambda p: os.path.getmtime(p))
+                        ckpts.extend(root_ckpts)
+
+                return ckpts
+
+            # single file
+            return [s]
+
+        return []
+
+    ckpt_list = _gather_checkpoints(cls_checkpoint_path)
+    if not ckpt_list:
+        logger.info(f'No checkpoints found for path: {cls_checkpoint_path}. Exiting.')
+        return
+
+    eval_results = []
     ipe = len(test_loader)
-    auc_score = 0  # AUC not calculated
 
-    loader = iter(test_loader)
-    test_sampler.set_epoch(1)
+    for ckpt_path in ckpt_list:
+        logger.info(f"Evaluating checkpoint: {ckpt_path}")
+        # load weights for this checkpoint (encoder+classifier if available)
+        if classifier_checkpoint and ckpt_path is not None:
+            try:
+                encoder, classifier = load_encoder_and_classifier(encoder=encoder, classifier=classifier, ckpt_path=ckpt_path)
+            except RuntimeError as e:
+                logger.error(f"Skipping evaluation because checkpoint load failed for {ckpt_path}: {e}")
+                # fail-fast: abort entire evaluation run
+                if run is not None:
+                    run.finish()
+                return
 
-    loss = None
-    all_outputs = []
-    all_labels = []
+        # Prepare meters for this checkpoint
+        criterion = torch.nn.CrossEntropyLoss()
+        top1_meter = AverageMeter()
+        recall_meter = AverageMeter()
+        f1_meter = AverageMeter()
+        precision_meter = AverageMeter()
+        auc_score = float('nan')
 
-    for itr in tqdm(range(ipe), desc="Evaluating"):
-        try:
-            data = next(loader)
-        except Exception:
-            logger.info('Exhausted data loaders. Refreshing...')
-            torch.cuda.empty_cache()
-            loader = iter(test_loader)
-            data = next(loader)
+        loader = iter(test_loader)
+        test_sampler.set_epoch(1)
 
-        with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
+        loss = None
+        all_outputs = []
+        all_labels = []
 
-            """
-            clips = [
-                [dij.to(device, non_blocking=True) for dij in di]
-                for di in data[0]
-            ]
-            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
-            labels = data[1].to(device)
-            batch_size = len(labels)
-   
-# data[0] structure (with your dataset return):
-            # batch of samples -> each sample is a list of clips -> each clip is a Tensor (C,T,H,W)
-            batch_clips = data[0]
-            labels = data[1].to(device)
-            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
+        for itr in tqdm(range(ipe), desc=f"Evaluating {os.path.basename(ckpt_path)}"):
+            try:
+                data = next(loader)
+            except Exception:
+                logger.info('Exhausted data loaders. Refreshing...')
+                torch.cuda.empty_cache()
+                loader = iter(test_loader)
+                data = next(loader)
 
-            B = labels.shape[0] if labels.ndim > 0 else 1
-            num_clips = len(batch_clips[0])  # usually 1 in your setup
+            with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
+                labels = data[1].to(device)  # [B]
+                clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
+                full_clip = data[0][0].to(device, non_blocking=True)  # [B,C,T,H,W]
 
-            # Build nested structure expected by your aggregators: [num_clips][num_views][B,C,T,H,W]
-            clips = []
-            for ci in range(num_clips):
-                x = torch.stack([batch_clips[b][ci] for b in range(B)], dim=0)  # (B,C,T,H,W)
-                clips.append([x.to(device, non_blocking=True)])  # one view
-"""
-            batch_clips = data[0]
-            labels = data[1].to(device)
-            #NOTE: Esra: Adding this on 25 01:33 Feb.
-            batch_size = labels.shape[0]
-            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
+                batch_size = labels.size(0)
 
-            clips = []
+                with torch.no_grad():
+                    encoder_input = [[full_clip]]
+                    outputs = encoder(encoder_input, clip_indices)[0]
 
-            # Case 1: batch_clips is a list of samples: batch_clips[b][ci] is a Tensor(C,T,H,W)
-            if isinstance(batch_clips, list) and len(batch_clips) > 0 and isinstance(batch_clips[0], list):
-                B = len(batch_clips)
-                num_clips = len(batch_clips[0])  # usually 1
+                    if attend_across_segments:
+                        outputs = [classifier(outputs)]
+                    else:
+                        outputs = [[classifier(outputs)]]
 
-                for ci in range(num_clips):
-                    x = torch.stack([batch_clips[b][ci] for b in range(B)], dim=0)  # (B,C,T,H,W)
-                    clips.append([x.to(device, non_blocking=True)])  # one view
-
-            # Case 2: batch_clips is already a list of clip tensors (or a tensor)
-            else:
-                # If it’s a tensor already:
-                if torch.is_tensor(batch_clips):
-                    x = batch_clips.to(device, non_blocking=True)
-                    # ensure 5D
-                    if x.ndim == 4:
-                        x = x.unsqueeze(0)
-                    clips = [[x]]  # [num_clips=1][num_views=1]
-                else:
-                    # If it's list of tensors, assume it's clips for a single sample (B=1)
-                    # e.g. batch_clips[ci] is Tensor(C,T,H,W)
-                    num_clips = len(batch_clips)
-                    for ci in range(num_clips):
-                        x = batch_clips[ci]
-                        if x.ndim == 4:
-                            x = x.unsqueeze(0)  # (1,C,T,H,W)
-                        clips.append([x.to(device, non_blocking=True)])
-            with torch.no_grad():
-                # NOTE:Esra: 19 Feb 02:07: The following should be correct.
-                outputs = encoder(clips, clip_indices)
-                if attend_across_segments:
-                    outputs = [classifier(o) for o in outputs]
-                else:
-                    outputs = [[classifier(ost) for ost in os] for os in outputs]
-
-        # Compute loss
-        if attend_across_segments:
-            loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
-        else:
-            loss = sum([sum([criterion(ost, labels) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
-
-        with torch.no_grad():
+            # Compute loss
             if attend_across_segments:
-                outputs = sum([F.softmax(o, dim=1) for o in outputs]) / len(outputs)
+                loss = sum([criterion(o, labels) for o in outputs]) / len(outputs)
             else:
-                outputs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
+                loss = sum([sum([criterion(ost, labels) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
 
-            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum().item() / batch_size
-            top1_meter.update(top1_acc)
+            with torch.no_grad():
+                if attend_across_segments:
+                    outputs = sum([F.softmax(o, dim=1) for o in outputs]) / len(outputs)
+                else:
+                    outputs = sum([sum([F.softmax(ost, dim=1) for ost in os]) for os in outputs]) / len(outputs) / len(outputs[0])
 
-            preds = outputs.argmax(dim=1)
-            recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
-            precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
-            f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+                preds = outputs.argmax(dim=1)
 
-            all_outputs.append(outputs.detach().cpu())
-            all_labels.append(labels.detach().cpu())
+                top1_acc = 100. * preds.eq(labels).sum().item() / batch_size
+                top1_meter.update(top1_acc)
 
-            recall_meter.update(recall)
-            precision_meter.update(precision)
-            f1_meter.update(f1)
+                recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+                precision = precision_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
+                f1 = f1_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro')
 
-        torch.cuda.synchronize()
-        gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.**2
+                all_outputs.append(outputs.detach().cpu())
+                all_labels.append(labels.detach().cpu())
 
-        # Wandb logging
-        if run is not None:
-            run.log({
-                'test/acc_batch': top1_acc,  # Per-batch accuracy
-                'test/acc': top1_meter.avg,  # Running average
-                'test/loss': loss.item(),
-                'test/recall': recall_meter.avg,
-                'test/precision': precision_meter.avg,
-                'test/f1': f1_meter.avg,
-                'test/mem': gpu_memory_alloc
-            })
+                recall_meter.update(recall)
+                precision_meter.update(precision)
+                f1_meter.update(f1)
 
-        logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]' % (
-            itr, top1_acc, loss.item(), gpu_memory_alloc))
+            torch.cuda.synchronize()
+            gpu_memory_alloc = torch.cuda.max_memory_allocated() / 1024.**2
 
+            if run is not None:
+                run.log({
+                    f'test/acc_batch/{os.path.basename(ckpt_path)}': top1_acc,
+                    f'test/acc/{os.path.basename(ckpt_path)}': top1_meter.avg,
+                    f'test/loss/{os.path.basename(ckpt_path)}': loss.item(),
+                    f'test/recall/{os.path.basename(ckpt_path)}': recall_meter.avg,
+                    f'test/precision/{os.path.basename(ckpt_path)}': precision_meter.avg,
+                    f'test/f1/{os.path.basename(ckpt_path)}': f1_meter.avg,
+                    f'test/mem/{os.path.basename(ckpt_path)}': gpu_memory_alloc
+                })
 
-    # ---- COMPUTE AUC AFTER LOOP ----
-    all_outputs = torch.cat(all_outputs, dim=0).numpy()
-    all_labels  = torch.cat(all_labels,  dim=0).numpy()
+            logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]' % (
+                itr, top1_acc, loss.item(), gpu_memory_alloc))
 
-    if num_classes == 2:
-        y_score = all_outputs[:, 1]
+        # AUC Calculation per checkpoint
+        all_outputs_tensor = torch.cat(all_outputs, dim=0)
+        all_labels_tensor = torch.cat(all_labels, dim=0)
 
-        if len(np.unique(all_labels)) == 2:
-            auc_score = roc_auc_score(all_labels, y_score)
+        all_outputs_np = all_outputs_tensor.numpy()
+        all_labels_np = all_labels_tensor.numpy()
+
+        unique_labels = np.unique(all_labels_np)
+        if len(unique_labels) < 2:
+            logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
+            auc_score = float('nan')
         else:
-            auc_score = float("nan")
+            try:
+                number_classes = all_outputs_np.shape[1]
+                if number_classes == 2:
+                    auc_score = roc_auc_score(all_labels_np, all_outputs_np[:, 1])
+                else:
+                    auc_score = roc_auc_score(
+                        all_labels_np,
+                        all_outputs_np,
+                        multi_class='ovr',
+                        average='macro'
+                    )
+            except ValueError as e:
+                logger.warning(f"Could not compute AUC: {e}")
+                auc_score = float('nan')
 
-    else:
-        y_true_bin = label_binarize(all_labels, classes=np.arange(num_classes))
+        logger.info(f"Final AUC Score for {ckpt_path}: {auc_score:.4f}")
+
+        # Compute final metrics on the full concatenated predictions/labels
         try:
-            auc_score = roc_auc_score(
-                y_true_bin,
-                all_outputs,
-                average="macro",
-                multi_class="ovr"
-            )
-        except ValueError:
-            auc_score = float("nan")
+            # all_outputs_tensor: [N, C] probabilities; all_labels_tensor: [N]
+            final_preds = all_outputs_tensor.argmax(dim=1).numpy()
+            final_labels = all_labels_tensor.numpy()
 
+            # Accuracy (percentage)
+            final_acc = 100. * (final_preds == final_labels).sum() / final_labels.shape[0]
 
+            # Use sklearn to compute macro-averaged precision/recall/f1 on the whole set
+            final_recall = recall_score(final_labels, final_preds, average='macro')
+            final_precision = precision_score(final_labels, final_preds, average='macro')
+            final_f1 = f1_score(final_labels, final_preds, average='macro')
+        except Exception as e:
+            logger.warning(f"Could not compute final metrics from accumulated outputs: {e}")
+            # fall back to batch-averaged meters if something went wrong
+            final_acc = top1_meter.avg
+            final_recall = recall_meter.avg
+            final_precision = precision_meter.avg
+            final_f1 = f1_meter.avg
 
-    # Final stats
-    test_acc = top1_meter.avg
-    if run is not None:
-        run.log({
-            'test/acc_final': test_acc,
-            'test/f1_final': f1_meter.avg,
-            'test/recall_final': recall_meter.avg,
-            'test/precision_final': precision_meter.avg,
-            'test/auc_final': auc_score
+        # Final metrics for this checkpoint (computed from all samples)
+        logger.info('FINAL: [%s] test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
+            os.path.basename(ckpt_path), final_acc, final_recall, final_precision, final_f1, auc_score))
+
+        # write to CSV logger using the final metrics
+        if csv_logger is not None:
+            csv_logger.log(final_acc, loss.item() if loss is not None else 0.0, final_recall, final_precision, final_f1, auc_score)
+
+        eval_results.append({
+            'ckpt': ckpt_path,
+            'acc': final_acc,
+            'recall': final_recall,
+            'precision': final_precision,
+            'f1': final_f1,
+            'auc': auc_score,
+            'loss': loss.item() if loss is not None else None
         })
 
-    logger.info('FINAL: test acc: %.3f%% recall: %.3f precision: %.3f f1: %.3f AUC: %.3f' % (
-        test_acc, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score))
+    # pick best checkpoint by AUC (fallback to acc)
+    def _score_for_selection(r):
+        a = r.get('auc')
+        if a is None or (isinstance(a, float) and np.isnan(a)):
+            return r.get('acc', -float('inf'))
+        return a
 
-    if csv_logger is not None:
-        csv_logger.log(test_acc, loss.item(), recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score)
+    best = max(eval_results, key=_score_for_selection)
+    if rank == 0 and model_folder is not None:
+        best_info_path = os.path.join(model_folder, 'best_checkpoint_eval.txt')
+        with open(best_info_path, 'w') as f:
+            f.write(f"best_checkpoint: {best['ckpt']}\n")
+            f.write(f"metrics: acc={best['acc']}, recall={best['recall']}, precision={best['precision']}, f1={best['f1']}, auc={best['auc']}, loss={best['loss']}\n")
+        logger.info(f"Wrote best checkpoint info to {best_info_path}")
 
-    torch.cuda.empty_cache()
+    # Log which model is best to logger/wandb
+    logger.info(f"Best checkpoint selected: {best['ckpt']} with score { _score_for_selection(best) }")
+    if run is not None:
+        run.summary['best_checkpoint'] = best['ckpt']
+        run.summary['best_metrics'] = {k: v for k, v in best.items() if k != 'ckpt'}
+
     if run is not None:
         run.finish()
+
+    torch.cuda.empty_cache()
 
 @torch.no_grad()
 def sanity_check(encoder, classifier, val_loader, device, num_classes):
@@ -574,8 +654,6 @@ def sanity_check(encoder, classifier, val_loader, device, num_classes):
         [dij.to(device) for dij in di] for di in data[0]
     ]
     labels = data[1].to(device)
-    #NOTE: Esra: Adding this on 25 01:33 Feb.
-    batch_size = labels.shape[0]
     clip_indices = [d.to(device) for d in data[2]]
 
     # Encoder forward
@@ -603,11 +681,11 @@ def sanity_check(encoder, classifier, val_loader, device, num_classes):
     print("Sanity check passed.\n")
 
 def load_encoder_and_classifier(encoder, classifier, ckpt_path):
-
+    epoch = None
     try:
         logger.info(f"Loading fine-tuned encoder + classifier from {ckpt_path}")
         checkpoint = torch.load(ckpt_path, map_location=torch.device('cpu'))
-        epoch = checkpoint['epoch']
+        epoch = checkpoint.get('epoch', None)
         print("Print the pretrained model")
         print(checkpoint.keys())
 
@@ -624,7 +702,7 @@ def load_encoder_and_classifier(encoder, classifier, ckpt_path):
         encoder_msg = encoder.load_state_dict(encoder_dict, strict=False) #strict=True)
         print(encoder)
         logger.info(f'loaded encoder model with msg: {encoder_msg}')
-        logger.info(f'loaded pretrained encoder from epoch: {checkpoint["epoch"]}\n path: {ckpt_path}')
+        logger.info(f'loaded pretrained encoder from epoch: {epoch}\n path: {ckpt_path}')
 
 
         # Load classifier
@@ -656,7 +734,9 @@ def load_encoder_and_classifier(encoder, classifier, ckpt_path):
         del checkpoint
 
     except Exception as e:
-        logger.info(f'Encountered exception when loading checkpoint: {e}')
+        logger.exception(f'Encountered exception when loading checkpoint: {e}')
+        # Fail fast: re-raise as RuntimeError so callers can handle/abort explicitly
+        raise RuntimeError(f'Failed to load checkpoint {ckpt_path}: {e}') from e
 
     logger.info(f"Checkpoint epoch: {epoch}")
     return encoder, classifier

@@ -524,37 +524,22 @@ class EvalMRITransform(object):
         #     volume_transforms.ClipToTensor(channel_nb=in_chans),
         #     # video_transforms.Normalize(mean=normalize[0], std=normalize[1]) #GU_COMMENT
         # ])
-
+    """
     def __call__(self, buffer):
 
         buffer = np.array(buffer) #T W H C
         T, H, W, C = buffer.shape
-
+       
         buffer = torch.tensor(buffer, dtype=torch.float32) #T H W C
        #  buffer = buffer.permute(3, 0, 1, 2)  # T H W C --> C T H W
 
         return [buffer]
-        
-        # num_views = self.views_per_clip
-        # side_len = self.short_side_size
-        # spatial_step = (max(H, W) - side_len) // (num_views - 1) # GU_
+        """
+    def __call__(self, buffer):
+        buffer = np.asarray(buffer)
+        assert buffer.ndim == 4, f"Expected (T,H,W,C), got {buffer.shape}"
+        return [torch.from_numpy(buffer).float().contiguous()]  # THWC, NOT a list
 
-        # all_views = []
-        
-        #GU_COMMENT
-        #for i in range(num_views):
-        #    start = i*spatial_step
-        #    if H > W:
-        #        view = buffer[:, start:start+side_len, :, :]
-        #    else:
-        #        view = buffer[:, :, start:start+side_len, :]
-        #    view = self.to_tensor(view)
-        #    all_views.append(view)
-        # view = self.to_tensor(buffer)    
-        # all_views.append(view)
-        
-        # all_views.append(buffer)
-        # return all_views
 
 class VideoTransform(object):
 

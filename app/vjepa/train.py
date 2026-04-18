@@ -9,7 +9,8 @@
 # All modifications are licensed under the original MIT license (or the applicable license).
 
 import os
-
+# NOTE: E: Commenting out the following for now. Commenting it back.
+"""
 # -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
 try:
     # -- WARNING: IF DOING DISTRIBUTED TRAINING ON A NON-SLURM CLUSTER, MAKE
@@ -19,6 +20,7 @@ try:
     os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
 except Exception:
     pass
+"""
 
 import copy
 import time
@@ -57,7 +59,16 @@ from app.vjepa.utils import (
 )
 from app.vjepa.transforms import make_transforms
 
+# NOTE 12 Feb 00:34 Esra: Adding this for preventing race condition when creating the wandb file.
 
+def safe_makedirs(path: str):
+    """Network-FS-safe mkdir: ignore EEXIST if it's a directory."""
+    try:
+        os.makedirs(path, exist_ok=True)
+    except FileExistsError:
+        if os.path.isdir(path):
+            return
+        raise
 # --
 log_timings = True
 log_freq = 10
@@ -188,45 +199,6 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     # jepa_ckpt_folder = "/gpfs/data/sodicksonlab/gozde/pretrained_weights"
     jepa_ckpt_folder = cfgs_meta.get("ckpt_folder", "src/models/pretrained_weights")
     
-    if log_dir != None:
-        model_folder = os.path.join(log_dir, "model_ckpt")
-        csv_folder = os.path.join(log_dir, "csv_logs")
-        tb_folder = os.path.join(log_dir, "tensorboard")
-        
-        os.makedirs(model_folder, exist_ok=True)
-        os.makedirs(csv_folder, exist_ok=True)
-        os.makedirs(tb_folder, exist_ok=True)
-        
-        
-        # Model checkpoint folders
-        
-        latest_model_folder = os.path.join(model_folder, "latest-model")
-        best_model_folder = os.path.join(model_folder, "best-model")
-        periodic_model_folder = os.path.join(model_folder, "periodic-model")
-        
-        os.makedirs(latest_model_folder, exist_ok=True)
-        os.makedirs(best_model_folder, exist_ok=True)
-        os.makedirs(periodic_model_folder, exist_ok=True)
-        
-        
-        latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
-        latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
-        
-        best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
-        best_info_path = os.path.join(best_model_folder, f'best-info.txt')
-        
-    else:
-        model_folder = None
-        csv_folder = None
-        tb_folder = None
-        latest_model_folder = None
-        best_model_folder = None
-        periodic_model_folder = None
-        latest_path = None
-        latest_info_path = None
-        best_path = None
-        best_info_path = None
-    
     # ----------------------------------------------------------------------- #
     # ----------------------------------------------------------------------- #
     np.random.seed(seed)
@@ -246,12 +218,62 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     world_size, rank = init_distributed()
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
 
+    # NOTE: E: 12 Feb 00:36 moved the following block here, after init_distributed, it was written few lines earlier.
+    # After init_distributed()
+    if log_dir is not None:
+        model_folder = os.path.join(log_dir, "model_ckpt")
+        csv_folder = os.path.join(log_dir, "csv_logs")
+        tb_folder = os.path.join(log_dir, "tensorboard")
+
+        latest_model_folder = os.path.join(model_folder, "latest-model")
+        best_model_folder = os.path.join(model_folder, "best-model")
+        periodic_model_folder = os.path.join(model_folder, "periodic-model")
+
+        # Only rank0 touches shared dirs
+        if rank == 0:
+            safe_makedirs(model_folder)
+            safe_makedirs(csv_folder)
+            safe_makedirs(tb_folder)
+            safe_makedirs(latest_model_folder)
+            safe_makedirs(best_model_folder)
+            safe_makedirs(periodic_model_folder)
+
+        # Everyone waits until dirs exist
+        torch.distributed.barrier()
+
+        latest_path = os.path.join(latest_model_folder, f'{tag}-latest.pth.tar')
+        latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
+
+        best_path = os.path.join(best_model_folder, f'{tag}-best.pth.tar')
+        best_info_path = os.path.join(best_model_folder, f'best-info.txt')
+    else:
+        model_folder = csv_folder = tb_folder = None
+        latest_model_folder = best_model_folder = periodic_model_folder = None
+        latest_path = latest_info_path = best_path = best_info_path = None
+
+    # NOTE: E: Commenting out for now and replacing the -- set device block.
+    """
     # -- set device
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
         device = torch.device(f'cuda:0')
         torch.cuda.set_device(device)
+    """
+    # -- set device (IMPORTANT)
+    if not torch.cuda.is_available():
+        device = torch.device("cpu")
+        local_rank = -1
+    else:
+        # works on slurm and also torchrun
+        local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+
+    logger.info(f"[rank {rank}] local_rank={local_rank} "
+                f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')} "
+                f"device_count={torch.cuda.device_count()} current={torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'}")
+
 
     # -- load pretrained model path
     load_path = None
@@ -434,10 +456,29 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
     
     # print("Encoder class:", encoder.__class__)
     # print(inspect.signature(encoder.forward))
-
+    # NOTE: E : Commenting out the following for now. Replacing with another block.
+    """
     encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True)
     predictor = DistributedDataParallel(predictor, static_graph=True, gradient_as_bucket_view=True)
     target_encoder = DistributedDataParallel(target_encoder, gradient_as_bucket_view=True)
+    """
+
+    if torch.cuda.is_available():
+        ddp_kwargs = dict(device_ids=[local_rank], output_device=local_rank)
+    else:
+        ddp_kwargs = {}
+
+    encoder = DistributedDataParallel(
+        encoder, **ddp_kwargs, static_graph=True, gradient_as_bucket_view=True
+    )
+    predictor = DistributedDataParallel(
+        predictor, **ddp_kwargs, static_graph=True, gradient_as_bucket_view=True
+    )
+    target_encoder = DistributedDataParallel(
+        target_encoder, **ddp_kwargs, gradient_as_bucket_view=True
+    )
+
+    
     for p in target_encoder.parameters():
         p.requires_grad = False
 
@@ -604,9 +645,11 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                     """
                     Returns list of tensors of shape [B, N, D], one for each mask-pred.
                     """
+                    #NOTE: 13 Apr, Esra: modifying the following variable names.
                     z = encoder(c, masks_enc)
+                    z_for_vcr = [torch.cat([zi, hi.detach()], dim=1) for zi, hi in zip(z, h)]
                     z = predictor(z, h, masks_enc, masks_pred)
-                    return z
+                    return z, z_for_vcr
  
                 def loss_fn(z, h): # JEPA prediction loss
                     loss = 0.
@@ -615,41 +658,53 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                         loss += torch.mean(torch.abs(zi - hi)**loss_exp) / loss_exp
                     loss /= len(masks_pred)
                     return loss
-
+                
+                # NOTE: 13 Apr 2025, Esra: Implemented Variance-Covariance Regularization (VCR) loss
+                # adapted from Bardes et al. (2022) and Zhu et al. (2023) for 3D MRI / video JEPA setting.
+                # Previous version did not apply correct operations, and did not apply the operations over the correct tensors/dims.
                 def reg_var_fn(z):
-                    return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
-
-                def reg_cov_fn(z):
                     """
-                    Computes VCR covariance loss across z: list of [B, N, D] tensors
-                    Encourages off-diagonal covariance to be small
+                    Variance regularization: encourages variance across batch to be above τ=1
+                    for each token position t and feature dimension d.
+                    z: list of [B, T, D] tensors
                     """
                     loss = 0.0
                     for zi in z:
-                        # zi: [B, N, D]
-                        B, N, D = zi.shape
-                        zi = zi.view(-1, D)  # [B*N, D]
-                        zi = zi - zi.mean(dim=0, keepdim=True)  # center over batch
-                        cov = (zi.T @ zi) / (zi.shape[0] - 1)  # [D, D] covariance matrix
-                        off_diag = cov - torch.diag(torch.diag(cov))  # remove diagonal
-                        loss += (off_diag ** 2).sum() / D  # normalize by dimension
+                        # zi: [B, T, D]
+                        std = torch.sqrt(zi.var(dim=0) + 0.0001)  # [T, D] — var over batch B
+                        loss += torch.mean(F.relu(1. - std))       # hinge, mean over T and D
                     return loss / len(z)
 
+                def reg_cov_fn(z):
+                    """
+                    Covariance regularization: encourages de-correlation across feature dims
+                    for each token position t, computed over batch N.
+                    z: list of [B, T, D] tensors
+                    """
+                    loss = 0.0
+                    for zi in z:
+                        B, T, D = zi.shape
+                        zi_flat = zi.reshape(B*T,D)
+                        zi_flat = zi_flat - zi_flat.mean(dim=0, keepdim=True)         # center over batch [B, T, D]
+                        cov = (zi_flat.T @ zi_flat) / (B*T-1)
+                        off_diag = cov - torch.diag(torch.diag(cov))  # [T, D, D]
+                        loss += (off_diag ** 2).sum() / (D)
+                    return loss / len(z)
                 # Step 1. Forward
                 loss_jepa, loss_reg = 0.0, 0.0
            
                 #forward_start_time = time.time() # **Measure Forward Pass Time**
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     h = forward_target(clips)
-                    z = forward_context(clips, h)
+                    z, z_for_vcr = forward_context(clips, h)
                     loss_jepa = loss_fn(z, h)  # jepa prediction loss
-                    pstd_z = reg_var_fn(z)  # predictor variance across patches
-                    loss_cov = reg_cov_fn(z)
-                    loss_vcr = alpha_vcr * torch.mean(F.relu(1. - pstd_z)) + beta_vcr * loss_cov
+                    loss_var = reg_var_fn(z_for_vcr)  # predictor variance across patches
+                    loss_cov = reg_cov_fn(z_for_vcr)
+                    loss_vcr = alpha_vcr * loss_var + beta_vcr * loss_cov
                     loss_reg += loss_vcr
 
                 # Accumulate loss before stepping optimizer
-                loss = (loss_jepa + reg_coeff * loss_reg) / accumulation_steps  # Normalize loss
+                loss = (loss_jepa + reg_coeff*loss_reg) / accumulation_steps  # Normalize loss
                
                 # forward_end_time = time.time() # **Measure Forward Pass Time**
                 # forward_time = forward_end_time - forward_start_time # **Measure Forward Pass Time**
@@ -659,7 +714,8 @@ def main(args, resume_preempt=False, log_dir="./logs/evals", run=None):
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0. 
                 torch.cuda.synchronize()
-                loss = AllReduce.apply(loss)  # Average loss across GPUs  
+                # NOTE: E: Commenting out the allreduce.
+                #loss = AllReduce.apply(loss)  # Average loss across GPUs  
                 if mixed_precision:
                     scaler.scale(loss).backward()
                     if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step

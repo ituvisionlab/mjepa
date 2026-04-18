@@ -17,7 +17,7 @@ import pprint
 import yaml
 
 import sys 
-sys.path.append('/gpfs/home/unalg01/jepa')
+sys.path.append('/ari/users/eergun01/jepa')
 
 from app.vjepa.utils import get_new_log_dir
 from src.utils.distributed import init_distributed
@@ -76,7 +76,10 @@ def process_main(rank, fname, world_size, devices, log_dir):
             yaml.dump(params, f)
 
     # Init distributed (access to comm between GPUS on same machine)
-    world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
+    # NOTE: Esra: Commenting out for debug.
+
+    #world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
+    world_size, rank = 1, 0
     logger.info(f'Running... (rank: {rank}/{world_size})')
 
     print("In main.py/process_main, listing params.keys:")
@@ -88,32 +91,28 @@ def process_main(rank, fname, world_size, devices, log_dir):
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    # args.devices will now be a list of devices directly
     gpu_devices = args.devices
-    #num_gpus = len(args.devices)
-    num_gpus = len(gpu_devices)
-    
-    # Run only one process for debugging
-    # # process_main(0, args.fname, num_gpus, gpu_devices)
-    
-    # Load config
-    params = None
+
+    # Load config (needed for log_dir logic)
     with open(args.fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
-    
+
     if args.keep_logs or "tsne" in params["eval_name"].lower():
-        log_dir = get_new_log_dir(params['logging']['folder'], prefix=f"{params['write_tag']}_eval_", postfix='')
+        log_dir = get_new_log_dir(
+            params['logging']['folder'],
+            prefix=f"{params['write_tag']}_eval_",
+            postfix=''
+        )
     else:
         log_dir = None
-        
-    mp.set_start_method('spawn')
-    
-    processes = []
-    for rank in range(num_gpus):
-        p = mp.Process(target=process_main, args=(rank, args.fname, num_gpus, gpu_devices, log_dir))
-        p.start()
-        processes.append(p)
-    
-    for p in processes:
-        p.join()
-        
+
+    # ✅ DEBUG MODE: run single process only
+    process_main(
+        rank=0,
+        fname=args.fname,
+        world_size=1,
+        devices=[gpu_devices[0]],
+        log_dir=log_dir
+    )
+
+    sys.exit(0)

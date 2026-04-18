@@ -1,10 +1,11 @@
 import pandas as pd
 import os
 from sklearn.model_selection import StratifiedKFold
+# !!!CHECK and CHANGE the number of folds n_splits and output_dir
 
 # === CONFIGURATION ===
 file_path = '/gpfs/home/unalg01/jepa/src/datasets/adni_all_bet_nii_verified.csv'
-output_dir = "adni_cv_folds_stratified"
+output_dir = "adni_cv_5folds_stratified"
 os.makedirs(output_dir, exist_ok=True)
 
 # === LOAD DATA ===
@@ -79,12 +80,12 @@ def extract_binary_split(data, subject_ids, label_pair, pos_label, balance_by_vo
 
     return df
 
-# === MAIN CV SPLIT + FEW-SHOT SPLITS ===
+# ===KFold SPLIT  ===
 def generate_stratified_folds(task_name, label_pair, pos_label):
     task_subjects = cv_subject_summary.copy()
 
     n_splits=5
-    skf = StratifiedKFold(n_splits, shuffle=True, random_state=42)
+    skf = StratifiedKFold(n_splits, shuffle=True, random_state=1881)
     subj_ids = task_subjects['subject_id'].values
     labels = task_subjects['label'].values
 
@@ -121,23 +122,6 @@ def generate_stratified_folds(task_name, label_pair, pos_label):
         df.to_csv(os.path.join(output_dir, f"adni_fold{fold}_downtrain_{task_name}.csv"), index=False)
         print(f"✅ Saved: fold{fold}_downtrain_{task_name} ({len(df)} volumes, {len(train_ids)} subjects)")
         print(df['label'].value_counts().to_dict())
-
-        # === FEW-SHOT splits (from downtrain)
-        for k in [8, 16, 32, 64]:
-            fewshot_parts = []
-            for label in label_pair:
-                group = downtrain_subjects[downtrain_subjects['label'] == label]
-                n = min(k, len(group))
-                sampled = group.sample(n=n, random_state=fold + k)
-                fewshot_parts.append(sampled)
-            fewshot_subjects = pd.concat(fewshot_parts)
-
-            ids = fewshot_subjects['subject_id'].values
-            df = extract_binary_split(data_all, ids, label_pair, pos_label)
-            out_path = os.path.join(output_dir, f"adni_fold{fold}_downtrain_k{k}_{task_name}.csv")
-            df.to_csv(out_path, index=False)
-            print(f"✅ Saved: fold{fold}_downtrain_k{k}_{task_name} ({len(df)} volumes, {len(ids)} subjects)")
-            print(df['label'].value_counts().to_dict())
 
 # === RUN TASKS ===
 generate_stratified_folds("nc_ad", label_pair=[0, 2], pos_label=2)

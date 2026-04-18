@@ -1,5 +1,5 @@
 # mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
-# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+# Copyright (c) 2024–2026 [Gozde Unal, NYU], [Esra Ergün, ITU]
 #
 # This file is based on an earlier version of code from:
 # V-JEPA (https://github.com/facebookresearch/v-jepa)
@@ -8,9 +8,14 @@
 # This codebase has been significantly modified for use in medical imaging and 3D MRI.
 # All modifications are licensed under the original MIT license (or the applicable license).
 
+# NOTE: EE: 13 Feb 14:07: This file is adjusted to compatible with uhem setting. I only didn't address the race condition problem yet. As the 
+# code structure is heavily different compared to train.py . I will, if it arises again.
+
+
 import os
 
 # -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
+"""
 try:
     # -- WARNING: IF DOING DISTRIBUTED TRAINING ON A NON-SLURM CLUSTER, MAKE
     # --          SURE TO UPDATE THIS TO GET LOCAL-RANK ON NODE, OR ENSURE
@@ -19,7 +24,7 @@ try:
     os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
 except Exception:
     pass
-
+"""
 import logging
 import pprint
 import platform
@@ -197,23 +202,40 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # -- init torch distributed backend
     world_size, rank = init_distributed()
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
+    # NOTE: EE: Fixing the race condition. Only rank 0 will create the log directories, then we will sync across processes before proceeding.
+    def makedirs_rank0(path):
+        # Create dirs only on rank0 to avoid shared-FS races; then sync.
+        if rank == 0:
+            os.makedirs(path, exist_ok=True)
+        if dist.is_available() and dist.is_initialized():
+            dist.barrier()
 
+    # NOTE: Esra: modifying this part to map devices correctly, each process will assign it as local rank.:
+    """
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
         #device = torch.device('cuda:0')
         device = torch.device('cuda', rank % torch.cuda.device_count())  # safer for multi-GPU
         torch.cuda.set_device(device)
-
+    """
+    if not torch.cuda.is_available():
+        device = torch.device("cpu")
+        local_rank = -1
+    else:
+        # works on slurm and also torchrun
+        local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
     # -- log/checkpointing paths   
     if log_dir != None:
         model_folder = os.path.join(log_dir, "model_ckpt")
         csv_folder = os.path.join(log_dir, "csv_logs")
         tb_folder = os.path.join(log_dir, "tensorboard")
-        
-        os.makedirs(model_folder, exist_ok=True)
-        os.makedirs(csv_folder, exist_ok=True)
-        os.makedirs(tb_folder, exist_ok=True)
+        # NOTE: EE: 17 Feb: Replacing os.makedirs with helper function makedirs_rank0 to avoid race condition. 
+        makedirs_rank0(model_folder)
+        makedirs_rank0(csv_folder)
+        makedirs_rank0(tb_folder)
         
         csv_log_file = os.path.join(csv_folder, f'{eval_tag}_r{rank}.csv')
         
@@ -224,9 +246,11 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         best_model_folder = os.path.join(model_folder, "best-model")
         periodic_model_folder = os.path.join(model_folder, "periodic-model")
         
-        os.makedirs(latest_model_folder, exist_ok=True)
-        os.makedirs(best_model_folder, exist_ok=True)
-        os.makedirs(periodic_model_folder, exist_ok=True)
+        # NOTE: EE: 17 Feb: Replacing os.makedirs with helper function makedirs_rank0 to avoid race condition. 
+
+        makedirs_rank0(latest_model_folder)
+        makedirs_rank0(best_model_folder)
+        makedirs_rank0(periodic_model_folder)
         
         latest_path = os.path.join(latest_model_folder, f'{eval_tag}-latest.pth.tar')
         latest_info_path = os.path.join(latest_model_folder, f'latest-info.txt')
@@ -440,10 +464,28 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         betas=betas,
         eps=eps,
         layer_decay=layer_decay)
+    
+    """
     classifier = DistributedDataParallel(classifier, static_graph=True, gradient_as_bucket_view=True)
 
     if not frozen:
         encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True) #GU_Debug
+    """
+
+    if torch.cuda.is_available():
+        ddp_kwargs = dict(device_ids=[local_rank], output_device=local_rank)
+    else:
+        ddp_kwargs = {}
+
+    classifier = DistributedDataParallel(
+        classifier, **ddp_kwargs, static_graph=True, gradient_as_bucket_view=True
+    )        
+
+    if not frozen:
+        encoder = DistributedDataParallel(
+            encoder, **ddp_kwargs, static_graph=True, gradient_as_bucket_view=True
+        )
+
 
     if frozen:
         encoder.eval()    
@@ -460,10 +502,11 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     # -- load training checkpoint
     start_epoch = 0
     if resume_checkpoint:
-        classifier, optimizer, scaler, start_epoch, attn_pooler = load_checkpoint(
+        classifier, encoder, optimizer, scaler, start_epoch, attn_pooler = load_checkpoint(
             device=device,
             r_path=cls_checkpoint_path,
             classifier=classifier,
+            encoder=encoder,
             opt=optimizer,
             scaler=scaler,
             attn_pooler=attn_pooler if (eval_in_chans > 1 and attn_pooler_flag is True) else None
@@ -502,7 +545,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
     best_val_acc = float('-inf')
     best_val_f1 = float('-inf')
     best_val_auroc = float('-inf')
-
+    val_auroc = float('-inf')
+    # NOTE: Esra: Pretrained path should be None on checkpoint. 
     if pretrained_path == None:
         encoder_warmup = 0
 
@@ -548,7 +592,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             log_dir=log_dir,
             eval_in_chans=eval_in_chans,)
 
-        val_acc, val_loss, val_recall, val_precision, val_f1, val_auroc, val_outputs_tensor, val_labels_tensor = run_one_epoch(
+        val_acc, val_loss, val_recall, val_precision, val_f1, auc_score, val_outputs_tensor, val_labels_tensor = run_one_epoch(
             device=device,
             training=False,
             num_temporal_views=eval_num_clips,
@@ -625,8 +669,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                         latest_path, latest_info_path, attn_pooler=attn_pooler)
 
             # Check if this is the best model in terms of:
-            if auc_score > best_val_auroc: #if val_acc > best_val_acc:  #if val_f1 > best_val_f1:
-                best_val_auroc = auc_score  # update the best metric  #best_val_acc = val_acc #best_val_f1 = val_f1
+            if val_auroc > best_val_auroc: #if val_acc > best_val_acc:  #if val_f1 > best_val_f1:
+                best_val_auroc = val_auroc  # update the best metric  #best_val_acc = val_acc #best_val_f1 = val_f1
                 save_checkpoint(epoch, train_acc, val_acc, val_f1, val_auroc,
                             best_path, best_info_path, attn_pooler=attn_pooler)
 
@@ -687,6 +731,10 @@ def run_one_epoch(
     #specificity_meter = AverageMeter()
     f1_meter = AverageMeter()
     precision_meter = AverageMeter()
+
+    #NOTE: ESRA: 15 FEB 00:37 Commenting out the following and replacing because of 
+    # NCLL error.
+    """
     ipe = len(data_loader)
     if eval_freq > ipe:
         eval_freq = 1
@@ -709,17 +757,19 @@ def run_one_epoch(
                 
             loader = iter(data_loader) #resets the loader iterator again
             data = next(loader)
+        """
+    ipe = len(data_loader)
+    if eval_freq > ipe:
+        eval_freq = 1
+    auc_score = 0  # AUC initialize to 0
 
-        #clips = data[0]  # [ [clip], [clip], ... ] 
-        # labels = data[1]
-        #clip_indices = data[2]
-        # DEBUG
-        # contrast_names_batch = data[3]  # list of lists: [contrast][batch_idx]
-        # contrast_names_per_sample = [list(x) for x in zip(*contrast_names_batch)]
-        # logger.info(f"Contrast names per sample (batch size = {len(contrast_names_per_sample)}):")
-        # for i, contrast_list in enumerate(contrast_names_per_sample):
-        #     logger.info(f"  Sample {i}: {contrast_list}")
+    data_sampler.set_epoch(epoch)
 
+    loss = None
+    all_outputs = []
+    all_labels = []
+
+    for itr, data in enumerate(data_loader):
         new_lr = None
         new_wd = None
         if training:
@@ -727,12 +777,7 @@ def run_one_epoch(
             new_wd = wd_scheduler.step()
 
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
-        #with torch.autocast('cuda', dtype=torch.float16, enabled=use_bfloat16):
-            # Load data and put on GPU: move frames to GPU
-            # clips = [   #old style loading, not valid anymore
-            #     [dij.to(device, non_blocking=True) for dij in di]  # spatial views
-            #     for di in data[0]  # temporal clips
-            # ]
+
             labels = data[1].to(device) # [B]
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             contrast_masks = data[3].to(device)  # [B, max_contrasts]
@@ -740,12 +785,6 @@ def run_one_epoch(
 
             # unwrap the data correctly to a tensor of [B, C, T, H, W]
             full_clip = data[0][0].to(device, non_blocking=True)  # explicitly unwrap list to a tensor: B,C,T,H,W
-
-            #DEBUG
-            # print("Old input shape:", clips[0][0].shape)
-            # print("New input shape:", full_clip.shape)
-            # print("Old requires_grad:", clips[0][0].requires_grad)
-            # print("New requires_grad:", full_clip.requires_grad)
 
             encoder_requires_grad = (not frozen and training)
             encoder_context = torch.enable_grad() if encoder_requires_grad else torch.no_grad()
@@ -779,7 +818,9 @@ def run_one_epoch(
                         batch_encoded_contrast[valid_indices] = encoded_output
 
                         encoded_contrasts.append(batch_encoded_contrast)
-
+                    # NOTE: Esra 15 Feb 00:44 Commenting out the following 
+                    # For NCLL error.
+                    """
                     if len(encoded_contrasts) == 0:
                         raise ValueError("No valid contrasts in entire batch.")
 
@@ -788,7 +829,14 @@ def run_one_epoch(
                     # outputs = attn_pooler(encoded_contrasts, contrast_masks) #list of len:B, each with tensors NxD
                     # 2. Concatenate encoded contrasts along token dimension: [B, C*N, D]
                     outputs = torch.cat(encoded_contrasts, dim=1)
-                    
+                    """
+                    if len(encoded_contrasts) == 0:
+                        logger.warning(f"[Rank {rank}] No valid contrasts in batch at itr={itr}. Using zeros.")
+                        outputs = torch.zeros(batch_size, 1, encoder.embed_dim, device=device, dtype=torch.float16 if use_bfloat16 else torch.float32)
+                    else:
+                        # 2. Concatenate encoded contrasts along token dimension: [B, C*N, D]
+                        outputs = torch.cat(encoded_contrasts, dim=1)
+
             classifier_requires_grad = training  # classifier explicitly trainable during training
             classifier_context = torch.enable_grad() if classifier_requires_grad else torch.no_grad()
 
@@ -839,96 +887,61 @@ def run_one_epoch(
             if not training:
                 all_outputs.append(classifier_outs.detach().cpu())
                 all_labels.append(labels.detach().cpu())
-   
+            #NOTE: Esra: 15 Feb 00:39 Commenting out the following. 
+            """
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
             precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
             #specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
             f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
+            """
+            recall = float(AllReduce.apply(torch.tensor(recall, device=device)))
+            precision = float(AllReduce.apply(torch.tensor(precision, device=device)))
+            #specificity = float(AllReduce.apply(torch.tensor(specificity, device=device)))
+            f1 = float(AllReduce.apply(torch.tensor(f1, device=device)))
+
             recall_meter.update(recall)
             precision_meter.update(precision)
             # specificity_meter.update(specificity)
             f1_meter.update(f1)
 
-        # GU_debug: Check if the encoder is frozen
-        # encoder_frozen = True
-        # for name, param in encoder.named_parameters():
-        #     if param.requires_grad and param.grad is not None:
-        #         encoder_frozen = False
-        #         print(f"Gradient found for encoder parameter: {name}, norm: {param.grad.norm().item()}")
-        #         break
-
-        # if encoder_frozen:
-        #     print("Encoder is fully frozen. No gradients are propagated.")
-        # else:
-        #     print("Encoder is not frozen. Gradients are propagating to some parameters.")
-        #end_debug
-        
         loss = loss / accumulation_steps
         torch.cuda.synchronize()
-        
+        ## EE: BUG FIX. call .detach() on loss. Make an alias on loss
+        ## EE: Prev version calls allreduce on loss and feeds scaler.scale with
+        ## that loss. That incorrectly scales gradients by 1/world_size twice.
         if not torch.isfinite(loss):
             logger.warning(f"[Rank {rank}] Non-finite loss detected: {loss}")
             loss = torch.tensor(0.0, device=loss.device)
-        loss = AllReduce.apply(loss)  # Average loss across GPUs  
+        loss_opt = loss
+        loss = AllReduce.apply(loss.detach())  # Average loss across GPUs  
 
         if training:
             if use_bfloat16:
-                scaler.scale(loss).backward()
+                scaler.scale(loss_opt).backward()
                 if (itr + 1) % accumulation_steps == 0:  # Only unscale when we're going to step
                     scaler.unscale_(optimizer)
-                if epoch > warmup:
-                    if (clip_grad_classifier is not None):
-                        torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
-                    if not frozen and (clip_grad_encoder is not None):
-                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # GU added 1/19/2025
-                scaler.step(optimizer)
-                scaler.update()
+
+                ## EE: Why would i clip gradients if im not stepping? EE: BUG FIX 9 DEC 2025. 
+                    if epoch > warmup:
+                        if (clip_grad_classifier is not None):
+                            torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
+                        if not frozen and (clip_grad_encoder is not None):
+                            torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # GU added 1/19/2025
+                    scaler.step(optimizer)
+                    scaler.update()
             else:
-                loss.backward()
-                if epoch > warmup:
-                    if (clip_grad_classifier is not None):
-                        torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
-                    if not frozen and (clip_grad_encoder is not None):
-                        torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # GU added 1/19/2025
-                optimizer.step()
 
-            #DEBUG
-            #logger.info(f"Encoder structure: {encoder.module}")
-            # print(encoder.module.model.blocks[0].attn.qkv.weight.requires_grad)
-            # try:
-            #     grad = encoder.module.model.blocks[-1].attn.qkv.weight.grad
-            #     if grad is not None:
-            #         logger.info(f"Grad: [{grad.abs().mean().item():.6f}]")
-            #     else:
-            #         logger.info("Grad: [None]")
-            # except AttributeError as e:
-            #     logger.warning(f"Could not access gradient: {e}")
-            # total_grad_norm = 0.0
-            # num_params = 0
-            # for name, param in encoder.module.model.named_parameters():
-            #     if param.grad is not None:
-            #         total_grad_norm += param.grad.data.norm(2).item() ** 2
-            #         num_params += 1
-            # if num_params > 0:
-            #     total_grad_norm = (total_grad_norm) ** 0.5
-            #     logger.info(f"Global Grad L2 Norm: [{total_grad_norm:.6f}] across {num_params} parameters")
-            # else:
-            #     logger.info("No gradients found on any parameters.")
+                ## EE: Added if cond for acc steps BUGFIX
+                ## EE: Step only if acc step.
+                loss_opt.backward()
+                if (itr + 1) % accumulation_steps == 0: 
+                    if epoch > warmup:
+                        if (clip_grad_classifier is not None):
+                            torch.nn.utils.clip_grad_norm_(classifier.parameters(), clip_grad_classifier)
+                        if not frozen and (clip_grad_encoder is not None):
+                            torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip_grad_encoder) # GU added 1/19/2025
+                    optimizer.step()
 
-
-            # # GU_Debug
-            # for name, param in encoder.named_parameters():
-            #     if param.grad is None:
-            #         print(f"No gradient for: {name}")
-            #     else:
-            #         print(f"Gradient exists for: {name} | Norm: {param.grad.norm().item()}")
-            # # GU_Debug
-            # for name, param in classifier.named_parameters():
-            #     if param.grad is None:
-            #         print(f"Classifier: No gradient for: {name}")
-            #     else:
-            #         print(f"Classifier Gradient exists for: {name} | Norm: {param.grad.norm().item()}")
-            
             if (itr + 1) % accumulation_steps == 0:
                 optimizer.zero_grad(set_to_none=True)  # Efficient way to clear gradients
             #optimizer.zero_grad(set_to_none=True)
@@ -968,46 +981,6 @@ def run_one_epoch(
     # #end of one epoch : AUC and metric Calculations
     all_outputs_tensor = torch.cat(all_outputs, dim=0) if not training else None
     all_labels_tensor = torch.cat(all_labels, dim=0) if not training else None
-
-    # if rank == 0 and not training:
-    #     # Concatenate all outputs and labels
-    #     all_outputs_tensor = torch.cat(all_outputs, dim=0)  # shape: [total_samples, num_classes]
-    #     all_labels_tensor = torch.cat(all_labels, dim=0)    # shape: [total_samples]
-    #     # Convert to numpy arrays
-    #     all_outputs_np = all_outputs_tensor.numpy()
-    #     all_labels_np = all_labels_tensor.numpy()
-    
-    #     unique_labels = np.unique(all_labels_np)
-    #     if len(unique_labels) < 2:
-    #         logger.warning(f"Only one class {unique_labels} present in labels. AUC is undefined.")
-    #         auc_score = float('nan')
-    #     else:
-    #         try:           
-    #             number_classes = all_outputs_np.shape[1] # num_classes already available
-    #             if number_classes == 2: # Binary classification case
-    #                 auc_score = roc_auc_score(all_labels_np, all_outputs_np[:, 1])
-    #                 # predicted_labels for computing metrics at threshold = 0.5
-    #                 predicted_labels = (all_outputs_np[:, 1] >= 0.5).astype(int)
-    #                 # Recalculate all metrics based on thresholded predicted labels
-    #                 accuracy = accuracy_score(all_labels_np, predicted_labels)
-    #                 precision = precision_score(all_labels_np, predicted_labels)
-    #                 recall = recall_score(all_labels_np, predicted_labels)
-    #                 f1 = f1_score(all_labels_np, predicted_labels)
-    #                 conf_matrix = confusion_matrix(all_labels_np, predicted_labels)
-
-    #             else:
-    #                 # Multi-class classification (one-vs-rest)
-    #                 auc_score = roc_auc_score(
-    #                     all_labels_np,
-    #                     all_outputs_np,
-    #                     multi_class='ovr',
-    #                     average='macro'
-    #                 )
-    #         except ValueError as e:
-    #             logger.warning(f"Could not compute AUC: {e}")
-    #             auc_score = float('nan')
-    #         # Log and print AUC
-    #     logger.info(f"AUC Score (validation) inside run_one_epoch: {auc_score:.4f}")
 
     torch.cuda.empty_cache()
     return top1_meter.avg, loss, recall_meter.avg, precision_meter.avg, f1_meter.avg, auc_score, all_outputs_tensor, all_labels_tensor
@@ -1105,6 +1078,7 @@ def load_checkpoint(
     device,
     r_path,
     classifier,
+    encoder,
     opt,
     scaler,
     attn_pooler=None  # Optional attn_pooler for multi-contrast evaluation, None for single-contrast case
@@ -1112,6 +1086,10 @@ def load_checkpoint(
     try:
         checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
         epoch = checkpoint['epoch']
+
+        encoder_dict = checkpoint.get('encoder', {})
+        msg_enc = encoder.load_state_dict(encoder_dict, strict=False)
+        logger.info(f'Loaded encoder from epoch {epoch} with message: {msg_enc}')
 
         # Load classifier
         classifier_dict = checkpoint.get('classifier', {})
@@ -1139,7 +1117,7 @@ def load_checkpoint(
         epoch = 0
 
     # Return updated models and optimizer states explicitly
-    return classifier, opt, scaler, epoch, attn_pooler
+    return classifier, encoder, opt, scaler, epoch, attn_pooler
 
 
 
