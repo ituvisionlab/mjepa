@@ -200,3 +200,4 @@ pretrain_leakage_report_leaked_rows/
 
 # Temp scripts
 testt.sh
+*.png
