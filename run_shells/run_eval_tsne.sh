@@ -1,1 +1,0 @@
-python -m evals.main --fname configs/evals/vits16_mri_tsne.yaml
