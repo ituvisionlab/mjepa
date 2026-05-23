@@ -247,8 +247,14 @@ def vit_decoder(**kwargs):
         **kwargs)
     return model
 
-def vit_decoder_mod(**kwargs):
+def vit_decoder_light(**kwargs):
     model = VisionTransformerDecoder(
-        mlp_ratio=2, num_heads=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        **kwargs)
+    return model
+
+def vit_decoder_mod(**kwargs): #input num_heads=4
+    model = VisionTransformerDecoder(
+        mlp_ratio=2, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
         **kwargs)
     return model

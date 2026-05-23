@@ -100,13 +100,15 @@ class ClipAggregation(nn.Module):
         self.model = model
  
     def forward(self, x):
-
-        # Concatenate all spatial and temporal views along batch dimension
+        # If x is already a tensor, just forward it
+        if isinstance(x, torch.Tensor):
+            return self.model(x)
+        # else: assume list-of-list structure from multiview pipeline
+        #  Concatenate all spatial and temporal views along batch dimension
         x = [torch.cat(xi, dim=0) for xi in x]
         x = torch.cat(x, dim=0)
-        outputs = self.model(x)
+        return self.model(x)
 
-        return outputs
 
 class LayerAggregation(nn.Module):
     """

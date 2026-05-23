@@ -82,6 +82,9 @@ target/
 profile_default/
 ipython_config.py
 
+
+src/datasets/*.csv
+
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
 #   intended to run in multiple environments; otherwise, check them in:
@@ -158,7 +161,6 @@ cython_debug/
 *.pyc
 *.tar
 *.pth
-*.csv
 logs/
 slice.png
 slice_preprocessed.png
@@ -171,3 +173,30 @@ src/datasets/MOOD
 wandb/
 *.nii
 *.nii.gz
+# Yaml configs
+*.yaml
+
+*.sh
+
+*.csv
+
+# Pickle cache files
+*.pkl
+
+# Old/backup versions
+*_old.*
+*_before*
+*_yedek*
+*copy*
+*_debug.*
+*_fixe.*
+
+# Submitit logs
+submitit_logs/
+
+# Leakage/analysis intermediate files
+*_leakage_report*
+pretrain_leakage_report_leaked_rows/
+
+# Temp scripts
+testt.sh

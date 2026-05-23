@@ -17,6 +17,10 @@ import time
 
 import torch
 import matplotlib.pyplot as plt
+import numpy as np
+import nibabel as nib
+from datetime import datetime
+from scipy.stats import entropy
 
 import src.models.vision_transformer as video_vit
 import src.models.decoder as vit_decoder
@@ -87,6 +91,7 @@ def init_video_model(
     crop_size=224,
     pred_depth=6,
     pred_embed_dim=384,
+    pred_num_heads=None,
     in_chans=3,
     uniform_power=False,
     use_mask_tokens=False,
@@ -117,6 +122,7 @@ def init_video_model(
         embed_dim=encoder.backbone.embed_dim,
         predictor_embed_dim=pred_embed_dim,
         depth=pred_depth,
+        num_heads=encoder.backbone.num_heads if pred_num_heads is None else pred_num_heads,
         uniform_power=uniform_power,
         num_mask_tokens=num_mask_tokens,
         zero_init_mask_tokens=zero_init_mask_tokens,
@@ -172,26 +178,53 @@ def init_opt(
     betas=(0.9, 0.999),
     eps=1e-8,
     zero_init_bias_wd=True,
+    decoder_lr_scale=1.0,
 ):
     param_groups = [
-        {
-            'params': (p for n, p in encoder.named_parameters()
-                       if ('bias' not in n) and (len(p.shape) != 1))
-        }, {
-            'params': (p for n, p in decoder.named_parameters()
-                       if ('bias' not in n) and (len(p.shape) != 1))
-        }, {
-            'params': (p for n, p in encoder.named_parameters()
-                       if ('bias' in n) or (len(p.shape) == 1)),
-            'WD_exclude': zero_init_bias_wd,
-            'weight_decay': 0,
-        }, {
-            'params': (p for n, p in decoder.named_parameters()
-                       if ('bias' in n) or (len(p.shape) == 1)),
-            'WD_exclude': zero_init_bias_wd,
-            'weight_decay': 0,
-        },
+    {
+        'params': (p for n, p in encoder.named_parameters()
+                   if ('bias' not in n) and (len(p.shape) != 1)),
+        'name': 'encoder_weight'
+    }, {
+        'params': (p for n, p in decoder.named_parameters()
+                   if ('bias' not in n) and (len(p.shape) != 1)),
+        'lr': ref_lr * decoder_lr_scale,  # ← scaled LR for decoder
+        'name': 'decoder_weight'
+    }, {
+        'params': (p for n, p in encoder.named_parameters()
+                   if ('bias' in n) or (len(p.shape) == 1)),
+        'WD_exclude': zero_init_bias_wd,
+        'weight_decay': 0,
+        'name': 'encoder_bias'
+    }, {
+        'params': (p for n, p in decoder.named_parameters()
+                   if ('bias' in n) or (len(p.shape) == 1)),
+        'WD_exclude': zero_init_bias_wd,
+        'weight_decay': 0,
+        'lr': ref_lr * decoder_lr_scale,  # ← scaled LR for decoder bias/etc
+        'name': 'decoder_bias'
+    },
     ]
+
+    # param_groups = [
+    #     {
+    #         'params': (p for n, p in encoder.named_parameters()
+    #                    if ('bias' not in n) and (len(p.shape) != 1))
+    #     }, {
+    #         'params': (p for n, p in decoder.named_parameters()
+    #                    if ('bias' not in n) and (len(p.shape) != 1))
+    #     }, {
+    #         'params': (p for n, p in encoder.named_parameters()
+    #                    if ('bias' in n) or (len(p.shape) == 1)),
+    #         'WD_exclude': zero_init_bias_wd,
+    #         'weight_decay': 0,
+    #     }, {
+    #         'params': (p for n, p in decoder.named_parameters()
+    #                    if ('bias' in n) or (len(p.shape) == 1)),
+    #         'WD_exclude': zero_init_bias_wd,
+    #         'weight_decay': 0,
+    #     },
+    # ]
 
     logger.info('Using AdamW')
     optimizer = torch.optim.AdamW(param_groups, betas=betas, eps=eps)
@@ -293,7 +326,7 @@ def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_ch
     # Scatter the reconstructed tokens using mask_pred indices.
     full_tokens.scatter_(1, mask_pred.unsqueeze(-1).expand_as(recon), recon)
 
-    # Reshape the full tokens into a video volume.
+    # Reshape the full tokens (cuurently B, N, D tensor) into a video volume.
     full_tokens = full_tokens.view(
         B,
         grid_temporal,    # temporal grid
@@ -318,8 +351,8 @@ def unpatchify_image(recon, nonmask, patch_size, tubelet_size, num_frames, in_ch
     # Since mRI volumes are 1-channel and we only want the first sample in the batch, for visualization
     # return the first sample and remove the channel dimension.
     # This yields a 3D tensor with shape (num_frames, crop_size, crop_size).
-    #return full_tokens[0, 0]  # (T, H, W) ← single channel from first sample
-    return full_tokens[0] # shape: [C, T, H, W]
+    # return full_tokens[0] # shape: [1, T, H, W]: from 1st sample for visualization
+    return full_tokens #[C, T, H, W]:
 
 def unpatchify_image_from_full(full_tokens, patch_size, tubelet_size, num_frames, in_chans, crop_size):
     """
@@ -390,3 +423,73 @@ def visualize_fft_3d_spectrum(feature, grid_shape, channel_idx=0, slice_dim=2, t
     plt.axis('off')
     plt.tight_layout()
     plt.show()
+
+# saving of fully-reconstructed volumes
+def save_volume_with_log(volume, affine, save_path, log_path):
+    try:
+        with open(log_path, "a") as log_file:
+            log_file.write(f"\n--- Saving Volume: {save_path} ---\n")
+            log_file.write(f"Timestamp: {datetime.now().isoformat()}\n")
+
+            # Check for NaNs or Infs
+            has_nan = np.isnan(volume).any()
+            has_inf = np.isinf(volume).any()
+            if has_nan or has_inf:
+                log_file.write(f"[WARNING] Volume has NaNs: {has_nan}, Infs: {has_inf}. Replaced with 0.\n")
+                volume = np.nan_to_num(volume, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Check dtype
+            if volume.dtype not in [np.float32, np.float64, np.int16, np.uint8]:
+                log_file.write(f"[WARNING] Unsupported dtype {volume.dtype}. Converting to float32.\n")
+                volume = volume.astype(np.float32)
+
+            # Check shape
+            if volume.ndim != 3:
+                log_file.write(f"[ERROR] Invalid shape: {volume.shape}. Must be 3D.\n")
+                return False
+
+            # Save volume
+            img = nib.Nifti1Image(volume, affine)
+            nib.save(img, save_path)
+
+            # Reload immediately and validate
+            try:
+                img_reloaded = nib.load(save_path)
+                consistent_shape = img_reloaded.shape == volume.shape
+                consistent_affine = np.allclose(img_reloaded.affine, affine)
+
+                if not consistent_shape:
+                    log_file.write(f"[ERROR] Shape mismatch after reload: Original {volume.shape}, Reloaded {img_reloaded.shape}\n")
+                    return False
+                if not consistent_affine:
+                    log_file.write(f"[ERROR] Affine mismatch after reload.\n")
+                    return False
+
+                log_file.write("[SUCCESS] Volume saved, reloaded, and verified successfully.\n")
+                return True
+
+            except Exception as reload_exc:
+                log_file.write(f"[ERROR] Reload failed: {reload_exc}\n")
+                return False
+
+    except Exception as exc:
+        with open(log_path, "a") as log_file:
+            log_file.write(f"[CRITICAL ERROR] Unexpected failure: {exc}\n")
+        return False
+
+def sanity_check_recons_volumes(volume, affine, save_path, log_path):
+
+    vol_full_recon = nib.load('ZReconstructed_full_volume.nii.gz').get_fdata()
+    vol_mosaic_recon = nib.load('ZReconstructed_mosaic_volume.nii.gz').get_fdata()
+
+    hist_full, _ = np.histogram(vol_full_recon, bins=256, density=True)
+    hist_mosaic, _ = np.histogram(vol_mosaic_recon, bins=256, density=True)
+
+    entropy_full = entropy(hist_full)
+    entropy_mosaic = entropy(hist_mosaic)
+
+    print(f"Full Recon Entropy: {entropy_full}")
+    print(f"Mosaic Recon Entropy: {entropy_mosaic}")
+
+    nib.save(vol_full_recon, 'full_uncompressed.nii')
+    nib.save(vol_mosaic_recon, 'mosaic_uncompressed.nii')

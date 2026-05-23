@@ -11,6 +11,11 @@
 import os
 
 # -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
+
+# NOTE: 20 Feb: Esra: Changing the following for debug. 
+
+"""
+
 try:
     # -- WARNING: IF DOING DISTRIBUTED TRAINING ON A NON-SLURM CLUSTER, MAKE
     # --          SURE TO UPDATE THIS TO GET LOCAL-RANK ON NODE, OR ENSURE
@@ -19,6 +24,15 @@ try:
     os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
 except Exception:
     pass
+"""
+
+DEBUG_SINGLE = True  # put this above
+
+if not DEBUG_SINGLE:
+    try:
+        os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
+    except Exception:
+        pass
 
 import logging
 import pprint
@@ -69,7 +83,9 @@ from evals.video_classification_frozen.utils import (
     ClipAggregation,
     FrameAggregation
 )
-
+import inspect
+#print("EvalMRITransform loaded from:", inspect.getfile(ClipAggregation))
+print("ClipAggregation loaded from:", inspect.getfile(ClipAggregation))
 # logging.basicConfig(filename='my_log_file.log')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -140,7 +156,9 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         pass
     
     # -- init torch distributed backend
-    world_size, rank = init_distributed()
+    # 20 Feb: NOTE: Esra: Changing the following for debug.
+    #world_size, rank = init_distributed()
+    world_size, rank = 1, 0
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
 
     if not torch.cuda.is_available():
@@ -380,6 +398,8 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             data = next(loader)
 
         with torch.cuda.amp.autocast(dtype=torch.float16, enabled=use_bfloat16):
+
+            """
             clips = [
                 [dij.to(device, non_blocking=True) for dij in di]
                 for di in data[0]
@@ -387,8 +407,59 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             labels = data[1].to(device)
             batch_size = len(labels)
+   
+# data[0] structure (with your dataset return):
+            # batch of samples -> each sample is a list of clips -> each clip is a Tensor (C,T,H,W)
+            batch_clips = data[0]
+            labels = data[1].to(device)
+            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
 
+            B = labels.shape[0] if labels.ndim > 0 else 1
+            num_clips = len(batch_clips[0])  # usually 1 in your setup
+
+            # Build nested structure expected by your aggregators: [num_clips][num_views][B,C,T,H,W]
+            clips = []
+            for ci in range(num_clips):
+                x = torch.stack([batch_clips[b][ci] for b in range(B)], dim=0)  # (B,C,T,H,W)
+                clips.append([x.to(device, non_blocking=True)])  # one view
+"""
+            batch_clips = data[0]
+            labels = data[1].to(device)
+            #NOTE: Esra: Adding this on 25 01:33 Feb.
+            batch_size = labels.shape[0]
+            clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
+
+            clips = []
+
+            # Case 1: batch_clips is a list of samples: batch_clips[b][ci] is a Tensor(C,T,H,W)
+            if isinstance(batch_clips, list) and len(batch_clips) > 0 and isinstance(batch_clips[0], list):
+                B = len(batch_clips)
+                num_clips = len(batch_clips[0])  # usually 1
+
+                for ci in range(num_clips):
+                    x = torch.stack([batch_clips[b][ci] for b in range(B)], dim=0)  # (B,C,T,H,W)
+                    clips.append([x.to(device, non_blocking=True)])  # one view
+
+            # Case 2: batch_clips is already a list of clip tensors (or a tensor)
+            else:
+                # If it’s a tensor already:
+                if torch.is_tensor(batch_clips):
+                    x = batch_clips.to(device, non_blocking=True)
+                    # ensure 5D
+                    if x.ndim == 4:
+                        x = x.unsqueeze(0)
+                    clips = [[x]]  # [num_clips=1][num_views=1]
+                else:
+                    # If it's list of tensors, assume it's clips for a single sample (B=1)
+                    # e.g. batch_clips[ci] is Tensor(C,T,H,W)
+                    num_clips = len(batch_clips)
+                    for ci in range(num_clips):
+                        x = batch_clips[ci]
+                        if x.ndim == 4:
+                            x = x.unsqueeze(0)  # (1,C,T,H,W)
+                        clips.append([x.to(device, non_blocking=True)])
             with torch.no_grad():
+                # NOTE:Esra: 19 Feb 02:07: The following should be correct.
                 outputs = encoder(clips, clip_indices)
                 if attend_across_segments:
                     outputs = [classifier(o) for o in outputs]
@@ -440,6 +511,33 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]' % (
             itr, top1_acc, loss.item(), gpu_memory_alloc))
 
+
+    # ---- COMPUTE AUC AFTER LOOP ----
+    all_outputs = torch.cat(all_outputs, dim=0).numpy()
+    all_labels  = torch.cat(all_labels,  dim=0).numpy()
+
+    if num_classes == 2:
+        y_score = all_outputs[:, 1]
+
+        if len(np.unique(all_labels)) == 2:
+            auc_score = roc_auc_score(all_labels, y_score)
+        else:
+            auc_score = float("nan")
+
+    else:
+        y_true_bin = label_binarize(all_labels, classes=np.arange(num_classes))
+        try:
+            auc_score = roc_auc_score(
+                y_true_bin,
+                all_outputs,
+                average="macro",
+                multi_class="ovr"
+            )
+        except ValueError:
+            auc_score = float("nan")
+
+
+
     # Final stats
     test_acc = top1_meter.avg
     if run is not None:
@@ -476,6 +574,8 @@ def sanity_check(encoder, classifier, val_loader, device, num_classes):
         [dij.to(device) for dij in di] for di in data[0]
     ]
     labels = data[1].to(device)
+    #NOTE: Esra: Adding this on 25 01:33 Feb.
+    batch_size = labels.shape[0]
     clip_indices = [d.to(device) for d in data[2]]
 
     # Encoder forward

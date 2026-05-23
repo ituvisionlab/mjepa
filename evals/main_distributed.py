@@ -1,5 +1,5 @@
 # mjepa: A 3D MRI self-supervised learning framework based on a modified V-JEPA
-# Copyright (c) 2024–2025 [Gozde Unal, NYU]
+# Copyright (c) 2024–2026 [Gozde Unal, NYU] [Esra Ergun, ITU]
 #
 # This file is based on an earlier version of code from:
 # V-JEPA (https://github.com/facebookresearch/v-jepa)
@@ -141,7 +141,11 @@ def launch_evals_with_parsed_args(
     executor = submitit.AutoExecutor(
         folder=os.path.join(submitit_folder, 'job_%j'),
         slurm_max_num_timeout=0) #20)
+
+    # NOTE: Esra: Commenting out the following if-else and providing the new setting for uhem.
     if reservation:  # Add reservation only if provided
+
+        """
         executor.update_parameters(
            slurm_partition=partition,
            # slurm_reservation=reservation,
@@ -157,7 +161,23 @@ def launch_evals_with_parsed_args(
             'output': "/gpfs/data/sodicksonlab/gozde/slurm/slurmDistrib_%j.log"
             }
         )
+        """
+
+        executor.update_parameters(
+            slurm_partition='a100x4q',
+            timeout_min=timeout,
+            slurm_mem="128G",
+            nodes=nodes,
+            tasks_per_node=tasks_per_node,
+            cpus_per_task=2,
+
+            slurm_additional_parameters={
+                "output": "/ari/users/eergun01/data/slurm/%j.out",
+                "error": "/ari/users/eergun01/data/slurm/%j.err",
+            },
+        )       
     else:
+        """
         slurm_params = {
             'partition': partition,
             'mem': '128G',  # Adjust memory per your needs
@@ -171,6 +191,22 @@ def launch_evals_with_parsed_args(
             }
         }   
         executor.update_parameters(**slurm_params)
+        """
+
+        additional = {
+            "output": "/ari/users/eergun01/data/slurm/%j.out",
+            "error": "/ari/users/eergun01/data/slurm/%j.err",
+        }
+
+        executor.update_parameters(
+            slurm_partition=partition,
+            slurm_mem="256G",
+            timeout_min=timeout,
+            nodes=nodes,
+            tasks_per_node=tasks_per_node,
+            cpus_per_task=2,
+            slurm_additional_parameters=additional,
+        )
 
     if exclude_nodes is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)

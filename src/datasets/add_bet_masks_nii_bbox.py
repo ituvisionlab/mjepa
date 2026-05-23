@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 
 # Input and output CSV files
-input_csv = "/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii.csv"
-output_csv = "/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii_with_bbox.csv"
+input_csv = "/gpfs/home/unalg01/jepa/src/datasets/SCAN_NIFTI_all.csv"
+output_csv = "/gpfs/home/unalg01/jepa/src/datasets/SCAN_NIFTI_all_with_bbox.csv"
+# input_csv = "/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii.csv"
+# output_csv = "/gpfs/home/unalg01/jepa/src/datasets/adni_all_nii_with_bbox.csv"
 
 # Function to calculate the bounding box of the brain mask
 def calculate_bbox(mask_file):

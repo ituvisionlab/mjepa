@@ -20,10 +20,66 @@ from sklearn.preprocessing import label_binarize
 import numpy as np
 
 from logging import getLogger
-
+import subprocess
 logger = getLogger()
 
 
+def _slurm_master_addr():
+    # first hostname in node list
+    nodelist = os.environ.get("SLURM_NODELIST", None)
+    if not nodelist:
+        return os.environ.get("HOSTNAME", "127.0.0.1")
+    out = subprocess.check_output(["scontrol", "show", "hostnames", nodelist]).decode().splitlines()
+    return out[0]
+
+def init_distributed(port=37123):
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_world_size(), dist.get_rank()
+
+    # Prefer torchrun/submitit-exported vars if present
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    elif "SLURM_PROCID" in os.environ and "SLURM_NTASKS" in os.environ:
+        rank = int(os.environ["SLURM_PROCID"])
+        world_size = int(os.environ["SLURM_NTASKS"])
+        local_rank = int(os.environ.get("SLURM_LOCALID", 0))
+    else:
+        logger.info("No distributed env vars found; running single process.")
+        return 1, 0
+
+    # MASTER_ADDR/PORT must be identical for all ranks
+    os.environ.setdefault("MASTER_ADDR", _slurm_master_addr())
+    os.environ.setdefault("MASTER_PORT", str(port))
+
+    # set CUDA device before NCCL init
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+
+    backend = "nccl" if torch.cuda.is_available() else "gloo"
+    if platform.node() == "panther":
+        backend = "gloo"
+
+    logger.info(
+        f"[init_distributed] rank={rank}/{world_size} local_rank={local_rank} "
+        f"MASTER_ADDR={os.environ['MASTER_ADDR']} MASTER_PORT={os.environ['MASTER_PORT']} "
+        f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')}"
+    )
+
+    # IMPORTANT: do NOT swallow init errors
+    dist.init_process_group(backend=backend, init_method="env://", world_size=world_size, rank=rank)
+
+    if torch.cuda.is_available():
+        dist.barrier(device_ids=[local_rank])
+    else:
+        dist.barrier()
+
+    return world_size, rank
+
+
+
+"""
 def init_distributed(port=37123, rank_and_world_size=(None, None)):
 
     if dist.is_available() and dist.is_initialized():
@@ -43,24 +99,8 @@ def init_distributed(port=37123, rank_and_world_size=(None, None)):
             return world_size, rank
 
     try:
-        #os.environ['MASTER_PORT'] = str(port) #comment this line to replace with the following
-        # GU_DEBUG: Set MASTER_PORT: use env if already set, otherwise try random port if default is taken
-        if 'MASTER_PORT' not in os.environ:
-            def is_port_available(p):
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    return s.connect_ex(('localhost', p)) != 0
-
-            found = False
-            for attempt in range(10):
-                try_port = random.randint(10000, 60000)
-                if is_port_available(try_port):
-                    os.environ['MASTER_PORT'] = str(try_port)
-                    found = True
-                    break
-
-            if not found:
-                os.environ['MASTER_PORT'] = str(port)
-     
+        os.environ['MASTER_PORT'] = str(port)
+        
         hostname = platform.node()
         backend_engine = "nccl"
         if hostname == "panther": # nccl backend doesn't work on panther machine for now
@@ -81,7 +121,7 @@ def init_distributed(port=37123, rank_and_world_size=(None, None)):
     print(f"MASTER_ADDR={os.environ.get('MASTER_ADDR')}, MASTER_PORT={os.environ.get('MASTER_PORT')}")
 
     return world_size, rank
-
+"""
 def init_distributed_mode(args):
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         args.rank = int(os.environ["RANK"])

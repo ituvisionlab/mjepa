@@ -13,12 +13,12 @@ data:
   # - src/datasets/mood_all_nii_with_bbox.csv
   # - src/datasets/adni_all_bet_train.csv
   decode_one_clip: true  # unused
-  batch_size: 16
+  batch_size: 1
   num_clips: 1
-  num_frames: 160 #192 #160 
+  num_frames: 192 #144 #160 
   tubelet_size: 8
   sampling_rate: 1
-  crop_size: 160 #192
+  crop_size: 192 #144 #160
   patch_size: 8
   in_channel_size: 1
   random_clip_sampling: false
@@ -44,12 +44,14 @@ logging:
   write_tag: jepa
 loss:
   loss_exp: 1.0 #2.0
-  reg_coeff: 0.0
+  reg_coeff: 0.25
+  alpha_vcr: 1.0
+  beta_vcr: 0.1
 mask:
   - aspect_ratio:
       - 1.0
       - 1.0
-    num_blocks: 0.75
+    num_blocks: 0.75 # 0.89
     spatial_scale:
       - 1
       - 1
@@ -69,8 +71,9 @@ meta:
 model:
   model_name: vit_base
   pred_model_name: vit_predictor
-  pred_depth: 8 #12
+  pred_depth: 6 #8
   pred_embed_dim: 384 #768
+  pred_num_heads: 6 #12
   uniform_power: true # positional_embedding related, check later
   use_mask_tokens: true
   zero_init_mask_tokens: true
@@ -78,12 +81,12 @@ optimization:
   ipe: null #300
   clip_grad: 1.0
   weight_decay: 0.005
-  final_weight_decay: 0.001 #0.1 #for large dataset
-  epochs: 500
+  final_weight_decay: 0.0005 #0.001 #0.1 #for large dataset
+  epochs: 200
   warmup: 5
-  start_lr: 1.0e-3 #5e-05
-  lr: 2.0e-3 #1.0e-4
-  final_lr: 1.0e-4 #1.0e-6
+  start_lr: 3.0e-5 #1.0e-3 #5e-05
+  lr: 1.0e-4 #2.0e-3 #1.0e-4
+  final_lr: 5.0e-6 #1.0e-4 #1.0e-6
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   ema:
@@ -92,4 +95,4 @@ optimization:
   grad_accum_steps: 2 #4
   betas:
   - 0.9
-  - 0.95
+  - 0.975

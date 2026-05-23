@@ -21,7 +21,8 @@ import traceback
 from collections import OrderedDict
 
 import sys 
-sys.path.append('/gpfs/home/unalg01/jepa')
+#E: Changing the following path.
+sys.path.append('/ari/users/eergun01/jepa')
 
 from app.scaffold import main as app_main
 from src.utils.logging import get_logger
@@ -66,7 +67,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     '--folder', type=str,
     help='location to save submitit logs',
-    default='/gpfs/home/unalg01/jepa/evals/')
+    default='/ari/users/eergun01/jepa/evals/')
     # default='/fsx-jepa/massran/submitit/')
 parser.add_argument(
     '--exclude', type=str,
@@ -131,7 +132,7 @@ class Trainer:
 def launch_app_with_parsed_args(
     args_for_pretrain,
     submitit_folder,
-    partition='a100_short',
+    partition='a100q',
     reservation=None,
     timeout=4300, #11520, 
     nodes=1,
@@ -139,39 +140,95 @@ def launch_app_with_parsed_args(
     exclude_nodes=None,
     args_fname=None
 ):
+    
+    """
+    # EE: Add the cluster option for debug mode.
     executor = submitit.AutoExecutor(
-        folder=os.path.join(submitit_folder, 'job_%j'),
+        folder=os.path.join(submitit_folder, 'job_%j'), cluster = "debug", 
+        slurm_max_num_timeout=0) #20)
+    """
+
+    executor = submitit.AutoExecutor(
+        folder=os.path.join(submitit_folder, 'job_%j'),  
         slurm_max_num_timeout=0) #20)
     
     if reservation:  # Add reservation only if provided
+        # EE: Commenting out the following for now.
+        """
         executor.update_parameters(
-           slurm_partition=partition,
+           slurm_partition='a100q',
            # slurm_reservation=reservation,
            # slurm_mem_per_gpu='128G', 
            slurm_mem='256G',  #'256G',
            timeout_min=timeout,
            nodes=nodes,
            tasks_per_node=tasks_per_node,
-           cpus_per_task=4, #for num_workers=8  #6 for num_workers=4
+           cpus_per_task=2, #for num_workers=8  #6 for num_workers=4
            gpus_per_node=tasks_per_node,
            slurm_additional_parameters={
            'reservation': reservation,
            } )
+
+           """
+        executor.update_parameters(
+            slurm_partition='a100q',
+            timeout_min=timeout,
+            slurm_mem="256G",
+            nodes=nodes,
+            tasks_per_node=tasks_per_node,
+            cpus_per_task=2,
+
+            slurm_additional_parameters={
+                "output": "/ari/users/eergun01/data/slurm/%j.out",
+                "error": "/ari/users/eergun01/data/slurm/%j.err",
+            },
+        )        
     else:
+        
+        """ EE: Commenting out the following for now.
         slurm_params = {
-            'partition': partition,
+            'partition': 'a100q',
             'mem': '256G',  # Adjust memory per your needs
             'time': timeout,
             'nodes': nodes,
             'tasks_per_node': tasks_per_node,
-            'cpus_per_task': 4,
+            'cpus_per_task': 2,
             'gpus_per_node': tasks_per_node,
             }   
-        executor.update_parameters(**slurm_params)
+            executor.update_parameters(**slurm_params)
+            """
+        
+        additional = {
+            "output": "/ari/users/eergun01/data/slurm/%j.out",
+            "error": "/ari/users/eergun01/data/slurm/%j.err",
+        }
+
+        executor.update_parameters(
+            slurm_partition=partition,
+            slurm_mem="256G",
+            timeout_min=timeout,
+            nodes=nodes,
+            tasks_per_node=tasks_per_node,
+            cpus_per_task=2,
+            slurm_additional_parameters=additional,
+        )
+
+        
+        
     
     if exclude_nodes is not None:
     # if args_exclude is not None:
         executor.update_parameters(slurm_exclude=exclude_nodes)
+
+    # executor.update_parameters( # This does not work! Instead the above (slurm_additional_parameters) works!
+    #     stdout="/gpfs/data/sodicksonlab/gozde/slurm/%j.out",
+    #     stderr="/gpfs/data/sodicksonlab/gozde/slurm/%j.err"
+    #     #slurm_setup=[
+    #     #    "module load anaconda3",
+    #     #    "source /gpfs/home/unalg01/miniconda3/etc/profile.d/conda.sh",
+    #     #    "conda activate gozdessl"
+    #     #]
+    # )
 
     logger.info(f"Executor parameters: {executor.parameters}")
     logger.info(f"tasks_per_node: {tasks_per_node}")

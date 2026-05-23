@@ -57,7 +57,7 @@ class MaskCollator(object):
         batch_size = len(batch)
         collated_batch = torch.utils.data.default_collate(batch)
 
-        # mask_start_time = time.time()  # **Measure Mask Generation**
+        #mask_start_time = time.time()  # **Measure Mask Generation**
 
         collated_masks_pred, collated_masks_enc = [], []
         for i, mask_generator in enumerate(self.mask_generators):
@@ -67,7 +67,7 @@ class MaskCollator(object):
 
         # mask_end_time = time.time()  # **Measure Mask Generation**
         # mask_gen_time = mask_end_time - mask_start_time # **Measure Mask Generation**
-        # print(f"MaskCollator Time: {mask_gen_time:.4f} sec")  # **Measure Mask Generation**
+        # logger.info(f"MaskCollator Time: {mask_gen_time:.4f} sec") # **Measure Mask Generation**
 
         return collated_batch, collated_masks_enc, collated_masks_pred
 

@@ -18,6 +18,7 @@ data:
   frames_per_clip: 160
   num_segments: 1
   num_views_per_segment: 1
+  eval_in_channel_size: 1 
   frame_step: 1
   num_workers: 8
   random_clip_sampling: false

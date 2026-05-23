@@ -86,6 +86,7 @@ optimization:
   start_lr: 1.0e-3
   lr: 5.0e-3
   final_lr: 1.0e-5
+  decoder_lr_scale: 1.0 #1 by default #0.1 
   drop_rate: 0.0 #0.1 #default
   attn_drop_rate: 0.0 #0.1 #default
   ema:

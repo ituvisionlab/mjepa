@@ -10,6 +10,9 @@
 
 import os
 
+# NOTE: 5th March, Esra: Trying to make the code compatible with UHEM.
+
+"""
 # -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
 try:
     # -- WARNING: IF DOING DISTRIBUTED TRAINING ON A NON-SLURM CLUSTER, MAKE
@@ -19,7 +22,7 @@ try:
     os.environ['CUDA_VISIBLE_DEVICES'] = os.environ['SLURM_LOCALID']
 except Exception:
     pass
-
+"""
 import logging
 import pprint
 import platform
@@ -37,11 +40,11 @@ from torch.nn.parallel import DistributedDataParallel
 
 import torch.utils.tensorboard
 import wandb
-from sklearn.metrics import roc_auc_score, recall_score, f1_score, precision_score, confusion_matrix
+from sklearn.metrics import roc_auc_score, accuracy_score, recall_score, f1_score, precision_score, confusion_matrix
 
 import sys 
-sys.path.append('/gpfs/home/unalg01/jepa')
-sys.path.append('/home/gozde/medChangeDet/jepa')
+sys.path.append('/ari/users/eergun01/jepa')
+#sys.path.append('/home/gozde/medChangeDet/jepa')
 
 import src.models.resnet3d as resnet
 
@@ -176,12 +179,26 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         mp.set_start_method('spawn')
     except Exception:
         pass
+    
+    # NOTE: Esra: Changing the following to make it compatible with UHEM.
 
+
+    """
     if not torch.cuda.is_available():
         device = torch.device('cpu')
     else:
         device = torch.device('cuda:0')
         torch.cuda.set_device(device)
+    """
+
+    if not torch.cuda.is_available():
+        device = torch.device("cpu")
+        local_rank = -1
+    else:
+        # works on slurm and also torchrun
+        local_rank = int(os.environ.get("LOCAL_RANK", os.environ.get("SLURM_LOCALID", 0)))
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
 
     world_size, rank = init_distributed()
     logger.info(f'Initialized (rank/world-size) {rank}/{world_size}')
@@ -286,8 +303,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
 
     seed_everything(seed)
 
-    # Initialize model
-    # -- pretrained encoder (frozen) or unfrozen
+    # Initialize model: Resnet3D encoder with a classifier output
     encoder = init_model(
         device=device,
         pretrained=pretrained_path,
@@ -380,14 +396,20 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
         eps=eps,
         layer_decay=layer_decay)
 
-
+    # NOTE: Esra: I'm commenting out the following to make the code compatible with UHEM.
+    """
     encoder = DistributedDataParallel(encoder, static_graph=True, gradient_as_bucket_view=True) #GU_Debug
-
-
+    """
+    if torch.cuda.is_available():
+        ddp_kwargs = dict(device_ids=[local_rank], output_device=local_rank)
+    else:
+        ddp_kwargs = {}
+    encoder = DistributedDataParallel(
+            encoder, **ddp_kwargs, static_graph=True, gradient_as_bucket_view=True
+        )
     # -- load training checkpoint
     start_epoch = 0
  
-
     def save_checkpoint(epoch, train_acc, val_acc, path, info_path):
         save_dict = {
             'encoder': encoder.state_dict(),  # Save encoder state
@@ -473,7 +495,7 @@ def main(args_eval, resume_preempt=False, log_dir="./logs/evals"):
                 save_checkpoint(epoch + 1, train_acc, val_acc, latest_path, latest_info_path)
             else:
                 if len(epoch_accs) > 0:
-                    if train_acc > max(epoch_accs) and epoch > 4:
+                    if val_acc > max(epoch_accs) and epoch > 4:
                         save_checkpoint(epoch + 1, train_acc, val_acc, best_path, best_info_path)
                     elif epoch%20==0:
                         periodic_path = os.path.join(periodic_model_folder, f'{eval_tag}-periodic-epoch-{epoch+1}.pth.tar')
@@ -518,7 +540,7 @@ def run_one_epoch(
     
     criterion = torch.nn.CrossEntropyLoss()
     top1_meter = AverageMeter()
-    #auroc_meter = AverageMeter()
+    auroc_meter = AverageMeter()
     recall_meter = AverageMeter()
     #specificity_meter = AverageMeter()
     f1_meter = AverageMeter()
@@ -531,7 +553,9 @@ def run_one_epoch(
     data_sampler.set_epoch(epoch)
     
     loss = None
-
+    all_outputs = []
+    all_labels = []
+    
     # for itr, data in enumerate(data_loader):
     for itr in range(ipe):
         try:
@@ -560,6 +584,9 @@ def run_one_epoch(
             clip_indices = [d.to(device, non_blocking=True) for d in data[2]]
             labels = data[1].to(device)
             batch_size = len(labels)
+            # reshape clips to B,C,T,W,H
+            clips = torch.cat(clips[0], dim=0).unsqueeze(1)   # shape [batch_size, C, T, W, H]
+            # print("Input to encoder:", clips.shape)
 
             # clips list: len = no_of_clips 
             # e.g. clips[0][0].shape -> torch.Size([4, 3, 16, 224, 224]): B x C x T X W X H
@@ -575,14 +602,14 @@ def run_one_epoch(
         # Compute loss
         loss = criterion(outputs, labels)
         with torch.no_grad():
-            outputs = F.softmax(outputs, dim=1)
+            outputs_softmax = F.softmax(outputs, dim=1)
             
-            top1_acc = 100. * outputs.max(dim=1).indices.eq(labels).sum() / batch_size
+            top1_acc = 100. * outputs_softmax.max(dim=1).indices.eq(labels).sum() / batch_size
             top1_acc = float(AllReduce.apply(top1_acc))
             top1_meter.update(top1_acc)
             
             # Compute additional metrics per batch
-            preds = outputs.max(dim=1).indices
+            preds = outputs_softmax.max(dim=1).indices
            # Use macro average for multiclass classification
             recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average='macro') # average over all classes
             # recall = recall_score(labels.cpu().numpy(), preds.cpu().numpy(), average=None) # per class average
@@ -593,23 +620,33 @@ def run_one_epoch(
            # tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
            # specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
             
-
+            # Collect results for AUC during validation
+            if not training:
+                all_outputs.append(outputs.detach().cpu())
+                all_labels.append(labels.detach().cpu())
             # auroc calculations
-            # logits = outputs.max(dim=1).values
-            # auroc = roc_auc_score(labels.cpu().numpy(), logits.cpu().numpy(), labels=np.arange(num_classes))
-            # if len(set(labels.cpu().numpy())) > 1:
-            #     auroc = roc_auc_score(labels.cpu().numpy(), outputs.cpu().numpy()[:, 1])
-            # else:
-            #     auroc = 0  # float('nan') 
+            logits = outputs.max(dim=1).values
+            auroc = roc_auc_score(labels.cpu().numpy(), logits.cpu().numpy(), labels=np.arange(num_classes))
+            if len(set(labels.cpu().numpy())) > 1:
+                auroc = roc_auc_score(labels.cpu().numpy(), outputs.cpu().numpy()[:, 1])
+            else:
+                auroc = 0  # float('nan') 
 
             # Reduce metrics across GPUs
+            # NOTE: Esra: Correcting the following for new setup. 
             # auroc = float(AllReduce.apply(torch.tensor(auroc, device='cuda')))
+            """
             recall = float(AllReduce.apply(torch.tensor(recall, device='cuda')))
             precision = float(AllReduce.apply(torch.tensor(precision, device='cuda')))
             #specificity = float(AllReduce.apply(torch.tensor(specificity, device='cuda')))
             f1 = float(AllReduce.apply(torch.tensor(f1, device='cuda')))
-
-            # auroc_meter.update(auroc)
+            """
+            auroc = float(AllReduce.apply(torch.tensor(auroc, device=device)))
+            recall = float(AllReduce.apply(torch.tensor(recall, device=device)))
+            precision = float(AllReduce.apply(torch.tensor(precision, device=device)))
+            #specificity = float(AllReduce.apply(torch.tensor(specificity, device=device)))
+            f1 = float(AllReduce.apply(torch.tensor(f1, device=device)))            
+            auroc_meter.update(auroc)
             recall_meter.update(recall)
             precision_meter.update(precision)
             # specificity_meter.update(specificity)
@@ -630,20 +667,6 @@ def run_one_epoch(
                 optimizer.step()
 
             optimizer.zero_grad(set_to_none=True)
-
-        # Tensorboard logging. log_writer set to None
-        if log_writer != None:
-            if training and itr % eval_freq == 0:
-                log_writer.add_scalar('train/acc', top1_meter.avg, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('train/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
-            if not training and itr % eval_freq == 0:
-                log_writer.add_scalar('val/acc', top1_meter.avg, (epoch * ipe) + itr)
-                log_writer.add_scalar('val/loss', loss, (epoch * ipe) + itr)
-                log_writer.add_scalar('val/mem', torch.cuda.max_memory_allocated() / 1024.**2, (epoch * ipe) + itr)
-            
-            log_writer.flush()
         
         # Wandb logging
         if run != None and rank == 0:
@@ -651,7 +674,7 @@ def run_one_epoch(
                 run.log({
                         'train/acc': top1_meter.avg,
                         'train/loss': loss,
-               #         'train/auroc': auroc_meter.avg,
+                        'train/auroc': auroc_meter.avg,
                         'train/recall': recall_meter.avg,
                         'train/precision': precision_meter.avg,
                         # 'train/specificity': specificity_meter.avg,
@@ -659,30 +682,88 @@ def run_one_epoch(
                         'train/mem': torch.cuda.max_memory_allocated() / 1024.**2,
                         'train/lr': new_lr,
                         'train/wd': new_wd
-                    })
+                    })       
+        
+        if not training: #end of epoch metrics calculations
+            all_outputs_tensor = torch.cat(all_outputs, dim=0) if all_outputs else None
+            all_labels_tensor = torch.cat(all_labels, dim=0) if all_labels else None
+
+            if all_outputs_tensor is not None:
+                val_metrics = eval_metrics(all_outputs_tensor, all_labels_tensor)
+
+            val_acc = val_metrics['accuracy'] * 100
+            val_f1 = val_metrics['f1'] * 100
+            val_auc = val_metrics['auc'] * 100
+            val_precision = val_metrics['precision'] * 100
+            val_recall = val_metrics['recall'] * 100
             
-            # Wandb logging
-            if not training and itr % eval_freq == 0:
-                run.log({
-                        'val/acc': top1_meter.avg,
-                        'val/loss': loss,
-               #         'val/auroc': auroc_meter.avg,
-                        'val/recall': recall_meter.avg,
-                        'val/precision': precision_meter.avg,
-                       # 'val/specificity': specificity_meter.avg,
-                        'val/f1': f1_meter.avg,
+        # Wandb logging
+        if not training and run != None and itr % eval_freq == 0:
+            run.log({
+                        'val_epoch/acc': val_acc,
+                        'val_epoch/loss': loss,
+                        'val_epoch/auroc': val_auc,
+                        'val_epoch/recall': val_recall,
+                        'val_epoch/precision': val_precision,
+                        'val_epoch/f1': val_f1,
                         'val/mem': torch.cuda.max_memory_allocated() / 1024.**2
                     })
-        
+            if rank == 0:
+                logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
+                            % (itr, top1_meter.avg, loss,
+                            torch.cuda.max_memory_allocated() / 1024.**2))
+                logger.info(f"[FINAL EPOCH METRICS] AUC: {val_auc:.2f}, Acc: {val_acc:.2f}, F1: {val_f1:.2f}, Precision: {val_precision:.2f}, Recall: {val_recall:.2f}")
+                logger.info(f"Confusion Matrix:\n{val_metrics['confusion_matrix']}")
+
         torch.cuda.empty_cache()
         
-        if itr % 5 == 0 and rank == 0:
-            logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
-                        % (itr, top1_meter.avg, loss,
-                           torch.cuda.max_memory_allocated() / 1024.**2))
-
     return top1_meter.avg, loss
 
+def eval_metrics(outputs_tensor, labels_tensor):
+    outputs_np = outputs_tensor.cpu().numpy()
+    labels_np = labels_tensor.cpu().numpy()
+
+    metrics = {}
+    unique_labels = np.unique(labels_np)
+    if len(unique_labels) < 2:
+        logger.warning(f"Only one class {unique_labels} present in labels. AUC and other metrics may be undefined.")
+        metrics.update({
+            'auc': float('nan'),
+            'accuracy': float('nan'),
+            'precision': float('nan'),
+            'recall': float('nan'),
+            'f1': float('nan'),
+            'confusion_matrix': np.array([[len(labels_np)]])
+        })
+        return metrics
+
+    num_classes = outputs_np.shape[1]
+
+    if num_classes == 2:
+        predicted_probs = outputs_np[:, 1]
+        metrics['auc'] = roc_auc_score(labels_np, predicted_probs)
+
+        predicted_labels = (predicted_probs >= 0.5).astype(int)
+
+        metrics.update({
+        'accuracy': accuracy_score(labels_np, predicted_labels),
+        'precision': precision_score(labels_np, predicted_labels, zero_division=0),
+        'recall': recall_score(labels_np, predicted_labels, zero_division=0),
+        'f1': f1_score(labels_np, predicted_labels, zero_division=0),
+        'confusion_matrix': confusion_matrix(labels_np, predicted_labels)
+        })
+    else:
+        predicted_labels = np.argmax(outputs_np, axis=1)
+        metrics['auc'] = roc_auc_score(labels_np, outputs_np, multi_class='ovr', average='macro')
+
+        metrics.update({
+        'accuracy': accuracy_score(labels_np, predicted_labels),
+        'precision': precision_score(labels_np, predicted_labels, average='macro', zero_division=0),
+        'recall': recall_score(labels_np, predicted_labels, average='macro', zero_division=0),
+        'f1': f1_score(labels_np, predicted_labels, average='macro', zero_division=0),
+        'confusion_matrix': confusion_matrix(labels_np, predicted_labels)
+        })
+    return metrics
 
 def load_checkpoint(
     device,

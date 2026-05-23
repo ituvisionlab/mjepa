@@ -17,7 +17,7 @@ import yaml
 import os
 
 import sys 
-sys.path.append('/gpfs/home/unalg01/jepa')
+sys.path.append('/ari/users/eergun01/jepa')
 
 from app.scaffold import main as app_main
 from src.utils.distributed import init_distributed
@@ -69,7 +69,8 @@ def process_main(rank, fname, world_size, devices, log_dir):
             yaml.dump(params, f)
 
     # Init distributed (access to comm between GPUS on same machine)
-    world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
+    #world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
+    world_size, rank = 1, rank
     logger.info(f'Running... (rank: {rank}/{world_size})')
     
     # Launch the app with loaded config
@@ -90,11 +91,9 @@ if __name__ == '__main__':
     params = None
     with open(args.fname, 'r') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
-    
-    
+        
     if args.keep_logs:
-        log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')
-                
+        log_dir = get_new_log_dir(params["logging"]['folder'], prefix=f'mjepa_pretrain_', postfix='')        
     else:
         log_dir = None
         # run = None
