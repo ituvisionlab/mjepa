@@ -222,3 +222,14 @@ submitit_*.py
 test_wandb*.py
 wandb_*.err
 wandb_*.out
+src/datasets/add_*.py
+src/datasets/adni_*.py
+src/datasets/adni_downstream_splits/
+src/datasets/adni_downstream_multicontrast_splits/
+src/datasets/build_*.py
+src/datasets/calculate_*.py
+src/datasets/change_*.py
+src/datasets/check_*.py
+src/datasets/convert_*.py
+src/datasets/summarize_*.py
+src/datasets/explore_*.py
