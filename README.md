@@ -105,7 +105,7 @@ python -m app.main \
 
 ```bash
 python -m app.main_distributed \
-  --fname configs/pretrain/vitb16_mri.yaml \
+  --fname configs/pretrain/vitb16_mri3.1.yaml \
   --folder $path_to_logs \
   --partition $slurm_partition
 ```
@@ -113,13 +113,6 @@ python -m app.main_distributed \
 ---
 
 ## Evaluation
-
-### Inference
-
-```bash
-python -m evals.classification3d.eval \
-  --fname configs/evals/vitb16_mri_eval.yaml
-```
 
 ### Training a linear probe / fine-tuning
 
