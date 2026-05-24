@@ -216,3 +216,9 @@ src/datasets/download_*.py
 src/datasets/scan_*.txt
 src/datasets/ucsf_*.txt
 src/datasets/ucsf_*.py
+debug_*.txt
+read_pickle*.py
+submitit_*.py
+test_wandb*.py
+wandb_*.err
+wandb_*.out
