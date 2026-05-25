@@ -47,10 +47,6 @@ Train, validation, and test subject and scan IDs for all downstream tasks are av
 
 Each CSV contains `subject_id` and `scan_uid` columns for each train/val/test split.
 
-## Results
-
-Results will be made available upon publication.
-
 ---
 
 ## Code Structure
