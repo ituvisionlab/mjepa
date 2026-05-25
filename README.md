@@ -22,6 +22,31 @@ Models are trained on heterogeneous single-contrast MRI volumes (T1- or T2-weigh
 
 ---
 
+## Dataset Splits
+
+To support reproducibility and prevent data leakage, we publicly release all subject-level splits used in our experiments. All splits are based on **subject-level partitioning**, ensuring no subject appears across train, validation, and test sets.
+
+### Pretraining Subject IDs
+Subject IDs used for pretraining are available under `src/datasets/pretrain_subject_ids/`, with one CSV per dataset:
+
+- `adni_pretrain_ids.csv`
+- `oasis3_pretrain_ids.csv`
+- `ppmi_pretrain_ids.csv`
+- `ixi_pretrain_ids.csv`
+- `mood_pretrain_ids.csv`
+- `brats24_pretrain_ids.csv`
+- `scan_pretrain_ids.csv`
+
+### Downstream Evaluation Splits
+Train, validation, and test splits for all downstream tasks are available under `src/datasets/downstream_subject_ids/`. Splits are provided for:
+
+- **ADNI** — NC vs AD and NC vs MCI (5-fold cross-validation)
+- **SCAN** — NC vs AD and NC vs MCI
+- **UCSF** — Tumor grade classification (Grade 2 vs 3-4, Grade 2-3 vs 4, multiclass)
+- **ABIDE** — Normal vs Autism
+
+Each CSV contains `subject_id` and `scan_uid` columns.
+
 ## Results
 
 Results will be made available upon publication.
