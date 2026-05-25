@@ -1,5 +1,6 @@
 # Masked and Predictive Self-Supervised Foundation Models for 3D Brain MRI
 
+Esra Ergün, Hersh Chandarana, Dan Sodickson, Gözde Ünal
 
 ## Overview
 
