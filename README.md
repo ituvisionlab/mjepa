@@ -23,6 +23,16 @@ Models are trained on heterogeneous single-contrast MRI volumes (T1- or T2-weigh
 
 ---
 
+## Data Preparation
+
+The full preprocessing and data generation pipeline for all supported 
+datasets (SCAN, OASIS-3, ADNI, ABIDE, BraTS, PPMI, IXI, MOOD) is 
+described in detail in [`src/datasets/DATA_GENERATION.md`](src/datasets/DATA_GENERATION.md).
+
+This includes skull stripping, bounding box computation, quality 
+filtering, contrast standardization, label mapping, and train/val 
+split generation for each dataset.
+
 ## Dataset Splits
 
 To support reproducibility and prevent data leakage, we publicly release all subject-level splits used in our experiments. All splits are based on **subject-level partitioning**, ensuring no subject appears across train, validation, and test sets.
