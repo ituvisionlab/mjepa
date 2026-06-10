@@ -26,7 +26,7 @@ Models are trained on heterogeneous single-contrast MRI volumes (T1- or T2-weigh
 ## Data Preparation
 
 The full preprocessing and data generation pipeline for all supported 
-datasets (SCAN, OASIS-3, ADNI, ABIDE, BraTS, PPMI, IXI, MOOD) is 
+datasets (ADNI, NACC/SCAN, OASIS-3, ABIDE, BraTS-24, PPMI, IXI, MOOD) is 
 described in detail in [`src/datasets/data_generation.md`](src/datasets/data_generation.md).
 
 This includes skull stripping, bounding box computation, quality 
@@ -52,7 +52,7 @@ Subject and scan IDs used for pretraining are available under `src/datasets/pret
 Train, validation, and test subject and scan IDs for all downstream tasks are available under `src/datasets/downstream_subject_ids/`. Splits are provided for:
 
 - **ADNI** — NC vs AD and NC vs MCI (5-fold cross-validation)
-- **SCAN** — NC vs AD and NC vs MCI
+- **NACC/SCAN** — NC vs AD and NC vs MCI
 - **UCSF** — Tumor grade classification (Grade 2 vs 3-4, Grade 2-3 vs 4, multiclass)
 - **ABIDE** — Normal vs Autism
 
@@ -96,18 +96,18 @@ Each CSV contains `subject_id` and `scan_uid` columns for each train/val/test sp
 | IXI | Brain | T1 | 581 | 581 |
 | MOOD | Brain | T1 | 800 | 800 |
 | BraTS 2024 | Brain | T1, T2 | 731 | 6484 |
-| NACC | Brain | T1, T2, FLAIR | 3701 | 10060 |
-| **Total** | | | **8769** | **58781** |
+| NACC/SCAN | Brain | T1, T2, FLAIR | 3701 | 9672 |
+| **Total** | | | **8769** | **58393** |
 
 ### Downstream Evaluation
 
 | Dataset | Domain | Task | Contrast | Subjects | Volumes |
 |---------|--------|------|----------|----------|---------|
 | ADNI | Brain | NC/MCI and NC/AD | T1 | 496 | 5392 |
-| NACC | Brain | NC/MCI and NC/AD | T1, T2, FLAIR | 1176 | 3192 |
-| UCSF | Brain | Tumor Grade (Low vs High) | T1, T2, FLAIR, ADC | 495 | 5444 |
+| NACC/SCAN | Brain | NC/MCI and NC/AD | T1, T2, FLAIR | 1167 | 3147 |
+| UCSF | Brain | Tumor Grade (Low vs High) | T1, T2, FLAIR, ADC | 184 | 2024 |
 | ABIDE | Brain | Normal vs Autism | T1 | 1109 | 1206 |
-| **Total** | | | | **3276** | **15228** |
+| **Total** | | | | **2956** | **11769** |
 
 All dataset splits used in our experiments are publicly released under `src/datasets/` to support reproducibility and prevent data leakage.
 
