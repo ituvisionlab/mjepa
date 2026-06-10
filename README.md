@@ -96,8 +96,8 @@ Each CSV contains `subject_id` and `scan_uid` columns for each train/val/test sp
 | IXI | Brain | T1 | 581 | 581 |
 | MOOD | Brain | T1 | 800 | 800 |
 | BraTS 2024 | Brain | T1, T2 | 731 | 6484 |
-| NACC/SCAN | Brain | T1, T2, FLAIR | 3701 | 9672 |
-| **Total** | | | **8769** | **58393** |
+| NACC/SCAN | Brain | T1, T2, FLAIR | 3701 | 10060 |
+| **Total** | | | **8769** | **58781** |
 
 ### Downstream Evaluation
 
